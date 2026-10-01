@@ -78,6 +78,15 @@ Browser ── Strudel REPL (web component, WebAudio) ◄── setCode() + eval
 - The header shows `bar.beat` and the current BPM.
 - Each chat reply also has **▶ Apply now** and **⏱ Apply on bar** buttons.
 
+## Autocomplete ⌨
+
+The code editor completes as you type. Ctrl+Space opens the list any time, and **⌨** in the header turns it off.
+- **Functions:** after `.` or anywhere in the code, every Strudel function, e.g. `.lpf`. A side panel shows its description, synonyms, parameters and examples.
+- **Sounds** inside `s("…")` / `sound("…")`: the synths, samples and soundfonts that are actually loaded, plus the drum names to use with `.bank`.
+- **Drum machines** inside `.bank("…")`.
+- **Scales** inside `.scale("A:…")`, in the colon format Strudel needs, e.g. `minor:pentatonic`.
+- **Chord symbols** inside `chord("…")`.
+
 ## Live update ⚡
 
 Tick **⚡ live** in the header and your edits in the code window take effect about half a second after you stop typing, with no Ctrl+Enter needed.

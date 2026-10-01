@@ -343,3 +343,30 @@ dialog.forms textarea { font-family: var(--mono); font-size: 12px; }
 .form-preview { margin: 8px 0; display: flex; flex-wrap: wrap; gap: 3px; align-items: center; }
 .form-preview .chip { min-width: calc(var(--w) * 6px + 36px); }
 .form-preview .muted { width: 100%; }
+
+/* code editor autocomplete */
+#editor-wrap .cm-tooltip.cm-tooltip-autocomplete { background: var(--panel-2); border: 1px solid var(--border); border-radius: 6px; box-shadow: 0 8px 24px rgba(0,0,0,.45); }
+#editor-wrap .cm-tooltip-autocomplete > ul { font: 13px var(--mono); max-height: 16em; }
+#editor-wrap .cm-tooltip-autocomplete > ul > li { padding: 1px 8px 1px 4px; color: var(--text); }
+#editor-wrap .cm-tooltip-autocomplete > ul > li[aria-selected] { background: rgba(124, 92, 255, .35); color: var(--text); }
+#editor-wrap .cm-completionMatchedText { text-decoration: none; color: var(--accent-2); font-weight: 600; }
+#editor-wrap .cm-completionDetail { margin-left: .8em; color: var(--muted); font-style: normal; font-size: 11px; }
+#editor-wrap .cm-tooltip.cm-completionInfo {
+  white-space: normal; width: 380px; max-width: 42vw; max-height: 340px; overflow: auto; padding: 8px 12px;
+  background: var(--panel); color: var(--text); border: 1px solid var(--border); border-radius: 6px;
+  font: 13px/1.45 system-ui, sans-serif; box-shadow: 0 8px 24px rgba(0,0,0,.45);
+}
+#editor-wrap .cm-completionInfo * { white-space: normal; }
+#editor-wrap .cm-completionInfo h3, #editor-wrap .autocomplete-info-function-name { font: 600 14px var(--mono); color: var(--accent); margin: 0 0 4px; }
+#editor-wrap .autocomplete-info-function-synonyms { color: var(--muted); font-size: 12px; margin-bottom: 6px; }
+#editor-wrap .autocomplete-info-function-description { margin-bottom: 6px; }
+#editor-wrap .autocomplete-info-function-description p { margin: 0 0 4px; }
+#editor-wrap .autocomplete-info-section-title { font: 600 11px system-ui; text-transform: uppercase; letter-spacing: .5px; color: var(--muted); margin: 8px 0 3px; }
+#editor-wrap .autocomplete-info-params-list { list-style: none; margin: 0; padding: 0; }
+#editor-wrap .autocomplete-info-param-item { margin: 2px 0; }
+#editor-wrap .autocomplete-info-param-name { font-family: var(--mono); color: var(--accent-2); margin-right: 6px; }
+#editor-wrap .autocomplete-info-param-type { font-family: var(--mono); color: var(--muted); font-size: 11px; }
+#editor-wrap .autocomplete-info-param-desc { color: var(--muted); font-size: 12px; }
+#editor-wrap .autocomplete-info-example-code, #editor-wrap .cm-completionInfo pre {
+  white-space: pre-wrap; font: 12px var(--mono); background: #0b0c10; border: 1px solid var(--border); border-radius: 4px; padding: 4px 6px; margin: 3px 0;
+}

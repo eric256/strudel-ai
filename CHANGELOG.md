@@ -8,6 +8,11 @@ The version is in `package.json`. Bump it when you release. Open pages also noti
   - The Songs and Station tabs have a **form** picker: *auto* (fits each song's genre) or one fixed form.
   - The chosen form's bar counts are applied to the song sheet.
 - **Tighter sections:** the built-in forms use 4- and 8-bar sections, so songs run about 32–64 bars. Sections are capped at the form's longest section, or 16 bars.
+- **⌨ Autocomplete in the code editor** (on by default, toggle in the header):
+  - every Strudel function, with its description, parameters and examples;
+  - the sound names that are actually loaded, drum-machine banks, scale names and chord symbols.
+
+  Ctrl+Space opens it any time.
 - **🔗 Share song:** a finished song's view has a share button. The link contains the sheet, the parts and every section, opens in the Songs tab, and **▶ Play this song** plays it exactly, with no AI calls.
 
 ## 1.16.0

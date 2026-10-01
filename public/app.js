@@ -85,6 +85,86 @@ const nowCycle = () => scheduler()?.now() ?? 0;
 const cps = () => scheduler()?.cps ?? 0.5;
 
 // ---------------------------------------------------------------------------
+// Autocomplete: Strudel's own completions (every function with its docs and
+// examples, chord symbols). Its sound / bank / scale lists are empty in this
+// build, so we add a source for those, fed by the sounds actually loaded and
+// scales.json. The extra source is slipped into the autocompletion config when
+// Strudel enables it (the CodeMirror classes aren't exposed to us directly).
+// ---------------------------------------------------------------------------
+function moreCompletions(context) {
+  const reg = globalThis.soundMap?.get?.() || {};
+  const keys = Object.keys(reg);
+  const words = (re) => context.matchBefore(re);
+  const tail = (m) => (m.text.match(/[\w:#-]*$/) || [''])[0];
+  let m = words(/(?:^|[^\w$.])(?:s|sound)\(\s*["'`][^"'`]*$/) || words(/\.(?:s|sound)\(\s*["'`][^"'`]*$/);
+  if (m) {
+    const frag = tail(m);
+    const names = keys.filter((k) => !/_(?!.*_)/.test(k) || k.startsWith('gm_') || reg[k].data?.type !== 'sample');
+    const drums = new Set();
+    for (const k of keys) { const i = k.lastIndexOf('_'); if (i > 0 && !k.startsWith('gm_') && reg[k].data?.type === 'sample') drums.add(k.slice(i + 1)); }
+    const type = (k) => ({ synth: 'synth', soundfont: 'soundfont', sample: 'sample' })[reg[k]?.data?.type] || 'sound';
+    return {
+      from: m.to - frag.length,
+      options: [...names.map((k) => ({ label: k, type: 'text', detail: type(k) })), ...[...drums].filter((d) => !reg[d]).map((d) => ({ label: d, type: 'text', detail: 'drum (use with .bank)' }))],
+      validFor: /^[\w-]*$/,
+    };
+  }
+  m = words(/\.bank\(\s*["'`][^"'`]*$/);
+  if (m) {
+    const frag = tail(m);
+    const count = {};
+    for (const k of keys) { const i = k.lastIndexOf('_'); if (i > 0 && !k.startsWith('gm_') && reg[k].data?.type === 'sample') count[k.slice(0, i)] = (count[k.slice(0, i)] || 0) + 1; }
+    return { from: m.to - frag.length, options: Object.keys(count).filter((b) => count[b] >= 3).map((b) => ({ label: pretty(b), type: 'text', detail: 'drum machine' })), validFor: /^[\w-]*$/ };
+  }
+  m = words(/\.scale\(\s*["'`][^"'`]*$/);
+  if (m && SCALES) {
+    const t = (m.text.match(/[A-Ga-g][#b]?\d?:[\w:]*$/) || [''])[0];
+    if (!t) return null;
+    const colon = t.indexOf(':');
+    return {
+      from: m.to - (t.length - colon - 1),
+      options: SCALES.map(([name]) => ({ label: colonScale(name), type: 'text', detail: 'scale' })),
+      validFor: /^[\w:]*$/,
+    };
+  }
+  return null;
+}
+
+/** Add moreCompletions to every autocompletion config found in a transaction's effects. */
+function injectCompletionSource(effects) {
+  const seen = new Set();
+  const walk = (x, depth) => {
+    if (!x || typeof x !== 'object' || seen.has(x) || depth > 8) return;
+    seen.add(x);
+    if (Array.isArray(x.override) && x.override.some((f) => typeof f === 'function') && !x.override.includes(moreCompletions)) {
+      x.override.push(moreCompletions);
+    }
+    for (const v of Array.isArray(x) ? x : Object.values(x)) walk(v, depth + 1);
+  };
+  walk(effects, 0);
+}
+
+function setAutocomplete(on) {
+  const m = mirror();
+  const view = m?.editor;
+  if (!m?.setAutocompletionEnabled || !view) return false;
+  const own = Object.prototype.hasOwnProperty.call(view, 'dispatch');
+  const dispatch = view.dispatch;
+  view.dispatch = function (...args) {
+    try { for (const a of args) injectCompletionSource(a?.effects); } catch {}
+    return dispatch.apply(view, args);
+  };
+  try { m.setAutocompletionEnabled(on); } finally { if (own) view.dispatch = dispatch; else delete view.dispatch; }
+  return true;
+}
+if (saved.autoComplete !== undefined) $('autoComplete').checked = saved.autoComplete;
+$('autoComplete').onchange = () => { save({ autoComplete: $('autoComplete').checked }); setAutocomplete($('autoComplete').checked); };
+(function waitForEditor(n = 0) {
+  if (setAutocomplete($('autoComplete').checked) || n > 100) return;
+  setTimeout(() => waitForEditor(n + 1), 200);
+})();
+
+// ---------------------------------------------------------------------------
 // Quantized switching
 //
 // The new code is evaluated right away (so errors show immediately), but the
