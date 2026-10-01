@@ -388,7 +388,7 @@ $('play').onclick = async () => {
   const err = await evaluateCode(getCode());
   if (err) addMsg('error', `Not applied: ${err.message}`);
 };
-$('stop').onclick = () => { stopReplay(); cancelPending(false); stopSet?.(); stopSetlist(); mirror()?.stop(); if (upd.available) setTimeout(reloadForUpdate, 300); };
+$('stop').onclick = () => { stopReplay(); if (mp3.autoSong) mp3Stop(); cancelPending(false); stopSet?.(); stopSetlist(); mirror()?.stop(); if (upd.available) setTimeout(reloadForUpdate, 300); };
 $('undo').onclick = async () => {
   cancelPending(false);
   const prev = state.versions.pop();
@@ -643,7 +643,7 @@ async function loadModels() {
   } catch (e) {
     sel.innerHTML = '';
     sel.add(new Option(pcfg.defaultModel || '(default)', pcfg.defaultModel || ''));
-    addMsg('error', `Model list unavailable (⚙ Settings → AI): ${e.message}`);
+    warnUser(`Model list unavailable (⚙ Settings → AI): ${e.message}`);
   }
 }
 
@@ -697,6 +697,18 @@ const scrollChat = () => { const m = $('messages'); m.scrollTop = m.scrollHeight
 // Intermediate problems go here; the chat only gets the final outcome.
 // ---------------------------------------------------------------------------
 const CONSOLE_MAX = 400;
+/**
+ * A problem the app couldn't resolve (AI errors after retries, budget, …): it goes to the console,
+ * and the status bar shows ⚠ with the message as its tooltip — never into the chat or the page.
+ */
+function warnUser(msg) {
+  clog('error', msg);
+  const w = $('sbWarn');
+  w.hidden = false;
+  w.title = `${msg}\n(click to open the 🖥 Console)`;
+  w.dataset.count = String(Number(w.dataset.count || 0) + 1);
+  w.textContent = `⚠ ${w.dataset.count}`;
+}
 /** Add a console line. kind: ai | ok | fix | warn | error | info. Returns { set(text), done(text, kind) }. */
 function clog(kind, text) {
   const log = $('consoleLog');
@@ -743,10 +755,14 @@ const CODE_LINE = /^\s*(\$:|_\$:|setcp[ms]\(|stack\(|s\(|sound\(|note\(|n\(|chor
 function extractCode(text) {
   // never treat the history placeholder as code
   const clean = stripThinking(text).replace(/```[a-zA-Z]*\n\s*\/\/ \[older version omitted[^\n]*\n```/g, '');
-  const blocks = [...clean.matchAll(/```(?:javascript|js|strudel)?[^\n]*\n([\s\S]*?)```/g)]
-    .map((m) => m[1].trim())
+  // only code fences count — ```song / ```parts / ```pads blocks are handled separately
+  const isCode = (lang) => ['', 'javascript', 'js', 'strudel'].includes(lang.toLowerCase());
+  const blocks = [...clean.matchAll(/```([\w-]*)[^\n]*\n([\s\S]*?)```/g)]
+    .filter((m) => isCode(m[1]))
+    .map((m) => m[2].trim())
     .filter(Boolean);
   if (blocks.length) return blocks[blocks.length - 1];
+  if ([...clean.matchAll(/```([\w-]*)/g)].some((m) => m[1] && !isCode(m[1]))) return null; // only song / pads blocks
   const open = clean.match(/```(?:javascript|js|strudel)?[^\n]*\n([\s\S]+)$/);
   if (open && open[1].trim()) return open[1].trim();
   const lines = clean.split('\n').filter((l) => l.trim());
@@ -755,6 +771,12 @@ function extractCode(text) {
     return lines.filter((l) => CODE_LINE.test(l) || /^\s/.test(l)).join('\n').trim();
   }
   return null;
+}
+
+/** The body of the last ```<lang> block in a reply, or null. */
+function fencedBlock(text, lang) {
+  const all = [...stripThinking(text).matchAll(new RegExp('```' + lang + '[^\\n]*\\n([\\s\\S]*?)```', 'g'))];
+  return all.length ? all[all.length - 1][1].trim() : null;
 }
 
 /** Cheap syntax check ("$:" lines are valid JS labels). Returns error message or null. */
@@ -766,8 +788,19 @@ function syntaxError(code) {
  * Stream a completion. onUpdate({content, thinking}) is called as tokens arrive.
  * mode: 'code' (edit the given code) | 'setlist' (write a setlist)
  */
-async function requestLLM({ messages, code = '', mode = 'code', onUpdate, signal, edited = false, label = '' }) {
-  const sounds = await soundCatalog().catch(() => '');
+async function requestLLM({ messages, code = '', mode = 'code', onUpdate, signal, edited = false, label = '', sounds = null, onError = null, fixing = false }) {
+  try { return await requestLLMLogged({ messages, code, mode, onUpdate, signal, edited, label, sounds, fixing }); }
+  catch (e) { onError?.(e); throw e; }
+}
+async function requestLLMLogged({ messages, code, mode, onUpdate, signal, edited, label, sounds, fixing }) {
+  // session budget (Claude reports usage, so its cost is known): stop before spending more
+  const budget = Number(load().aiBudget ?? 2);
+  if (budget > 0 && session.cost >= budget) {
+    const e = new Error(`session AI budget reached (${money(session.cost)} of ${money(budget)}) — raise it in ⚙ Settings → AI`);
+    clog('error', `✗ AI · ${mode}: ${e.message}`);
+    throw e;
+  }
+  sounds ??= await soundCatalog().catch(() => '');
   const lastUser = String(messages[messages.length - 1]?.content || '').split('\n')[0].slice(0, 140);
   const t0 = performance.now();
   const entry = clog('ai', `→ AI · ${mode}${label ? ` · ${label}` : ''} · ${$('model').value || 'default model'}: ${lastUser}`);
@@ -775,8 +808,9 @@ async function requestLLM({ messages, code = '', mode = 'code', onUpdate, signal
   onUpdate = (u) => { entry.stream((u.thinking ? `[thinking] ${u.thinking.slice(-600)}\n\n` : '') + u.content); update?.(u); };
   try {
     lastUsage = null;
-    const text = await requestLLMRaw({ messages, code, mode, onUpdate, signal, edited, sounds });
+    const text = await requestLLMRaw({ messages, code, mode, onUpdate, signal, edited, sounds, fixing });
     entry.done(`✓ AI · ${mode}${label ? ` · ${label}` : ''}: ${text.length} chars in ${((performance.now() - t0) / 1000).toFixed(1)}s${usageText(lastUsage)}`, 'ok');
+    addSessionCost(lastUsage);
     return text;
   } catch (e) {
     entry.done(`✗ AI · ${mode}${label ? ` · ${label}` : ''}: ${e.name === 'AbortError' ? 'stopped' : e.message}`, e.name === 'AbortError' ? 'info' : 'error');
@@ -785,16 +819,31 @@ async function requestLLM({ messages, code = '', mode = 'code', onUpdate, signal
 }
 
 let lastUsage = null; // token usage of the last Claude reply (other providers don't report it)
+const money = (v) => `$${v.toFixed(v < 0.1 ? 3 : 2)}`;
+// running AI cost for this browser session (shown in the status bar, checked against the budget)
+const session = (() => { try { return JSON.parse(sessionStorage.getItem('strudel-ai:session')) || { cost: 0, requests: 0, tokensIn: 0, tokensOut: 0 }; } catch { return { cost: 0, requests: 0, tokensIn: 0, tokensOut: 0 }; } })();
+function usageCost(u) {
+  const p = u && CLAUDE_PRICES[u.model];
+  // 1-hour cache writes cost 2× input
+  return p ? (u.input * p[0] + u.output * p[1] + u.cache_read * p[2] + u.cache_write * p[0] * 2) / 1e6 : 0;
+}
+function addSessionCost(u) {
+  if (!u) return;
+  session.cost += usageCost(u);
+  session.requests++;
+  session.tokensIn += (u.input || 0) + (u.cache_read || 0) + (u.cache_write || 0);
+  session.tokensOut += u.output || 0;
+  try { sessionStorage.setItem('strudel-ai:session', JSON.stringify(session)); } catch {}
+}
 // $ per million tokens: input, output, cache read, cache write (5 min)
 const CLAUDE_PRICES = { 'claude-sonnet-5-5': [2, 10, 0.2, 2.5], 'claude-opus-5-5': [4, 20, 0.2, 5], 'claude-haiku-4-5': [1, 5, 0.1, 1.25] };
 function usageText(u) {
   if (!u) return '';
-  const p = CLAUDE_PRICES[u.model];
-  const cost = p ? (u.input * p[0] + u.output * p[1] + u.cache_read * p[2] + u.cache_write * p[3]) / 1e6 : null;
+  const cost = CLAUDE_PRICES[u.model] ? usageCost(u) : null;
   return ` · ${u.input + u.cache_read + u.cache_write} in (${u.cache_read} cached) / ${u.output} out` + (cost != null ? ` · ≈${(cost * 100).toFixed(1)}¢` : '');
 }
 
-async function requestLLMRaw({ messages, code, mode, onUpdate, signal, edited, sounds }) {
+async function requestLLMRaw({ messages, code, mode, onUpdate, signal, edited, sounds, fixing }) {
   const res = await fetch('/api/chat', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -806,6 +855,7 @@ async function requestLLMRaw({ messages, code, mode, onUpdate, signal, edited, s
       mode,
       edited,
       sounds,
+      fixing: !!fixing,
       systemPrompt: promptOverride(mode),
       temperature: Number($('temp').value),
       effort: $('claudeEffort').value,
@@ -1298,7 +1348,7 @@ document.addEventListener('strudel.log', (e) => {
  * — they stream into the 🖥 Console — and the bubble is updated with the final, working
  * reply. Only when every attempt fails does an error reach the chat.
  */
-async function runTurn(userText, attempt = 0, bubble = null) {
+async function runTurn(userText, attempt = 0, bubble = null, failedCode = null) {
   state.history.push({ role: 'user', content: userText });
   let r = null;
   if (!bubble) {
@@ -1307,9 +1357,16 @@ async function runTurn(userText, attempt = 0, bubble = null) {
   } else {
     setBubbleNote(bubble, `🔧 checking and fixing (attempt ${attempt + 1}/${MAX_FIX_ATTEMPTS + 1}) — see 🖥 Console`);
   }
+  // song / pads context only rides along on this request (not stored in the history)
+  const messages = historyForModel();
+  const ctx = chatContext(userText);
+  if (ctx) messages[messages.length - 1] = { role: 'user', content: `${ctx}\n\n${messages[messages.length - 1].content}` };
   const text = await requestLLM({
-    messages: historyForModel(),
-    code: getCode(),
+    messages,
+    // a fix request works on the AI's failed attempt — not on what's in the editor
+    code: failedCode ?? getCode(),
+    fixing: failedCode != null,
+    onError: () => { if (!bubble.textContent.trim()) bubble.remove(); },
     edited: state.lastAICode != null && normCode(getCode()) !== normCode(state.lastAICode),
     onUpdate: r?.update,
     signal: state.abort.signal,
@@ -1317,11 +1374,43 @@ async function runTurn(userText, attempt = 0, bubble = null) {
   });
   r?.done();
   let code = extractCode(text);
-  const retry = (why, msg) => {
+
+  const retry = (why, msg, fixCode = null) => {
     clog('warn', `✗ ${why} — asking the AI again (${attempt + 1}/${MAX_FIX_ATTEMPTS})`);
-    return runTurn(msg, attempt + 1, bubble);
+    return runTurn(msg, attempt + 1, bubble, fixCode);
   };
-  const giveUp = (msg) => { setBubbleNote(bubble, ''); clog('error', msg); addMsg('error', msg); };
+  // couldn't fix it: details stay in the console; the reply only gets a ⚠ with the reason as tooltip
+  const giveUp = (msg) => { setBubbleNote(bubble, '⚠ not applied', msg); warnUser(msg); };
+
+  // song structure / parts / pads answers
+  const songBlock = fencedBlock(text, 'song'), partsBlock = fencedBlock(text, 'parts'), padsBlock = fencedBlock(text, 'pads');
+  const notes = [];
+  if (padsBlock) {
+    try { const done = applyPadsReply(padsBlock); if (done) notes.push(`🔲 ${done}`); }
+    catch (e) { clog('warn', `pads reply unusable: ${e.message}`); }
+  }
+  if (songBlock || partsBlock) {
+    const sg = activeSong();
+    if (!sg) notes.push('🎵 no song is open — open one in 🎵 Songs to edit it');
+    else {
+      let raw = null;
+      try { raw = songBlock ? parseJSONLoose(songBlock) : rawSheet(sg.sheet); } catch (e) { raw = null; clog('warn', `song reply unusable: ${e.message}`); }
+      const err = raw ? await applySongEdit(sg, raw, partsBlock) : 'the ```song block is not valid JSON';
+      if (err) {
+        if (attempt < MAX_FIX_ATTEMPTS) {
+          return retry(`song edit: ${err}`, `${userText.replace(/\n\nTHE SONG EDIT FAILED[\s\S]*$/, '')}\n\nTHE SONG EDIT FAILED: ${err}. Return the corrected \`\`\`song and \`\`\`parts blocks.`);
+        }
+        notes.push('⚠ song not changed');
+        warnUser(`Song edit failed: ${err}`);
+      } else notes.push(`🎵 “${sg.title}” updated${setl.songs.includes(sg) && setl.running ? ' — from its next section' : ''}`);
+    }
+  }
+  if (!code && notes.length) {
+    // a song / pads answer without new editor code
+    state.history.push({ role: 'assistant', content: stripThinking(text) });
+    setBubbleNote(bubble, notes.join(' · '));
+    return;
+  }
 
   if (!code) {
     state.history.pop(); // don't let the model imitate a code-less reply
@@ -1342,14 +1431,14 @@ async function runTurn(userText, attempt = 0, bubble = null) {
   if (prep.corrections.length && attempt === 0) { const d = bubble.querySelector(':scope > .typing, :scope > div:not(.note):not(.actions)'); if (d) d.innerHTML = renderMarkdownLite(reply); }
 
   if (prep.error) {
-    if (attempt < MAX_FIX_ATTEMPTS) return retry(prep.error, prep.error + ' Return the full corrected program.');
+    if (attempt < MAX_FIX_ATTEMPTS) return retry(prep.error, prep.error + ' Return the full corrected program.', code);
     return giveUp(`Couldn't get working code: ${prep.error}`);
   }
 
   const finish = () => {
     // the bubble shows the reply that actually worked
     if (attempt > 0) { bubble.innerHTML = ''; const d = document.createElement('div'); d.innerHTML = renderMarkdownLite(reply); bubble.appendChild(d); }
-    setBubbleNote(bubble, attempt > 0 ? `🔧 fixed automatically (${attempt} retr${attempt > 1 ? 'ies' : 'y'})` : '');
+    setBubbleNote(bubble, [attempt > 0 ? `🔧 fixed automatically (${attempt} retr${attempt > 1 ? 'ies' : 'y'})` : '', ...notes].filter(Boolean).join(' · '));
     const actions = document.createElement('div');
     actions.className = 'actions';
     const now = document.createElement('button');
@@ -1375,18 +1464,20 @@ async function runTurn(userText, attempt = 0, bubble = null) {
     return retry(`error when test-played: ${err.message}`,
       `The code you returned threw this error when it played:\n${err.message}\n` +
         (/scale/i.test(err.message) ? scaleHelp() + '\n' : '') +
-        'Fix it and return the full corrected program. Only use functions from the reference.');
+        'Fix it and return the full corrected program. Only use functions from the reference.', code);
   }
   finish();
   giveUp(`Not applied (the old music keeps playing): ${err.message}`);
 }
 
 /** A small status line under a chat reply. */
-function setBubbleNote(bubble, text) {
+function setBubbleNote(bubble, text, tooltip = '') {
   let n = bubble.querySelector(':scope > .note');
   if (!text) { n?.remove(); return; }
   if (!n) { n = document.createElement('div'); n.className = 'note'; bubble.appendChild(n); }
   n.textContent = text;
+  n.title = tooltip;
+  n.classList.toggle('warn', !!tooltip);
 }
 
 function setBusy(b) {
@@ -1408,7 +1499,7 @@ $('chat-form').onsubmit = async (e) => {
     await runTurn(text);
   } catch (err) {
     if (err.name === 'AbortError') addMsg('info', 'stopped');
-    else addMsg('error', err.message);
+    else warnUser(`AI request failed: ${err.message}`);
   } finally {
     setBusy(false);
     $('input').focus();
@@ -1495,11 +1586,16 @@ async function generateStep(i) {
       (/scale/i.test(step.fixHint) ? `\n${scaleHelp()}` : '');
     delete step.fixHint;
   }
+  // a section that failed when it was about to play is fixed from its own failed code
+  let fixCode = step.failedCode || null;
+  delete step.failedCode;
   for (let attempt = 0; attempt <= MAX_FIX_ATTEMPTS; attempt++) {
     const text = await requestLLM({
       messages: [{ role: 'user', content: prompt }],
-      code: base,
+      code: fixCode ?? base,
+      fixing: fixCode != null,
       signal: step.abort.signal,
+      label: `block ${i + 1}${fixCode ? ' fix' : ''}`,
     });
     let code = extractCode(text);
     let err = code ? syntaxError(code) : 'no code block in reply';
@@ -1513,6 +1609,7 @@ async function generateStep(i) {
       step.status = 'ready';
       return;
     }
+    if (code) fixCode = code; // fix the attempt itself next time
     prompt = `${step.prompt}\n\nIMPORTANT: a previous attempt failed (${err}). Return the COMPLETE, syntactically valid program in one \`\`\`javascript block.`;
   }
   step.status = 'failed';
@@ -1626,8 +1723,11 @@ async function tickSetlist() {
     } else {
       // let the last step play out its bars before declaring the set finished
       if (setlist.nextAt != null && isPlaying() && nowCycle() < setlist.nextAt) return;
-      addMsg('info', `■ ${setlist.feeder?.label || 'song blocks'} finished (last section keeps playing)`);
+      addMsg('info', `■ ${setlist.feeder?.label || 'song blocks'} finished`);
       stopSetlist();
+      // the last section has played out: stop (sounds already scheduled still ring out)
+      mirror()?.stop();
+      if (mp3.autoSong) setTimeout(mp3Stop, 1500);
       return;
     }
   }
@@ -1677,6 +1777,7 @@ async function tickSetlist() {
     if (step.fixAttempts <= MAX_FIX_ATTEMPTS) {
       clog('warn', `Block ${idx + 1} failed when test-played (${err.message}) — regenerating; the music keeps playing meanwhile`);
       step.status = 'waiting';
+      step.failedCode = step.code;
       step.code = null;
       step.fixHint = err.message;
       delete step.startedAt;
@@ -1706,7 +1807,7 @@ function startSetlist({ at = 0, steps = null, feeder = null } = {}) {
     abort: new AbortController(), feeder, hold: false,
   });
   steps.forEach((s, j) => { if (j < at && !s.code) s.status = 'skipped'; }); // started further down: don't write the blocks above
-  setlist.timer = setInterval(() => tickSetlist().catch((e) => addMsg('error', e.message)), 100);
+  setlist.timer = setInterval(() => tickSetlist().catch((e) => warnUser(`song blocks: ${e.message}`)), 100);
   if (!feeder) addMsg('info', `▶ song blocks started (${steps.length} blocks) — generating ahead…`);
   restartGeneration(at);
 }
@@ -2048,7 +2149,7 @@ async function humSendToAI() {
     }
   } catch (err) {
     if (err.name === 'AbortError') addMsg('info', 'stopped');
-    else addMsg('error', err.message);
+    else warnUser(`AI request failed: ${err.message}`);
   } finally {
     setBusy(false);
   }
@@ -2422,14 +2523,14 @@ function parseSongs(text) {
 // the chosen form's bar counts are enforced on the sheet that comes back.
 // ---------------------------------------------------------------------------
 const DEFAULT_FORMS = [
-  { name: 'pop', use: 'pop, synthwave, funk, disco, indie dance', sections: 'intro 4, verse 8, pre-chorus 4, chorus 8, verse 8, pre-chorus 4, chorus 8, bridge 8, chorus 8, outro 4' },
-  { name: 'verse-chorus', use: 'short pop songs, city pop, synth pop, rock', sections: 'intro 4, verse 8, chorus 8, verse 8, chorus 8, outro 4' },
+  { name: 'pop', use: 'pop, synthwave, funk, disco, indie dance', sections: 'intro 4, verse 8, pre-chorus 4, chorus 4, verse 8, pre-chorus 4, chorus 4, bridge 8, chorus 4, outro 4' },
+  { name: 'verse-chorus', use: 'short pop songs, city pop, synth pop, rock', sections: 'intro 4, verse 8, chorus 4, verse 8, chorus 4, outro 4' },
   { name: 'edm', use: 'EDM, big room, future bass, dubstep, electro', sections: 'intro 8, build 8, drop 8, breakdown 8, build 4, drop 8, outro 4' },
   { name: 'house', use: 'house, deep house, tech house, afro house, nu-disco', sections: 'intro 8, groove 8, build 4, drop 8, break 8, build 4, drop 8, outro 8' },
   { name: 'techno', use: 'techno, minimal, industrial, acid', sections: 'intro 8, groove 8, build 8, peak 8, break 8, peak 8, outro 8' },
   { name: 'trance', use: 'trance, progressive, psytrance, uplifting', sections: 'intro 8, build 8, breakdown 8, build 4, drop 8, breakdown 4, drop 8, outro 8' },
   { name: 'drum & bass', use: 'drum & bass, jungle, breakbeat, liquid', sections: 'intro 8, build 4, drop 8, breakdown 8, build 4, drop 8, outro 4' },
-  { name: 'hip hop', use: 'hip hop, trap, boom bap, r&b', sections: 'intro 4, verse 8, hook 8, verse 8, hook 8, bridge 4, hook 8, outro 4' },
+  { name: 'hip hop', use: 'hip hop, trap, boom bap, r&b', sections: 'intro 4, verse 8, hook 4, verse 8, hook 4, bridge 4, hook 4, outro 4' },
   { name: 'lo-fi', use: 'lo-fi, chillhop, jazz-hop, downtempo, chill', sections: 'intro 4, A 8, A 8, B 8, A 8, outro 4' },
   { name: 'jazz AABA', use: 'jazz, neo-soul, bossa nova, swing, lounge', sections: 'intro 4, A 8, A 8, B 8, A 8, solo 8, A 8, outro 4' },
   { name: 'dub', use: 'dub, reggae, dub techno, ska', sections: 'intro 8, riddim 8, dub 8, riddim 8, dub 8, outro 8' },
@@ -2451,6 +2552,13 @@ function addNewDefaults(list, defaults, kind, oldNames) {
   return out;
 }
 let songForms = addNewDefaults(load().songForms, DEFAULT_FORMS, 'forms', OLD_DEFAULT_FORMS);
+// built-in forms whose choruses used to be 8 bars: update them unless the user changed them
+const OLD_FORM_SECTIONS = { 'pop': 'intro 4, verse 8, pre-chorus 4, chorus 8, verse 8, pre-chorus 4, chorus 8, bridge 8, chorus 8, outro 4', 'verse-chorus': 'intro 4, verse 8, chorus 8, verse 8, chorus 8, outro 4', 'hip hop': 'intro 4, verse 8, hook 8, verse 8, hook 8, bridge 4, hook 8, outro 4' };
+for (const f of songForms) {
+  const d = DEFAULT_FORMS.find((x) => x.name === f.name);
+  if (d && OLD_FORM_SECTIONS[f.name] === f.sections) f.sections = d.sections;
+}
+save({ songForms });
 let formIdx = 0;
 
 /** "intro 4, verse 8 …" → [{ name, bars }] */
@@ -2547,6 +2655,7 @@ renderFormSelects();
 // drift, and parts that continue from one section to the next are identical (the
 // crossfade keeps them steady).
 // ---------------------------------------------------------------------------
+const MAX_CHORUS_BARS = 4;
 const LIB_START = '// ── parts (shared by every section of this song) ──';
 const SEC_START = '// ── this section ──';
 const HARMONIC_ROLE = /bass|chord|pad|key|arp|harmon|string|piano|organ|guitar/i;
@@ -2602,7 +2711,7 @@ function sectionType(name) {
 }
 
 /** Validate + repair a song sheet from the model. Throws when it can't be used. */
-function normalizeSheet(raw, choice = 'auto') {
+function normalizeSheet(raw, choice = 'auto', { enforceForm = true } = {}) {
   if (!raw || typeof raw !== 'object') throw new Error('the sheet is not an object');
   const bpm = Math.max(50, Math.min(200, Math.round(Number(raw.bpm) || 100)));
   // scale: "A:minor" (or derived from "key": "A minor"), checked against the real scale names
@@ -2628,7 +2737,7 @@ function normalizeSheet(raw, choice = 'auto') {
   const firstChords = Object.keys(chords)[0];
   const sections = [];
   for (const sec of Array.isArray(raw.sections) ? raw.sections : []) {
-    const bars = Math.max(1, Math.min(16, Math.round(Number(sec.bars) || 8)));
+    const bars = Math.max(1, Math.min(enforceForm ? 16 : 32, Math.round(Number(sec.bars) || 8)));
     const ck = ident(sec.chords);
     const play = [];
     for (const ref of Array.isArray(sec.play) ? sec.play : []) {
@@ -2645,13 +2754,16 @@ function normalizeSheet(raw, choice = 'auto') {
   }
   if (sections.length < 2) throw new Error('fewer than 2 sections');
   // the form decides the section lengths: take its bar counts when the sections line up, otherwise cap them
-  const form = (choice !== 'auto' && findForm(choice)) || findForm(raw.form);
+  const form = enforceForm ? (choice !== 'auto' && findForm(choice)) || findForm(raw.form) : null;
   const fsecs = form ? parseFormSections(form.sections) : [];
   if (fsecs.length === sections.length) sections.forEach((sec, j) => { sec.bars = fsecs[j].bars; });
   else {
     const cap = fsecs.length ? Math.max(...fsecs.map((x) => x.bars)) : 16;
     for (const sec of sections) sec.bars = Math.min(sec.bars, cap);
   }
+  if (!enforceForm) for (const sec of sections) sec.bars = Math.max(1, Math.min(32, sec.bars));
+  // choruses (and hooks) are short and punchy: never longer than 4 bars
+  for (const sec of sections) if (sec.type === 'chorus') sec.bars = Math.min(sec.bars, MAX_CHORUS_BARS);
   return { form: form?.name || String(raw.form || ''), bpm, key: String(raw.key || scale.replace(':', ' ')), scale, chords, hook, parts, sections };
 }
 
@@ -2722,7 +2834,7 @@ async function writeSongSheet(song, signal) {
     (prev ? `The previous song was ${prev.bpm} bpm in ${prev.key}; this one should flow from it (a related key or a nearby tempo is nice).\n` : '') +
     `\n${formsForRequest(choice)}\n\nWrite the song sheet JSON.`;
   let lastErr;
-  for (let attempt = 0; attempt < 3; attempt++) {
+  for (let attempt = 0; attempt < 2; attempt++) {
     song.phase = 'writing the song sheet';
     const text = await requestLLM({ mode: 'sheet', messages: [{ role: 'user', content: msg }], signal, label: `“${song.title}” sheet` });
     try {
@@ -2737,6 +2849,29 @@ async function writeSongSheet(song, signal) {
     }
   }
   throw new Error(`no usable song sheet (${lastErr?.message})`);
+}
+
+/** The sounds a song's parts may use: the sheet's choices, their drum machines' drums, plus the basic synths. */
+async function partsCatalog(sh) {
+  const reg = await soundRegistry();
+  if (!reg) return '';
+  const keys = Object.keys(reg);
+  const want = new Set(['sawtooth', 'square', 'triangle', 'sine', 'supersaw', 'white', 'pink', 'brown']);
+  const lines = [];
+  for (const p of sh.parts) {
+    const snd = String(p.sound || '').trim();
+    const key = snd.toLowerCase();
+    const drums = keys.filter((k) => k.startsWith(key + '_') && reg[k].data?.type === 'sample').map((k) => k.slice(key.length + 1));
+    if (drums.length) lines.push(`Drum machine ${snd}: s("…").bank("${snd}") with drums: ${drums.join(' ')}`);
+    else if (reg[key]) want.add(key);
+    else {
+      const { best } = closest(snd || 'x', keys);
+      if (best) want.add(best);
+    }
+  }
+  // plain drum samples for parts without a bank
+  for (const k of ['bd', 'sd', 'hh', 'oh', 'cp', 'rim', 'lt', 'mt', 'ht', 'cr', 'perc']) if (reg[k]) want.add(k);
+  return `Sounds for this song: ${[...want].filter((k) => reg[k]).join(' ')}\n${lines.join('\n')}`;
 }
 
 /** Write (or repair) the part library. Returns checked, corrected library code. */
@@ -2761,9 +2896,11 @@ async function writeSongLibrary(song, signal, { fix = null, prev = null } = {}) 
     ? `${base}\n\nTHE CURRENT LIBRARY:\n\`\`\`javascript\n${prev}\n\`\`\`\nIt failed when played: ${fix}${/scale/i.test(fix) ? '\n' + scaleHelp() : ''}\nReturn the corrected COMPLETE library.`
     : base;
   let lastErr;
-  for (let attempt = 0; attempt < 3; attempt++) {
+  // the parts step only needs the sounds the sheet chose (a fraction of the full list → far fewer tokens)
+  const sounds = await partsCatalog(sh);
+  for (let attempt = 0; attempt < 2; attempt++) {
     song.phase = fix ? 'fixing the parts' : 'writing the parts';
-    const text = await requestLLM({ mode: 'library', messages: [{ role: 'user', content }], signal, label: `“${song.title}” parts${fix ? ' fix' : ''}` });
+    const text = await requestLLM({ mode: 'library', messages: [{ role: 'user', content }], signal, sounds, label: `“${song.title}” parts${fix ? ' fix' : ''}` });
     let lib = extractCode(text);
     let err = null;
     if (!lib) err = 'no ```javascript code block in the reply';
@@ -2876,7 +3013,9 @@ async function sheetSteps(song) {
     song.sheet = await writeSongSheet(song, setl.abort.signal);
     song.library = await writeSongLibrary(song, setl.abort.signal);
     song.phase = null;
-    return arrangeSong(song);
+    const steps = arrangeSong(song);
+    song.pads = songPads(song);
+    return steps;
   } catch (e) {
     if (e.name === 'AbortError') throw e;
     song.sheet = song.sheet || null;
@@ -2955,7 +3094,7 @@ async function feedLoop() {
         failures = 0;
         continue;
       }
-      if (ahead < 1 && setl.mode === 'set' && $('setLoop').checked && setl.songs.length) {
+      if (ahead < 1 && setl.mode === 'set' && $('setLoop').checked && !setl.single && setl.songs.length) {
         setl.nextSong = 0;
         continue;
       }
@@ -2972,7 +3111,7 @@ async function feedLoop() {
       if (sg && sg.status === 'writing') { sg.status = 'failed'; sg.error = e.message; }
       clog('error', `${setl.mode === 'station' ? 'Station' : 'Set list'}: ${e.message} (try ${failures + 1}/5)`);
       failures++;
-      if (failures >= 5) { addMsg('error', `${setl.mode === 'station' ? 'Station' : 'Set list'} stopped: the AI failed 5 times in a row (last: ${e.message}). Details in 🖥 Console.`); stopSet(); return; }
+      if (failures >= 5) { warnUser(`${setl.mode === 'station' ? 'Station' : 'Set list'} stopped: the AI failed 5 times in a row (last: ${e.message})`); addMsg('info', `■ ${setl.mode === 'station' ? 'station' : 'set'} stopped — see ⚠ in the status bar`); stopSet(); return; }
       await sleep(3000 * failures);
     }
     await sleep(400);
@@ -2983,7 +3122,7 @@ function makeFeeder() {
   return {
     label: setl.mode === 'station' ? `station “${setl.station.name || 'untitled'}”` : 'set list',
     active: () => setl.running && (setl.mode === 'station' || setl.nextSong < setl.songs.length || setl.forceJump !== null ||
-      ($('setLoop').checked && setl.songs.length > 0) || setl.songs.some((sg) => sg.status === 'writing')),
+      ($('setLoop').checked && !setl.single && setl.songs.length > 0) || setl.songs.some((sg) => sg.status === 'writing')),
     onStepStart: (step) => {
       if (!step.song) return;
       const k = setl.songs.indexOf(step.song);
@@ -2991,6 +3130,8 @@ function makeFeeder() {
       setl.songs.forEach((sg) => { if (sg.status === 'playing' && sg !== step.song) sg.status = 'done'; });
       step.song.status = 'playing';
       step.song.playedAt = Date.now();
+      logPlayed(step.song, setl.mode === 'station' ? `station “${setl.station?.name || ''}”` : 'songs');
+      if (mp3.autoSong && mp3.autoSong !== step.song) mp3Stop(); // recording a song: it ended
       setl.current = k;
       addMsg('info', `🎵 now playing: “${step.song.title}” — ${step.song.desc}`);
       if (setl.mode === 'station') document.title = `📻 ${step.song.title} · ${setl.station.name || 'Station'}`;
@@ -3023,7 +3164,7 @@ function startSet(mode, { at = 0, keepSongs = false } = {}) {
   }
   stopSet(false);
   songSel[mode] = null; // follow the song that is playing
-  Object.assign(setl, { running: true, mode, nextSong: at, current: at - 1, forceJump: null, abort: new AbortController(), textDirty: false });
+  Object.assign(setl, { running: true, mode, nextSong: at, current: at - 1, forceJump: null, abort: new AbortController(), textDirty: false, single: false });
   startSetlist({ steps: [], feeder: makeFeeder() });
   updateSetButtons();
   addMsg('info', mode === 'station'
@@ -3082,7 +3223,7 @@ function songsHTML(songs, live, sel) {
     return `<div class="song ${sg.status}${k === sel ? ' selected' : ''}" data-k="${k}" title="Show this song's sheet and sections">
       <span class="ico">${SONG_ICON[sg.status] || '·'}</span>
       <div class="body"><div class="t">${k + 1}. ${esc(sg.title)}</div><div class="d">${esc(sg.desc)}</div>
-        ${meta ? `<div class="meta">${esc(meta)}</div>` : ''}${sg.error ? `<div class="err">${esc(sg.error)}</div>` : ''}</div>
+        ${meta ? `<div class="meta">${esc(meta)}</div>` : ''}${sg.error ? `<span class="err-icon" title="${esc(sg.error)}">⚠</span>` : ''}</div>
       <button class="jump" data-song="${k}" title="Switch to this song">⏭ go</button>
     </div>`;
   }).join('') + (live && setl.planning ? '<div class="song writing"><span class="ico">✎</span><div class="body"><div class="d">planning the next songs…</div></div></div>' : '');
@@ -3094,10 +3235,24 @@ function songViewHTML(sg, live) {
   const sh = sg.sheet;
   const isCurrent = live && setl.songs[setl.current] === sg;
   const complete = sg.blocks?.length && sg.blocks.every((b) => b.code) && !sg.phase;
-  let h = `<div class="sv-head"><b>${esc(sg.title)}</b>${isCurrent ? ' <span class="sv-live">▶ playing</span>' : ''}
-      ${complete && !setl.running && setl.songs.includes(sg) ? '<button class="sv-play" title="Play this song (already written — no AI needed)">▶ Play this song</button>' : ''}
-      ${complete ? `<button class="sv-share" title="Create a link that plays this whole song: its sheet, parts and every section">🔗 Share song</button>` : ''}</div>
+  const mine = isMine(sg);
+  const canPlay = complete && !(isCurrent);
+  const btn = (act, label, title) => `<button data-act="${act}" title="${esc(title)}">${label}</button>`;
+  let h = `<div class="sv-head"><b>${esc(sg.title)}</b>${isCurrent ? ' <span class="sv-live">▶ playing</span>' : ''}${mine ? ' <span class="sv-mine">📁 My songs</span>' : ''}</div>
     <div class="sv-desc">${esc(sg.desc)}</div>`;
+  if (complete) {
+    h += `<div class="sv-toolbar">
+      ${canPlay ? btn('play', '▶ Play', 'Play this song from the start (already written — no AI needed)') : ''}
+      ${mine && sh && sg.library ? btn('edit', songEdit.sg === sg ? '✎ editing…' : '✎ Edit', 'Edit the sections, chords and parts (or ask the chat)') : ''}
+      ${btn('fav', favOf(sg) ? '★ favorite' : '☆ Favorite', favOf(sg) ? 'A favorite on this server — click to remove it from the shared list' : 'Add to ★ Favorites: everyone on this server sees it, and it survives restarts')}
+      ${mine ? '' : btn('save', '📁 Save to My songs', 'Copy this song into 📁 My songs, where you can edit it, keep it and export it')}
+      ${sg.pads ? btn('pads', padsState.owner === sg ? '🔲 song pads ✓' : '🔲 Song pads', 'Load this song’s 16 pads (its own parts, key and chords) into the pad dock to jam along') : ''}
+      ${btn('mp3', mp3.autoSong === sg ? '■ stop MP3' : '🎙 MP3', 'Play the song from the start and record it to an MP3 file')}
+      ${btn('json', '⬇ JSON', 'Download the whole song (sheet, parts, sections, pads) as a .json file — import it on any Strudel AI server')}
+      ${btn('link', '🔗 Link', 'Create a link that plays this whole song on this server')}
+    </div>`;
+  }
+  if (songEdit.sg === sg && sh && sg.library) return h + songEditorHTML(sg);
   if (sg.shareUrl) {
     h += `<div class="sv-shared">🔗 <input readonly value="${esc(sg.shareUrl)}" /><button class="sv-copy">📋 Copy</button><a href="${esc(sg.shareUrl)}" target="_blank" rel="noopener">open ↗</a></div>`;
   }
@@ -3126,7 +3281,7 @@ function songViewHTML(sg, live) {
       return `<details class="step ${st.status}${queued ? ' queued' : ''}${st.fillStep ? ' fill' : ''}" data-j="${j}">
         <summary><span class="ico">${queued ? '⏭' : STATUS_ICON[st.status] || ''}</span>
           <span class="bars">${st.bars}</span><span class="prompt">${name}${parts ? `<span class="sv-parts">${parts}</span>` : ''}</span>
-          ${st.error ? `<span class="err">— ${esc(st.error)}</span>` : ''}${queued ? '<span class="next">next</span>' : ''}
+          ${st.error ? `<span class="err-icon" title="${esc(st.error)}">⚠</span>` : ''}${queued ? '<span class="next">next</span>' : ''}
           ${i >= 0 ? `<button class="jump" data-i="${i}" title="Switch to this section${j < 9 && isCurrent ? ` (Alt+${j + 1})` : ''}">⏭ go</button>` : ''}</summary>
         ${st.code ? `<pre>${esc(st.code.slice(st.code.indexOf(SEC_START) >= 0 ? st.code.indexOf(SEC_START) : 0))}</pre>` : ''}
       </details>`;
@@ -3142,20 +3297,27 @@ function renderSongs() {
   const stationSongs = setl.mode === 'station' ? setl.songs : [];
   const now = setl.mode === 'station' ? setl.songs[setl.current] : null;
   const pick = (tab, list) => {
+    if (typeof songSel[tab] === 'string') return null; // a My songs entry is open
     const k = songSel[tab] ?? (setl.running && setl.mode === tab && setl.current >= 0 ? setl.current : null);
     return k != null && list[k] ? k : null;
   };
   const selSet = pick('set', setSongs), selSt = pick('station', stationSongs);
+  const setView = viewedSong('set');
   const stepKey = (sg) => sg?.blocks?.map((b) => b.status + (b.code ? b.code.length : 0) + (b.error || '')).join() || '';
   const key = JSON.stringify([setl.running, setl.mode, setl.planning, now?.title, selSet, selSt, setlist.hold, setlist.jumpTarget, setl.current,
     ...[setSongs, stationSongs].map((l) => l.map((sg) => [sg.title, sg.status, sg.phase, sg.bars, sg.blocks?.filter((b) => b.code).length, sg.error, !!sg.sheet, sg.shareUrl])),
-    stepKey(setSongs[selSet]), stepKey(stationSongs[selSt])]);
+    stepKey(setView), stepKey(stationSongs[selSt]), songSel.set, songEdit.sg?.title, padsState.owner?.title,
+    mySongs.map((sg) => [sg.title, sg.bars, setl.songs[setl.current] === sg]), mp3.rec ? mp3.autoSong?.title || 1 : 0,
+    favorites.map((f) => [f.id, setl.songs[setl.current] === f.song])]);
   if (key === lastSongsKey) return;
   lastSongsKey = key;
   $('setStatus').innerHTML = songsHTML(setSongs, setl.running && setl.mode === 'set', selSet);
+  $('mySongs').innerHTML = myListHTML();
+  $('favSongs').innerHTML = favListHTML();
   $('stationStatus').innerHTML = songsHTML(stationSongs, setl.running && setl.mode === 'station', selSt);
-  for (const [id, sg, live] of [['setSongView', setSongs[selSet], setl.running && setl.mode === 'set'], ['stationSongView', stationSongs[selSt], setl.running && setl.mode === 'station']]) {
+  for (const [id, sg, live] of [['setSongView', setView, setl.running && setl.mode === 'set'], ['stationSongView', stationSongs[selSt], setl.running && setl.mode === 'station']]) {
     const el = $(id);
+    if (sg && songEdit.sg === sg && el.querySelector('.sv-edit')) continue; // don't wipe the editor while typing
     const open = new Set([...el.querySelectorAll('details[open]')].map((d) => d.dataset.j ?? 'lib'));
     el.hidden = !sg;
     el.innerHTML = songViewHTML(sg, live);
@@ -3185,16 +3347,35 @@ for (const id of ['setSongView', 'stationSongView']) {
     if (go) { e.preventDefault(); e.stopPropagation(); jumpTo(Number(go.dataset.i)); return; }
     if (e.target.closest('.sv-hold')) { e.preventDefault(); setHold(!setlist.hold); renderSongs(); return; }
     const sg = viewedSong(id === 'stationSongView' ? 'station' : 'set');
-    if (e.target.closest('.sv-share') && sg) { shareSong(sg, e.target.closest('.sv-share')); return; }
-    if (e.target.closest('.sv-play') && sg) { jumpToSong(setl.songs.indexOf(sg), setl.mode || 'set'); return; }
+    const act = e.target.closest('[data-act]')?.dataset.act;
+    if (act && sg) { songAction(act, sg, e.target.closest('[data-act]'), $(id)); return; }
     if (e.target.closest('.sv-copy') && sg?.shareUrl) {
       navigator.clipboard?.writeText(sg.shareUrl).then(() => { e.target.textContent = '✓ Copied'; }, () => {});
     }
   });
 }
 
+/** Toolbar actions in a song view. */
+function songAction(act, sg, btn, view) {
+  if (act === 'play') { if (setl.songs.includes(sg) && setl.mode) jumpToSong(setl.songs.indexOf(sg), setl.mode); else playSong(sg); }
+  else if (act === 'edit') { songEdit.sg = songEdit.sg === sg ? null : sg; lastSongsKey = ''; renderSongs(); }
+  else if (act === 'edit-save') saveSongEditor(view.querySelector('.sv-edit'), sg);
+  else if (act === 'edit-cancel') { songEdit.sg = null; lastSongsKey = ''; renderSongs(); }
+  else if (act === 'save') addToMySongs(sg);
+  else if (act === 'fav') toggleFavorite(sg);
+  else if (act === 'pads') { if (padsState.owner === sg) loadPads(null); else loadPads(sg.pads, sg); }
+  else if (act === 'mp3') { if (mp3.autoSong === sg) mp3Stop(); else recordSongMp3(sg); }
+  else if (act === 'json') download(`${slug(sg.title)}.strudel-song.json`, JSON.stringify(songToJSON(sg), null, 1));
+  else if (act === 'link') shareSong(sg, btn);
+  lastSongsKey = '';
+}
+
 /** The song shown in a tab's song view (same choice renderSongs makes). */
 function viewedSong(tab) {
+  if (tab === 'set' && typeof songSel.set === 'string') {
+    const [kind, k] = songSel.set.split(':');
+    return (kind === 'fav' ? favorites[Number(k)]?.song : mySongs[Number(k)]) || null;
+  }
   const list = tab === 'station' ? (setl.mode === 'station' ? setl.songs : [])
     : setl.mode === 'set' && setl.songs.length && !setl.textDirty ? setl.songs : parseSongs($('setText').value);
   const k = songSel[tab] ?? (setl.running && setl.mode === tab && setl.current >= 0 ? setl.current : null);
@@ -3232,6 +3413,13 @@ async function shareSong(sg, btn) {
 
 /** A shared whole song: load it into the Songs tab, ready to play without any AI calls. */
 function loadSharedSong(s) {
+  try {
+    const song = songFromJSON(s);
+    loadSongIntoSet(song);
+    songSel.set = 0;
+    document.querySelector('.tabs button[data-tab="setTab"]')?.click();
+    return song;
+  } catch { /* older share format below */ }
   const song = {
     title: s.title || 'shared song', desc: s.desc || '', status: 'ready', sheet: s.sheet || null, library: s.library || null,
     blocks: s.steps.map((st) => ({ bars: st.bars, prompt: st.prompt, code: st.code, fade: st.fade ?? undefined, fillStep: st.fillStep, section: st.section || undefined, status: 'ready', error: null })),
@@ -3264,7 +3452,7 @@ $('setWrite').onclick = async () => {
     $('setText').value = `# ${idea}\n` + songs.map((sg) => `${sg.title} | ${sg.desc}`).join('\n');
     $('setText').oninput();
   } catch (e) {
-    addMsg('error', `Writing the set list failed: ${e.message}`);
+    warnUser(`Writing the set list failed: ${e.message}`);
   } finally {
     btn.disabled = false; btn.textContent = '✨ Write with AI';
   }
@@ -3801,7 +3989,7 @@ $('settingsDlg').addEventListener('click', (e) => { if (e.target === $('settings
 for (const b of document.querySelectorAll('.settings-tabs button')) b.onclick = () => openSettings(b.dataset.sec);
 for (const b of document.querySelectorAll('.stations-edit')) b.onclick = () => openSettings('setStations');
 $('settingsExport').onclick = () => {
-  const blob = new Blob([JSON.stringify({ app: 'strudel-ai', version: APP_VERSION, exported: new Date().toISOString(), settings: load() }, null, 2)], { type: 'application/json' });
+  const blob = new Blob([JSON.stringify({ app: 'strudel-ai', version: APP_VERSION, exported: new Date().toISOString(), settings: load(), mySongs: mySongs.map(songToJSON) }, null, 2)], { type: 'application/json' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
   a.download = `strudel-ai-settings-${new Date().toISOString().slice(0, 10)}.json`;
@@ -3818,6 +4006,7 @@ $('settingsImport').onchange = async () => {
     if (!st || typeof st !== 'object' || Array.isArray(st)) throw new Error('not a settings file');
     if (!confirm('Replace this browser\'s settings, forms, stations and pads with the ones in this file?')) return;
     localStorage.setItem(STORE_KEY, JSON.stringify(st));
+    if (Array.isArray(j.mySongs)) localStorage.setItem(MY_SONGS_KEY, JSON.stringify(j.mySongs));
     saveSession();
     location.reload();
   } catch (e) {
@@ -3892,9 +4081,17 @@ setInterval(() => {
     sg.hidden = false;
     sg.textContent = `${step.song ? `🎵 ${step.song.title} · ` : '▶ '}${step.prompt}${pos}${setlist.hold ? ' · ⏸ held' : ''}`;
   } else sg.hidden = true;
+  $('sbCost').textContent = session.cost > 0 ? `💲${money(session.cost).slice(1)}${Number(load().aiBudget ?? 2) > 0 ? ` / ${money(Number(load().aiBudget ?? 2)).slice(1)}` : ''}` : '';
+  $('sbCost').title = `AI this session: ${session.requests} request${session.requests === 1 ? '' : 's'}, ${session.tokensIn} tokens in / ${session.tokensOut} out (Claude only — local models are free)`;
   const take = rec.take?.events.length ? rec.take : null;
   $('sbRec').textContent = take ? `⏺ ${take.events.length} change${take.events.length > 1 ? 's' : ''} · ${fmtTime(takeSeconds(take))}` : '';
 }, 250);
+
+$('sbWarn').onclick = () => { if (!docks.console.on) docks.console.show(true); $('sbWarn').hidden = true; $('sbWarn').dataset.count = '0'; };
+// budget setting
+$('aiBudget').value = load().aiBudget ?? 2;
+$('aiBudget').oninput = () => save({ aiBudget: Math.max(0, Number($('aiBudget').value) || 0) });
+setInterval(() => { $('aiSpent').textContent = `${money(session.cost)} in ${session.requests} request${session.requests === 1 ? '' : 's'}`; }, 1000);
 
 // ---------------------------------------------------------------------------
 // 🎹 Keys: an on-screen keyboard (also the computer keyboard and MIDI keyboards)
@@ -4155,7 +4352,7 @@ $('keysAI').onclick = async () => {
   setBusy(true);
   state.abort = new AbortController();
   try { await runTurn(msg); $('keysResult').hidden = true; }
-  catch (err) { addMsg(err.name === 'AbortError' ? 'info' : 'error', err.name === 'AbortError' ? 'stopped' : err.message); }
+  catch (err) { if (err.name === 'AbortError') addMsg('info', 'stopped'); else warnUser(`AI request failed: ${err.message}`); }
   finally { setBusy(false); }
 };
 if (load().keysGrid) $('keysGrid').value = load().keysGrid;
@@ -4193,9 +4390,27 @@ const DEFAULT_PADS = [
   { label: 'filter all', code: 'all(x => x.lpf(500))', mode: 'hold', color: '#7c5cff' },
   { label: 'echo all', code: 'all(x => x.delay(0.5).delaytime(0.1875).delayfeedback(0.6))', mode: 'hold', color: '#7c5cff' },
 ];
-let pads = (load().pads || DEFAULT_PADS).map((p, i) => ({ ...DEFAULT_PADS[i], ...p }));
-const padsState = { edit: false, sel: null, pending: new Map(), rec: null };
-const savePads = () => save({ pads });
+const myPads = (load().pads || DEFAULT_PADS).map((p, i) => ({ ...DEFAULT_PADS[i], ...p }));
+let pads = myPads;
+// owner: null = your own pads; a song = that song's pads (edits are saved with the song)
+const padsState = { edit: false, sel: null, pending: new Map(), rec: null, owner: null };
+function savePads() {
+  if (padsState.owner) { padsState.owner.pads = pads; if (isMine(padsState.owner)) saveMySongs(); }
+  else save({ pads: myPads });
+}
+/** Show a pad set: a song's pads (owner = the song), or null for your own. */
+function loadPads(list, owner = null) {
+  if (!list) { pads = myPads; padsState.owner = null; }
+  else { pads = Array.from({ length: 16 }, (_, i) => ({ label: '', code: '', mode: 'toggle', color: '#7c5cff', ...(list[i] || {}) })); padsState.owner = owner; if (owner) owner.pads = pads; }
+  padsState.sel = null;
+  $('padEditor').hidden = true;
+  $('padsSource').textContent = owner ? `· ${owner.title}` : '';
+  $('padsMine').hidden = !owner;
+  renderPads.key = '';
+  if (!docks.pads.on) { docks.pads.show(true); save({ padsOn: true }); }
+  renderPads();
+  lastSongsKey = '';
+}
 
 const padN = (i) => i + 1;
 const isStatement = (code) => /^\s*(all|each|setcp[ms]|samples)\s*\(/.test(code);
@@ -4351,7 +4566,481 @@ function padsRecToggle() {
   });
 }
 $('padsRec').onclick = padsRecToggle;
+$('padsMine').onclick = () => loadPads(null);
 setupDock('pads', { onShow: () => { renderPads.key = ''; renderPads(); } });
 
+// ---------------------------------------------------------------------------
+// 📁 Songs as portable data: a song (sheet + parts code, or its section code for
+// block-by-block songs, + its pads) is plain JSON, so it can be exported to a file,
+// imported on any Strudel AI server, kept in "My songs", edited and logged.
+// ---------------------------------------------------------------------------
+const SONG_FORMAT = 'strudel-ai-song';
+/** Song → JSON. Sheet songs store just the sheet and parts (the sections are re-arranged from them). */
+function songToJSON(sg) {
+  const arranged = sg.sheet?.sections && sg.library;
+  return {
+    format: SONG_FORMAT, version: 1, app: APP_VERSION, saved: new Date().toISOString(),
+    title: sg.title, desc: sg.desc || '',
+    sheet: sg.sheet || null, library: sg.library || null,
+    pads: sg.pads || null,
+    steps: arranged ? undefined : (sg.blocks || []).filter((b) => b.code).map((b) => ({ bars: b.bars, prompt: b.prompt, code: b.code, fade: b.fade ?? null })),
+  };
+}
+/** JSON (a file, a share link, a log entry) → song ready to play. Throws when unusable. */
+function songFromJSON(j) {
+  if (!j || typeof j !== 'object') throw new Error('not a song');
+  const song = { title: String(j.title || 'untitled').slice(0, 120), desc: String(j.desc || ''), status: 'ready', sheet: null, library: null, pads: Array.isArray(j.pads) ? j.pads.slice(0, 16) : null };
+  if (j.sheet?.sections?.length && typeof j.library === 'string') {
+    // stored sheets are already in the app's form; accept the AI's raw form too
+    song.sheet = j.sheet.sections.every((x) => Array.isArray(x.play) && typeof x.play[0] === 'object') ? j.sheet : normalizeSheet(j.sheet, 'auto', { enforceForm: false });
+    song.library = j.library;
+    song.blocks = arrangeSong(song);
+  } else if (Array.isArray(j.steps) && j.steps.length) {
+    song.blocks = j.steps.filter((st) => typeof st.code === 'string').map((st) => ({ bars: Number(st.bars) || 8, prompt: String(st.prompt || ''), code: st.code, fade: st.fade ?? undefined, fillStep: !!st.fillStep, section: st.section || undefined, status: 'ready', error: null }));
+  } else throw new Error('the song has no sheet and no sections');
+  if (!song.blocks.length) throw new Error('the song has no sections');
+  song.bars = song.blocks.reduce((a, b) => a + b.bars, 0);
+  song.firstStep = song.blocks[0];
+  song.pads ||= songPads(song);
+  return song;
+}
+const slug = (t) => String(t || 'song').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'song';
+function download(name, text, type = 'application/json') {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([text], { type }));
+  a.download = name;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+}
+
+// --- My songs (kept in this browser, separate from the settings)
+const MY_SONGS_KEY = 'strudel-ai:songs';
+let mySongs = (() => {
+  try { return (JSON.parse(localStorage.getItem(MY_SONGS_KEY)) || []).map((j) => { try { return songFromJSON(j); } catch { return null; } }).filter(Boolean); }
+  catch { return []; }
+})();
+function saveMySongs() {
+  try { localStorage.setItem(MY_SONGS_KEY, JSON.stringify(mySongs.map(songToJSON))); }
+  catch (e) { warnUser(`Couldn't save My songs (browser storage full?): ${e.message}`); }
+  lastSongsKey = '';
+}
+const isMine = (sg) => mySongs.includes(sg);
+function addToMySongs(sg) {
+  const copy = songFromJSON(JSON.parse(JSON.stringify(songToJSON(sg))));
+  mySongs.unshift(copy);
+  saveMySongs();
+  songSel.set = 'mine:0';
+  document.querySelector('.tabs button[data-tab="setTab"]')?.click();
+  clog('ok', `📁 “${copy.title}” saved to My songs`);
+  return copy;
+}
+function myListHTML() {
+  if (!mySongs.length) return '<div class="muted small">No songs yet — save one from a set or station (☆ / → My songs), or import a .json file.</div>';
+  return mySongs.map((sg, k) => {
+    const sel = songSel.set === `mine:${k}`;
+    const playing = setl.running && setl.songs[setl.current] === sg;
+    return `<div class="song mine ${playing ? 'playing' : 'ready'}${sel ? ' selected' : ''}" data-mine="${k}" title="Show, edit or play this song">
+      <span class="ico">${playing ? '▶' : '♪'}</span>
+      <div class="body"><div class="t">${esc(sg.title)}</div><div class="meta">${esc(songMeta(sg))}</div></div>
+      <button class="jump" data-mine-play="${k}" title="Play this song (no AI needed)">▶</button>
+      <button class="link" data-mine-del="${k}" title="Remove from My songs">🗑</button>
+    </div>`;
+  }).join('');
+}
+/** Load a song into the Songs tab's player (replaces the set list's running songs). */
+function loadSongIntoSet(song) {
+  stopSet(); stopSetlist();
+  Object.assign(setl, { mode: 'set', songs: [song], current: -1, nextSong: 0, textDirty: false });
+  lastSongsKey = '';
+}
+function playSong(song) {
+  loadSongIntoSet(song);
+  startSet('set', { keepSongs: true });
+  setl.single = true; // one song: stop after its last section, never loop
+}
+$('mySongs').addEventListener('click', (e) => {
+  const play = e.target.closest('[data-mine-play]');
+  if (play) { const k = Number(play.dataset.minePlay); songSel.set = `mine:${k}`; playSong(mySongs[k]); return; }
+  const del = e.target.closest('[data-mine-del]');
+  if (del) {
+    const k = Number(del.dataset.mineDel);
+    if (!confirm(`Remove “${mySongs[k].title}” from My songs?`)) return;
+    mySongs.splice(k, 1);
+    if (songSel.set === `mine:${k}`) songSel.set = null;
+    saveMySongs(); renderSongs();
+    return;
+  }
+  const row = e.target.closest('[data-mine]');
+  if (row) { const v = `mine:${row.dataset.mine}`; songSel.set = songSel.set === v ? null : v; lastSongsKey = ''; renderSongs(); }
+});
+$('songImport').onchange = async () => {
+  const f = $('songImport').files[0];
+  $('songImport').value = '';
+  if (!f) return;
+  try {
+    const text = await f.text();
+    let data;
+    try { data = JSON.parse(text); } catch {
+      const at = text.indexOf(LOG_JSON_MARK);
+      if (at < 0) throw new Error('no song JSON in this file');
+      data = JSON.parse(text.slice(text.indexOf('\n', at) + 1));
+    }
+    const list = (Array.isArray(data) ? data : data.songs || [data]).map((j) => songFromJSON(j.json || j));
+    mySongs.unshift(...list);
+    saveMySongs();
+    songSel.set = 'mine:0';
+    renderSongs();
+    clog('ok', `📁 imported ${list.length} song${list.length > 1 ? 's' : ''}: ${list.map((x) => x.title).join(', ')}`);
+    addMsg('info', `📁 imported ${list.map((x) => `“${x.title}”`).join(', ')} into My songs`);
+  } catch (e) {
+    warnUser(`Couldn't import songs: ${e.message}`);
+  }
+};
+
+// --- ★ Favorites: shared with everyone on this server (stored server-side, survive restarts)
+let favorites = []; // [{ id, favorited, song (object) }]
+async function loadFavorites() {
+  try {
+    const j = await fetch('/api/favorites', { cache: 'no-cache' }).then((r) => r.json());
+    const keep = new Map(favorites.map((f) => [f.id, f]));
+    favorites = (j.favorites || []).map((f) => {
+      if (keep.has(f.id)) return keep.get(f.id); // keep the same object (it may be playing)
+      try { return { id: f.id, favorited: f.favorited, song: songFromJSON(f.song) }; } catch { return null; }
+    }).filter(Boolean);
+    lastSongsKey = '';
+  } catch (e) { clog('warn', `favorites unavailable: ${e.message}`); }
+}
+const favKey = (sg) => `${sg.title}\n${sg.library || ''}`;
+const favOf = (sg) => favorites.find((f) => f.song === sg || favKey(f.song) === favKey(sg));
+async function toggleFavorite(sg) {
+  const f = favOf(sg);
+  try {
+    if (f) {
+      if (!confirm(`Remove “${sg.title}” from the favorites everyone on this server sees?`)) return;
+      await fetch(`/api/favorites/${f.id}`, { method: 'DELETE' });
+      clog('ok', `★ “${sg.title}” removed from favorites`);
+    } else {
+      const r = await fetch('/api/favorites', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ song: songToJSON(sg) }) });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error || r.status);
+      clog('ok', `★ “${sg.title}” is now a favorite on this server`);
+    }
+    await loadFavorites();
+  } catch (e) { warnUser(`Favorite failed: ${e.message}`); }
+  renderSongs();
+}
+function favListHTML() {
+  if (!favorites.length) return '<div class="muted small">No favorites yet — ★ a song you like and everyone on this server will see it here.</div>';
+  return favorites.map((f, k) => {
+    const sg = f.song;
+    const sel = songSel.set === `fav:${k}`;
+    const playing = setl.running && setl.songs[setl.current] === sg;
+    return `<div class="song fav ${playing ? 'playing' : 'ready'}${sel ? ' selected' : ''}" data-fav="${k}" title="Show or play this song">
+      <span class="ico">${playing ? '▶' : '★'}</span>
+      <div class="body"><div class="t">${esc(sg.title)}</div><div class="meta">${esc(songMeta(sg))}</div></div>
+      <button class="jump" data-fav-play="${k}" title="Play this song (no AI needed)">▶</button>
+    </div>`;
+  }).join('');
+}
+$('favSongs').addEventListener('click', (e) => {
+  const play = e.target.closest('[data-fav-play]');
+  if (play) { const k = Number(play.dataset.favPlay); songSel.set = `fav:${k}`; playSong(favorites[k].song); return; }
+  const row = e.target.closest('[data-fav]');
+  if (row) { const v = `fav:${row.dataset.fav}`; songSel.set = songSel.set === v ? null : v; lastSongsKey = ''; renderSongs(); }
+});
+loadFavorites();
+setInterval(loadFavorites, 60000);
+document.addEventListener('visibilitychange', () => { if (!document.hidden) loadFavorites(); });
+
+// --- editing a song: re-arranged by the app (no AI), live if it's playing
+function rawSheet(sh) {
+  return {
+    form: sh.form, bpm: sh.bpm, key: sh.key, scale: sh.scale, hook: sh.hook,
+    chords: Object.fromEntries(Object.entries(sh.chords).map(([k, v]) => [k, v.replace(/^<|>$/g, '')])),
+    parts: sh.parts.map((p) => ({ name: p.id, role: p.role, sound: p.sound, variants: p.variants, desc: p.desc })),
+    sections: sh.sections.map((x) => ({ name: x.name, bars: x.bars, chords: x.chords, play: x.play.map((y) => (y.variant === 'main' ? y.part : `${y.part}.${y.variant}`)) })),
+  };
+}
+/**
+ * Apply a new sheet and/or parts code to a song. Checks the parts (names, sounds, a silent test
+ * play) and re-arranges the sections; a playing song switches to the new arrangement from its
+ * next section. Returns an error message, or null.
+ */
+async function applySongEdit(sg, raw, partsCode = null) {
+  let sheet;
+  try { sheet = normalizeSheet(raw, 'auto', { enforceForm: false }); } catch (e) { return `the song sheet can't be used: ${e.message}`; }
+  let lib = partsCode ? `setcpm(${sheet.bpm}/4)\n` + partsCode.replace(/^\s*setcp[ms]\([^)]*\)\s*;?\s*$/gm, '').trim() : sg.library.replace(/setcpm\([^)]*\)/, `setcpm(${sheet.bpm}/4)`);
+  const missing = libraryIds(sheet).filter((id) => !definesId(lib, id));
+  if (missing.length) return `the parts code is missing: ${missing.join(', ')} (every part.variant the sections play needs a const)`;
+  if (patternLines(lib).length) return 'the parts code must only contain const definitions (no "name:" lines)';
+  const syn = syntaxError(lib);
+  if (syn) return `the parts code has a syntax error: ${syn}`;
+  const prep = await prepareCode(lib, { quiet: true });
+  if (prep.error) return prep.error;
+  lib = prep.code;
+  const testErr = testLibrary(lib, sheet);
+  if (testErr) return `the parts fail when test-played: ${testErr.message}`;
+  sg.sheet = sheet;
+  sg.library = lib;
+  rearrangeSong(sg);
+  if (isMine(sg)) saveMySongs();
+  lastSongsKey = '';
+  clog('ok', `🎵 “${sg.title}” updated: ${sheet.sections.length} sections, ${sheet.sections.reduce((a, x) => a + x.bars, 0)} bars`);
+  return null;
+}
+/** Rebuild a song's sections; if it's in the player, replace the ones that haven't started. */
+function rearrangeSong(sg) {
+  const fresh = arrangeSong(sg);
+  fresh.forEach((st) => Object.assign(st, { song: sg }));
+  const inEngine = sg.blocks?.some((b) => setlist.steps.includes(b));
+  if (!inEngine) {
+    sg.blocks = fresh;
+  } else {
+    const started = sg.blocks.filter((b) => ['playing', 'done', 'armed'].includes(b.status) && setlist.steps.includes(b));
+    const lastStarted = started[started.length - 1];
+    const fromSec = lastStarted ? sg.sheet.sections.findIndex((x) => x.name === lastStarted.section?.name) + 1 || started.filter((b) => !b.fillStep).length : 0;
+    const tail = fresh.filter((st) => sg.sheet.sections.indexOf(st.section) >= fromSec);
+    const pending = sg.blocks.filter((b) => !started.includes(b));
+    const at = pending.length ? setlist.steps.indexOf(pending[0]) : setlist.steps.indexOf(lastStarted) + 1;
+    setlist.steps = setlist.steps.filter((b) => !pending.includes(b));
+    setlist.steps.splice(at, 0, ...tail);
+    if (setlist.playIndex > at) setlist.playIndex = at;
+    setlist.genIndex = Math.min(setlist.genIndex, at);
+    sg.blocks = [...started, ...tail];
+  }
+  sg.blocks.forEach((st, j) => Object.assign(st, { song: sg, songPos: j, songLen: sg.blocks.length, songStart: j === 0 }));
+  sg.bars = sg.blocks.reduce((a, b) => a + b.bars, 0);
+  sg.firstStep = sg.blocks[0];
+  if (padsState.owner === sg) loadPads(sg.pads, sg);
+}
+
+// the text editor in the song view: sections / chords / parts as lines
+const songEdit = { sg: null };
+function songEditorHTML(sg) {
+  const r = rawSheet(sg.sheet);
+  return `<div class="sv-edit">
+    <div class="sv-edit-row"><label>title <input data-f="title" value="${esc(sg.title)}" /></label><label>bpm <input data-f="bpm" type="number" min="50" max="200" value="${r.bpm}" /></label><label>scale <input data-f="scale" value="${esc(r.scale)}" /></label></div>
+    <label>chords — <span class="muted">one per line: <code>name: Am F C G</code></span>
+      <textarea data-f="chords" rows="3">${esc(Object.entries(r.chords).map(([k, v]) => `${k}: ${v}`).join('\n'))}</textarea></label>
+    <label>sections — <span class="muted">one per line: <code>name | bars | chords | parts (part or part.variant)</code></span>
+      <textarea data-f="sections" rows="${Math.min(14, r.sections.length + 1)}">${esc(r.sections.map((x) => `${x.name} | ${x.bars} | ${x.chords} | ${x.play.join(', ')}`).join('\n'))}</textarea></label>
+    <label>parts — <span class="muted">one per line: <code>name | role | sound | variants</code></span>
+      <textarea data-f="parts" rows="${Math.min(8, r.parts.length + 1)}">${esc(r.parts.map((p) => `${p.name} | ${p.role} | ${p.sound} | ${p.variants.join(', ')}`).join('\n'))}</textarea></label>
+    <label>parts code — <span class="muted">a <code>const name_variant = …</code> for every part.variant the sections use (harmonic parts take <code>(prog)</code>)</span>
+      <textarea data-f="library" rows="10" spellcheck="false">${esc(sg.library)}</textarea></label>
+    <div class="sl-buttons"><button data-act="edit-save">✓ apply</button><button data-act="edit-cancel" class="link">cancel</button><span class="sv-edit-msg muted small"></span></div>
+    <div class="muted small">Or ask the chat: “make the chorus 16 bars”, “add a breakdown before the last chorus”, “give the bass a funkier line”.</div>
+  </div>`;
+}
+async function saveSongEditor(el, sg) {
+  const v = (f) => el.querySelector(`[data-f="${f}"]`).value;
+  const lines = (t) => t.split('\n').map((l) => l.trim()).filter(Boolean);
+  const raw = rawSheet(sg.sheet);
+  raw.bpm = Number(v('bpm')) || raw.bpm;
+  raw.scale = v('scale').trim() || raw.scale;
+  raw.key = raw.scale.replace(':', ' ');
+  raw.chords = Object.fromEntries(lines(v('chords')).map((l) => { const i = l.indexOf(':'); return [l.slice(0, i).trim(), l.slice(i + 1).trim()]; }).filter(([k, c]) => k && c));
+  raw.parts = lines(v('parts')).map((l) => { const [name, role, sound, variants] = l.split('|').map((x) => (x || '').trim()); return { name, role, sound, variants: (variants || 'main').split(/[,\s]+/).filter(Boolean) }; });
+  raw.sections = lines(v('sections')).map((l) => { const [name, bars, chords, play] = l.split('|').map((x) => (x || '').trim()); return { name, bars: Number(bars) || 8, chords, play: (play || '').split(/[,\s]+/).filter(Boolean) }; });
+  const msg = el.querySelector('.sv-edit-msg');
+  msg.textContent = 'checking…';
+  const title = v('title').trim();
+  const err = await applySongEdit(sg, raw, v('library'));
+  if (err) { msg.textContent = `⚠ ${err}`; msg.classList.add('bad'); return; }
+  if (title) sg.title = title;
+  if (isMine(sg)) saveMySongs();
+  songEdit.sg = null;
+  lastSongsKey = '';
+  renderSongs();
+}
+
+// --- song pads: 16 pads built from the song itself (its parts, key and chords) — no AI needed
+function songPads(sg) {
+  const sh = sg.sheet, lib = sg.library;
+  if (!sh || !lib) return null;
+  const pads = [];
+  const add = (label, code, mode = 'toggle', color = '#7c5cff') => { if (pads.length < 16) pads.push({ label, code, mode, color }); };
+  const drums = sh.parts.find((p) => /drum|perc|beat/i.test(p.role + p.id));
+  const bank = drums && /^[A-Z]/.test(drums.sound) ? `.bank("${drums.sound}")` : '';
+  const scale = sh.scale;
+  // the song's own extra variants (half-time drums, fills, …) and the hook
+  for (const p of sh.parts) for (const v of p.variants) {
+    if (v === 'main' && !/hook|lead|melody/i.test(p.role + p.id)) continue;
+    const id = `${p.id}_${v}`;
+    if (definesId(lib, id)) add(v === 'main' ? p.id : `${p.id} ${v}`, partExpr(lib, id), v === 'fill' ? 'once' : 'toggle', v === 'fill' ? '#ffd166' : '#20d3a6');
+  }
+  // jam parts in the song's key, following the section's chords
+  add('arp', `n("0 2 4 7 4 2").scale("${scale}").fast(2).s("triangle").gain(0.4)`, 'toggle', '#20d3a6');
+  add('stabs', 'chord(sectionChords).voicing().struct("~ x ~ x").s("square").decay(0.1).sustain(0).gain(0.3)', 'toggle', '#20d3a6');
+  add('sub', 'chord(sectionChords).rootNotes(1).s("sine").gain(0.6)', 'toggle', '#20d3a6');
+  add('lead', `n("<0 [2 4] 7 [4 2]>").scale("${scale}").add(note(12)).s("sawtooth").lpf(2000).decay(0.2).sustain(0.3).gain(0.3)`, 'toggle', '#20d3a6');
+  add('pad', 'chord(sectionChords).voicing().s("supersaw").attack(0.4).release(1).lpf(1800).gain(0.25)', 'toggle', '#7c5cff');
+  add('snare roll', `s("sd*16")${bank}.gain(saw.range(0.2, 0.9))`, 'once', '#ffd166');
+  add('crash', `s("cr")${bank}.gain(0.6)`, 'once', '#ffd166');
+  add('shaker', `s("hh*16")${bank}.gain(0.25).pan(sine)`, 'toggle', '#ffd166');
+  add('riser', 's("white").lpf(saw.range(200, 8000)).gain(0.25)', 'hold', '#7c5cff');
+  add('filter all', 'all(x => x.lpf(500))', 'hold', '#7c5cff');
+  add('echo all', 'all(x => x.delay(0.5).delaytime(0.1875).delayfeedback(0.6))', 'hold', '#7c5cff');
+  add('half time', 'all(x => x.slow(2))', 'hold', '#7c5cff');
+  add('stutter', 'all(x => x.ply(2))', 'hold', '#7c5cff');
+  return pads;
+}
+
+// --- 🧾 every song played this session (kept in the tab; download as a text file)
+const LOG_KEY = 'strudel-ai:playlog';
+const LOG_JSON_MARK = '--- SONGS AS JSON';
+const playLog = (() => { try { return JSON.parse(sessionStorage.getItem(LOG_KEY)) || []; } catch { return []; } })();
+function logPlayed(sg, mode) {
+  if (!sg?.blocks?.length || playLog[playLog.length - 1]?.title === sg.title) return;
+  playLog.push({ at: new Date().toISOString(), mode, title: sg.title, json: songToJSON(sg) });
+  try { sessionStorage.setItem(LOG_KEY, JSON.stringify(playLog.slice(-200))); } catch {}
+}
+function playLogText() {
+  const out = [`Strudel AI — songs played this session (${new Date().toLocaleString()})`, ''];
+  playLog.forEach((e, i) => {
+    const j = e.json, sh = j.sheet;
+    out.push(`${i + 1}. ${new Date(e.at).toLocaleTimeString()}  “${j.title}”  (${e.mode})`);
+    if (j.desc) out.push(`   ${j.desc}`);
+    if (sh) {
+      out.push(`   ${sh.bpm} bpm · ${sh.key} · form ${sh.form || '?'} · ${sh.sections.length} sections · ${sh.sections.reduce((a, x) => a + x.bars, 0)} bars`);
+      out.push(`   chords: ${Object.entries(sh.chords).map(([k, v]) => `${k} ${v}`).join(' · ')}   hook: ${sh.hook}`);
+      out.push(`   sections: ${sh.sections.map((x) => `${x.name} ${x.bars}`).join(', ')}`);
+      out.push('   parts code:', ...String(j.library || '').split('\n').map((l) => '     ' + l));
+    } else {
+      out.push(`   ${(j.steps || []).length} sections:`, ...(j.steps || []).map((st) => `     ${st.bars} bars — ${st.prompt}`));
+    }
+    out.push('');
+  });
+  out.push(`${LOG_JSON_MARK} (import this file in 🎵 Songs → 📁 My songs → ⬆ import) ---`, JSON.stringify(playLog.map((e) => e.json), null, 1));
+  return out.join('\n');
+}
+for (const b of [$('logDownload'), ...document.querySelectorAll('.log-dl')]) {
+  b.onclick = () => {
+    if (!playLog.length) { clog('info', 'no songs played yet this session'); b.title = 'No songs played yet this session'; return; }
+    download(`strudel-ai-session-${new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-')}.txt`, playLogText(), 'text/plain');
+  };
+}
+
+// --- chat ↔ song / pads: the context the chat needs, and applying its replies
+/** The song chat should work on: the one playing (if written from a sheet), else the one open in the Songs tab. */
+function activeSong() {
+  const playing = setl.running ? setl.songs[setl.current] : null;
+  if (playing?.sheet && playing.library) return playing;
+  const viewed = viewedSong('set');
+  return viewed?.sheet && viewed.library ? viewed : null;
+}
+const SONG_WORDS = /\b(song|section|sections|verse|chorus|bridge|intro|outro|drop|build|breakdown|break|structure|form|arrange|arrangement|chords?|progression|parts?|bars?|hook|tempo|bpm|key)\b/i;
+/** Extra context for a chat request — only when the message is about the song / pads (keeps requests small). */
+function chatContext(text) {
+  const out = [];
+  const sg = activeSong();
+  if (sg && SONG_WORDS.test(text)) {
+    out.push(`ACTIVE SONG "${sg.title}" — sheet JSON:\n${JSON.stringify(rawSheet(sg.sheet))}\nPARTS CODE:\n\`\`\`javascript\n${sg.library}\n\`\`\``);
+  }
+  if (/\bpads?\b/i.test(text)) {
+    out.push('PADS (number. label [mode]: code):\n' + pads.map((p, i) => `${i + 1}. ${p.label} [${p.mode}]${padIsOn(i) ? ' (on)' : ''}: ${oneLine(p.code)}`).join('\n'));
+  }
+  return out.join('\n\n');
+}
+/** ```pads reply: program pads and/or switch them on / off. Returns a short summary. */
+function applyPadsReply(block) {
+  const j = parseJSONLoose(block.startsWith('{') ? block : `{${block}}`);
+  const done = [];
+  for (const p of Array.isArray(j.program) ? j.program : []) {
+    const i = Number(p.pad) - 1;
+    if (!(i >= 0 && i < 16)) continue;
+    pads[i] = { ...pads[i], ...(p.label != null ? { label: String(p.label).slice(0, 24) } : {}), ...(p.code != null ? { code: String(p.code) } : {}), ...(['toggle', 'hold', 'once'].includes(p.mode) ? { mode: p.mode } : {}), ...(p.color ? { color: String(p.color) } : {}) };
+    done.push(`programmed pad ${i + 1} (${pads[i].label})`);
+  }
+  if (done.length) savePads();
+  for (const n of Array.isArray(j.on) ? j.on : []) { const i = Number(n) - 1; if (pads[i]) { (pads[i].mode === 'once' ? padOnce(i) : setPad(i, true)); done.push(`pad ${i + 1} on`); } }
+  for (const n of Array.isArray(j.off) ? j.off : []) { const i = Number(n) - 1; if (pads[i]) { setPad(i, false); done.push(`pad ${i + 1} off`); } }
+  renderPads.key = '';
+  if (done.length && !docks.pads.on) { docks.pads.show(true); save({ padsOn: true }); }
+  return done.join(', ');
+}
+
+// ---------------------------------------------------------------------------
+// 🎙 MP3 recording: taps the master output (what you hear), encodes to MP3 in a
+// Web Worker (lamejs) while recording, and downloads the file when you stop.
+// "🎙 MP3" on a song plays it from the start and stops when it ends.
+// ---------------------------------------------------------------------------
+const mp3 = { rec: null, autoSong: null };
+function mp3Worker() {
+  const lib = new URL('/vendor/lamejs/lame.min.js', location.href).href;
+  const src = `importScripts(${JSON.stringify(lib)});
+let enc = null; const out = [];
+const toI16 = (f) => { const o = new Int16Array(f.length); for (let i = 0; i < f.length; i++) { const v = Math.max(-1, Math.min(1, f[i])); o[i] = v < 0 ? v * 0x8000 : v * 0x7fff; } return o; };
+onmessage = (e) => {
+  const m = e.data;
+  if (m.type === 'start') { enc = new lamejs.Mp3Encoder(2, m.sampleRate, 192); out.length = 0; }
+  else if (m.type === 'data') { const b = enc.encodeBuffer(toI16(m.l), toI16(m.r)); if (b.length) out.push(b); }
+  else if (m.type === 'end') { const b = enc.flush(); if (b.length) out.push(b); postMessage(out); }
+};`;
+  return new Worker(URL.createObjectURL(new Blob([src], { type: 'text/javascript' })));
+}
+async function mp3Start(name = 'strudel-ai') {
+  if (mp3.rec) return;
+  await ensureAudio();
+  const ctx = audioCtx();
+  let node;
+  try { node = globalThis.getSuperdoughAudioController().output.destinationGain; } catch { warnUser('MP3: the audio engine is not ready yet — press ▶ first'); return; }
+  const worker = mp3Worker();
+  worker.postMessage({ type: 'start', sampleRate: ctx.sampleRate });
+  const proc = ctx.createScriptProcessor(4096, 2, 2);
+  proc.onaudioprocess = (e) => {
+    const l = e.inputBuffer.getChannelData(0), r = e.inputBuffer.numberOfChannels > 1 ? e.inputBuffer.getChannelData(1) : l;
+    worker.postMessage({ type: 'data', l: l.slice(), r: r.slice() });
+  };
+  node.connect(proc);
+  proc.connect(ctx.destination); // a ScriptProcessor only runs when connected; it outputs silence
+  mp3.rec = { worker, proc, node, name, t0: performance.now() };
+  $('mp3Btn').classList.add('on');
+  clog('info', `🎙 recording MP3 “${name}”…`);
+}
+function mp3Stop() {
+  const r = mp3.rec;
+  if (!r) return;
+  mp3.rec = null;
+  mp3.autoSong = null;
+  clearTimeout(mp3.timer);
+  try { r.node.disconnect(r.proc); r.proc.disconnect(); } catch {}
+  $('mp3Btn').classList.remove('on');
+  $('mp3Btn').textContent = '⏺ MP3';
+  const secs = (performance.now() - r.t0) / 1000;
+  r.worker.onmessage = (e) => {
+    const blob = new Blob(e.data, { type: 'audio/mpeg' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `${slug(r.name)}-${new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-')}.mp3`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+    r.worker.terminate();
+    clog('ok', `🎙 MP3 saved: ${a.download} (${fmtTime(secs)}, ${(blob.size / 1e6).toFixed(1)} MB)`);
+  };
+  r.worker.postMessage({ type: 'end' });
+  lastSongsKey = '';
+}
+/** Play a song from its first section and record it; stops when the song is over. */
+async function recordSongMp3(sg) {
+  mp3Stop();
+  if (isPlaying()) { mirror()?.stop(); await sleep(250); }
+  playSong(sg);
+  // start recording when the song's first section actually switches in
+  const t0 = performance.now();
+  const wait = setInterval(async () => {
+    if (sg.blocks?.[0]?.status === 'playing' || sg.blocks?.[0]?.status === 'done') {
+      clearInterval(wait);
+      await mp3Start(sg.title);
+      mp3.autoSong = sg;
+      const bpm = sg.sheet?.bpm || Math.round(cps() * 240) || 120;
+      mp3.timer = setTimeout(mp3Stop, ((sg.bars * 4 * 60) / bpm + 3) * 1000); // safety stop: song length + tail
+      lastSongsKey = '';
+    } else if (performance.now() - t0 > 60000) { clearInterval(wait); warnUser(`MP3: “${sg.title}” didn't start`); }
+  }, 50);
+}
+$('mp3Btn').onclick = () => (mp3.rec ? mp3Stop() : mp3Start(setl.songs[setl.current]?.title || 'strudel-ai'));
+setInterval(() => { if (mp3.rec) $('mp3Btn').textContent = `■ ${fmtTime((performance.now() - mp3.rec.t0) / 1000)}`; }, 500);
+
 // handy for debugging from the browser console
-window.strudelAI = { pads, padsState, keysState, noteOn, noteOff, setPad, docks, rec, replay, startReplay, recordingForShare, viz, checkScales, checkSounds, prepareCode, evaluateCode, dryRun, hum, transcribe, ensureSliders, setlist, setl };
+window.strudelAI = { normalizeSheet, playSong, getForms: () => songForms, getFavorites: () => favorites, loadFavorites, getPads: () => pads, mySongs, activeSong, songFromJSON, songToJSON, mp3, session, pads, padsState, keysState, noteOn, noteOff, setPad, docks, rec, replay, startReplay, recordingForShare, viz, checkScales, checkSounds, prepareCode, evaluateCode, dryRun, hum, transcribe, ensureSliders, setlist, setl };

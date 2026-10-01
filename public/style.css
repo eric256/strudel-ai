@@ -467,3 +467,27 @@ header .share-wrap { margin-left: auto; }
 /* keys: template line */
 .keys-template { flex: 1 1 260px; min-width: 200px; font: 12px var(--mono); padding: 3px 6px; }
 #keysInfo.bad { color: var(--danger); }
+
+/* status bar: warnings, cost, mp3 */
+.sb-warn { color: #ffd166; border-color: #6b5a1e; background: #2a2410; }
+.sb-mp3.on { background: #5a2030; border-color: var(--danger); color: #fff; animation: pulse .8s ease-in-out infinite alternate; }
+#sbCost { color: #9fe8d4; cursor: help; }
+.budget { width: 80px; padding: 3px 6px; }
+.msg .note.warn { color: #ffd166; cursor: help; }
+.err-icon { color: #ffd166; cursor: help; margin-left: 4px; }
+
+/* My songs + song view toolbar + editor */
+.my-head { display: flex; align-items: center; gap: 8px; margin-top: 8px; font-size: 13px; }
+.my-head .spacer { flex: 1; }
+.small-btn { font-size: 12px; padding: 2px 8px; }
+.song.mine .meta { font-size: 11px; }
+.sv-mine { font-size: 11px; color: var(--muted); }
+.sv-toolbar { display: flex; flex-wrap: wrap; gap: 4px; }
+.sv-toolbar button { font-size: 12px; padding: 2px 8px; }
+.sv-edit { display: flex; flex-direction: column; gap: 6px; }
+.sv-edit label { display: flex; flex-direction: column; gap: 2px; color: var(--muted); font-size: 11px; }
+.sv-edit textarea, .sv-edit input { font: 12px var(--mono); padding: 4px 6px; color: var(--text); }
+.sv-edit-row { display: flex; gap: 8px; flex-wrap: wrap; }
+.sv-edit-row label { flex: 1; min-width: 90px; }
+.sv-edit-msg.bad { color: #ffd166; }
+.song.fav .ico { color: #ffd166; }

@@ -67,7 +67,15 @@ llama-server -m your-model.gguf --host 0.0.0.0 --port 8080 -c 8192
   - **medium** / **high** can help with songs and parts, but take longer and cost more.
 - Claude's short reasoning summary appears collapsed above its reply, and in the 🖥 Console.
 - **Prompt caching:** the long, unchanging instructions plus the sound list are cached, so repeat requests read them at about a tenth of the price.
-- **Cost:** the console shows each reply's token usage and approximate cost. As a rough guide on Sonnet 5.5, a chat change is about 1–2¢ and a whole station song (sheet + parts) about 5–7¢.
+- **Cost:** the console shows each reply's token usage and approximate cost. The status bar shows the session total (💲).
+- **Session budget** (⚙ Settings → AI, default $2): once the session has spent that much, no more AI requests are sent until you raise it. 0 means no limit.
+- **Keeping usage down:**
+  - the instructions are cached for an hour;
+  - the parts step only gets the sounds the song sheet chose;
+  - the song and pads are only sent when your message is about them;
+  - retries are capped at two;
+  - stations write one song ahead (*songs ahead* = 1);
+  - playing a written, saved or favorite song never calls the AI. As a rough guide on Sonnet 5.5, a chat change is about 1–2¢ and a whole station song (sheet + parts) about 5–7¢.
 - **Declines:** if Claude declines a request, Anthropic's server-side fallback retries it on a recommended fallback model. If that doesn't help either, the chat shows a short "Claude declined" message.
 
 ## How it works
@@ -135,6 +143,12 @@ Tick **⚡ live** (⚙ Settings → General) and your edits in the code window t
   - **spectrum**, **spectrogram** (a scrolling waterfall) and **radial spectrum**.
   - **level meters:** left/right RMS with peak hold, in dB.
 - **Combined views:** piano roll + spectrum, and piano roll + oscilloscope.
+
+## 🎙 Recording to MP3
+
+**⏺ MP3** in the status bar records what you hear (the master output) and saves an MP3 when you click it again. **🎙 MP3** on a song records just that song, from its first bar to its end.
+
+Encoding happens in the browser while you record (lamejs, 192 kbps stereo), so nothing is uploaded.
 - **Dock** it under the code, above it, or at the top of the side panel, and drag its edge to resize. All of this is remembered.
 
 ## 🎵 Songs & 📻 Station
@@ -187,7 +201,32 @@ Rain on Glass | lo-fi hip hop, 80 bpm, jazzy Rhodes chords, vinyl crackle; laid 
   - Opening the link puts the song in the Songs tab with **▶ Play this song**. It plays exactly as written, with no AI calls, so the person opening it doesn't need a model.
   - The opener's own set list text isn't touched.
 - **Skipping ahead** stops writing anything above the section you picked that has no code yet (only possible for songs written block by block).
-- **loop** replays the set with the code that's already written, so looping needs no further AI calls. **✨ Write with AI** turns a theme into a set list.
+- **loop** replays the set with the code that's already written, so looping needs no further AI calls. When a set (without loop) or a single song finishes, the music stops after the last section. **✨ Write with AI** turns a theme into a set list.
+
+### 📁 My songs, ★ Favorites and portable songs
+Every finished song has a toolbar:
+
+| Button | What it does |
+|---|---|
+| ▶ Play | plays it from the start (already written, so no AI is used) |
+| ☆ Favorite | adds it to **★ Favorites**, a list stored on the server that everyone who opens this server sees and that survives restarts. Click again to remove it |
+| 📁 Save to My songs | copies it into **My songs** (kept in your browser) — this is how a station song moves to the Songs tab to be worked on |
+| ✎ Edit | (My songs) edit the song as text: tempo, scale, chords (`name: Am F C G`), sections (`name \| bars \| chords \| parts`), parts (`name \| role \| sound \| variants`) and the parts code. **apply** checks and test-plays the parts and re-arranges the song; a song that's playing switches over from its next section |
+| 🔲 Song pads | loads the song's own 16 pads into the pad dock to jam along (see below) |
+| 🎙 MP3 | plays the song from the start and records it to an MP3 file, stopping when the song ends |
+| ⬇ JSON | downloads the whole song (sheet, parts, sections, pads) as a `.json` file. **⬆ import** loads such a file — or a session log — on any Strudel AI server |
+| 🔗 Link | a short link to the song on this server |
+
+**Chat edits the song, too:** with a song playing (or open in the Songs tab), ask things like *"make the chorus 16 bars"*, *"add a breakdown before the last chorus"* or *"give the bass a funkier line"*. The chat changes the song's sheet and parts, and they're checked and re-arranged the same way. The song is only sent to the AI when your message is about the song (sections, chorus, chords, parts …), which keeps requests small.
+
+**Song pads** are made from the song itself, with no AI:
+- the song's extra variants (half-time drums, fills, the hook);
+- jam parts in the song's key that follow the current section's chords (arp, stabs, sub, lead, pad);
+- drum one-shots and effects (snare roll, crash, shaker, riser, filter, echo, half time, stutter).
+
+Edit them like any pads; they're saved with the song. **↩ my pads** goes back to your own set.
+
+**🧾 Played this session:** every song that plays (Songs tab or station) is logged for the browser tab. **⬇ played this session** downloads the log as a text file listing each song (time, tempo, key, form, chords, sections, parts code), plus the songs as JSON at the end, so the file can be imported again.
 
 ### 📻 Station
 - **Setup:** pick or create a station: a name and a theme, e.g. *"late-night lo-fi with jazzy chords, 70–90 bpm, rainy city mood"*. Stations are saved in the browser, and three examples are included.
@@ -279,7 +318,9 @@ Live, `{note}` is the key you press. In a recording it becomes the recorded note
 - retries and repairs;
 - errors from the audio engine.
 
-Problems the app is still fixing stay in the console. The chat only gets the final result:
+Problems the app is still fixing stay in the console. When an AI problem can't be fixed (e.g. Claude is overloaded after 4 automatic retries, or the budget is reached), it's shown only as **⚠** in the status bar, with the message as its tooltip; click it to open the console.
+
+Fix attempts always work on the AI's own failed code (sent as *code to fix*), not on what's in the editor. The chat only gets the final result:
 - If a reply needed fixing, its bubble shows the code that finally worked, with a note like *🔧 fixed automatically (1 retry)*.
 - An error reaches the chat only when every attempt has failed.
 

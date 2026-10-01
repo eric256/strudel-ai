@@ -2,6 +2,32 @@
 
 The version is in `package.json`. Bump it when you release. Open pages also notice *any* redeploy through the build id, which is a hash of the app files, even if the version wasn't bumped.
 
+## 1.21.0
+- **★ Favorites:** ☆ a song and it's stored on the server. Everyone who opens this server sees it in the Songs tab, it survives restarts, and it plays without any AI calls.
+- **📁 My songs:**
+  - Save any song, including a station song, into My songs in the Songs tab, then edit it there: tempo, scale, chords, sections, parts and parts code. Changes are checked, test-played and re-arranged live.
+  - **⬇ JSON / ⬆ import** move whole songs (sheet, parts, sections, pads) between servers.
+- **Chat works on the song and the pads:**
+  - With a song playing or open, ask for structure changes ("make the chorus 16 bars", "add a breakdown"). The song switches over from its next section.
+  - Ask to program or press pads ("make pad 1 a kick and turn it on").
+- **Song pads:** every song comes with 16 pads made from its own parts, key and chords, no AI needed. **🔲 Song pads** loads them to jam along.
+- **🎙 MP3 recording:** record what you hear (⏺ MP3 in the status bar), or one whole song from its toolbar.
+- **🧾 Session log:** every song played is logged. **⬇ played this session** saves it as a text file that can be imported again.
+- **Errors stay out of the page:** AI errors such as "overloaded" go to the console. Claude requests are retried 4 times first. If an error can't be resolved, the status bar shows ⚠ with the message as a tooltip.
+- **Fixes work on the right code:** when the AI's code fails a check, the fix request now sends that failed code ("code to fix") instead of whatever is in the editor. Block-by-block song sections are regenerated from their own failed code too.
+- **Shorter choruses:** choruses and hooks are 4 bars at most, in the built-in forms and on every AI-written song. Stored copies of the old built-in forms are updated unless you changed them.
+- **Patterns span bars:** the AI is asked for 2–4 bar phrases instead of one bar on repeat:
+  - bar-by-bar changes with `<…>`;
+  - longer lines with `.slow(2)`;
+  - fills in the last bar of a phrase with `.lastOf(4, …)`.
+
+  Hooks are now 2-bar melodies.
+- **Songs stop at the end:** a song played from a list (▶ on My songs, Favorites or a song view) stops after its last section, instead of looping or holding the last section. A finished set list stops too.
+- **Much less AI usage:**
+  - **Session cost and budget:** the status bar shows the session's cost. A session budget (default $2) stops requests at that point.
+  - **Cheaper requests:** a 1-hour prompt cache; the parts step only gets the sounds it needs; song and pad context is only sent when the message is about them.
+  - **Fewer requests:** two retries instead of three; stations write one song ahead.
+
 ## 1.20.0
 - **Claude as an AI provider:** set `ANTHROPIC_API_KEY` in `.env` and pick **Claude** in ⚙ Settings → AI. The default model is Claude Sonnet 5.5, and `ANTHROPIC_MODEL` can change it.
   - It uses Anthropic's official SDK, with streaming in the same format as the other providers, so every feature works with it.

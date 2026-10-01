@@ -106,7 +106,8 @@
       <section id="pads-dock" class="dock dock-bottom" hidden>
         <div id="padsHandle" class="viz-handle" title="Drag to resize"></div>
         <div class="viz-bar">
-          <b>🔲 Pads</b>
+          <b>🔲 Pads</b> <span id="padsSource" class="muted small"></span>
+          <button id="padsMine" class="link" title="Back to your own pads" hidden>↩ my pads</button>
           <label title="When a pad switches in">sync <select id="padsSync"><option value="0.25">next beat</option><option value="1">next bar</option></select></label>
           <button id="padsEdit" title="Program the pads: click a pad to edit its label, code and mode">✎ program</button>
           <button id="padsRec" class="rec-btn" title="Record: pad changes while the music runs are written into the code as masks, so the performance loops">⏺ Rec</button>
@@ -204,6 +205,17 @@
           <button class="link forms-edit" title="See, edit and add song forms">🎼 edit forms</button>
         </div>
         <div id="setStatus" class="songs"></div>
+        <div class="my-head">
+          <b>★ Favorites</b> <span class="muted small" title="Favorites are stored on this server: everyone who opens it sees them, and they survive restarts">shared on this server</span>
+        </div>
+        <div id="favSongs" class="songs"></div>
+        <div class="my-head">
+          <b>📁 My songs</b>
+          <span class="spacer"></span>
+          <label class="button-like small-btn" title="Load a song file (.json) exported from any Strudel AI server, or a session log">⬆ import <input type="file" id="songImport" accept=".json,.txt,application/json,text/plain" hidden /></label>
+          <button id="logDownload" class="link" title="Download every song played this session as a text file">⬇ played this session</button>
+        </div>
+        <div id="mySongs" class="songs"></div>
         <div id="setSongView" class="song-view" hidden></div>
       </div>
       <div id="stationTab" class="tab" hidden>
@@ -218,7 +230,7 @@
           <button id="stationStart">📻 Start station</button>
           <button id="stationStop" disabled>■ Stop</button>
           <label title="How many future songs the agent keeps planned">songs ahead
-            <select id="stationAhead"><option>1</option><option selected>2</option><option>3</option></select></label>
+            <select id="stationAhead"><option selected>1</option><option>2</option><option>3</option></select></label>
         </div>
         <div class="sl-buttons">
           <label title="Song form for the station's songs — auto picks one that fits each song's genre">form
@@ -226,6 +238,7 @@
           <button class="link forms-edit" title="See, edit and add song forms">🎼 edit forms</button>
         </div>
         <div id="stationNow" class="on-air" hidden></div>
+        <div class="sl-buttons"><span class="spacer"></span><button class="link log-dl" title="Download every song played this session as a text file">⬇ played this session</button></div>
         <div id="stationStatus" class="songs"></div>
         <div id="stationSongView" class="song-view" hidden></div>
       </div>
@@ -259,6 +272,9 @@
     <span id="sbSong" class="sb-item" hidden></span>
     <button id="pending" class="pending" title="Click to cancel this pending change" hidden></button>
     <span class="sb-spacer"></span>
+    <button id="sbWarn" class="sb-warn" hidden title="">⚠</button>
+    <span id="sbCost" class="sb-item" title="AI cost this session (Claude only — local models are free)"></span>
+    <button id="mp3Btn" class="sb-mp3" title="Record what you hear to an MP3 file (click again to stop and save)">⏺ MP3</button>
     <span id="sbRec" class="sb-item" title="Recording: every change that plays is kept, so 🔗 Share can include it"></span>
     <button id="replayBtn" class="replay-pill" title="Stop following the recording (the music keeps playing)" hidden>⏺ replaying · stop</button>
     <button id="updatePill" class="update-pill" hidden></button>
@@ -310,6 +326,8 @@
       <div class="set-row" id="tempRow"><label>temperature <b id="tempVal">0.7</b></label>
         <input type="range" id="temp" min="0" max="1.5" step="0.05" value="0.7" class="temp-range" />
         <span class="muted small">how wild it gets: <b>0</b> predictable · <b>0.7</b> balanced · <b>1.2+</b> adventurous (more mistakes)</span></div>
+      <div class="set-row"><label>session budget $</label><input type="number" id="aiBudget" min="0" step="0.5" value="2" class="budget" />
+        <span class="muted small">stop all AI requests once this session has spent this much (Claude only; 0 = no limit). Spent so far: <b id="aiSpent">$0.00</b></span></div>
       <div class="set-row"><label><input type="checkbox" id="autoApply" checked /> auto-apply</label><span class="muted small">play the AI's code as soon as it's checked</span></div>
       <div class="set-row"><label><input type="checkbox" id="autoFix" checked /> auto-fix errors</label><span class="muted small">send errors back to the AI (up to 2 times) before showing them</span></div>
       <p class="muted small">API keys and server addresses are set in the server's <code>.env</code> and never reach the browser.</p>

@@ -110,6 +110,8 @@ app.use(
   '/vendor/strudel',
   express.static(path.join(__dirname, 'node_modules/@strudel/repl/dist'), { maxAge: '7d' }),
 );
+// MP3 encoder for recordings (runs in a Web Worker in the browser)
+app.use('/vendor/lamejs', express.static(path.join(__dirname, 'node_modules/lamejs'), { maxAge: '7d' }));
 // app files: always revalidate, so a new build is picked up on the next load
 app.use(express.static(PUBLIC_DIR, { setHeaders: (res) => res.set('Cache-Control', 'no-cache') }));
 
@@ -221,6 +223,70 @@ app.get('/api/share/:id', (req, res) => {
 
 app.get('/api/health', (_req, res) => res.json({ ok: true }));
 
+// ---------------------------------------------------------------------------
+// ★ Favorites: songs anyone on this server marked as favorite. Stored as JSON
+// files in DATA_DIR/favorites (the songs volume), so they survive restarts and
+// everyone who opens this server sees them. No accounts — anyone can add/remove.
+// ---------------------------------------------------------------------------
+const FAV_DIR = path.join(DATA_DIR, 'favorites');
+try { fs.mkdirSync(FAV_DIR, { recursive: true }); } catch (e) { console.error('favorites storage unavailable:', e.message); }
+const FAV_MAX = 300;
+/** A portable song (format strudel-ai-song) → cleaned copy, or false when malformed. */
+function cleanFavSong(s) {
+  if (!s || typeof s !== 'object' || typeof s.title !== 'string' || !s.title.trim()) return false;
+  const out = {
+    format: 'strudel-ai-song', version: 1,
+    title: s.title.slice(0, 120), desc: String(s.desc || '').slice(0, 1000),
+    sheet: null, library: null, pads: null, steps: undefined,
+  };
+  if (s.sheet && typeof s.sheet === 'object' && typeof s.library === 'string') {
+    if (JSON.stringify(s.sheet).length > 100_000 || s.library.length > 200_000) return false;
+    out.sheet = s.sheet;
+    out.library = s.library;
+  } else {
+    const steps = cleanSong({ steps: s.steps });
+    if (!steps) return false;
+    out.steps = steps.steps;
+  }
+  if (Array.isArray(s.pads)) {
+    out.pads = s.pads.slice(0, 16).map((p) => ({
+      label: String(p?.label || '').slice(0, 24), code: String(p?.code || '').slice(0, 2000),
+      mode: ['toggle', 'hold', 'once'].includes(p?.mode) ? p.mode : 'toggle', color: String(p?.color || '#7c5cff').slice(0, 40),
+    }));
+  }
+  return out;
+}
+function readFavorites() {
+  let files = [];
+  try { files = fs.readdirSync(FAV_DIR).filter((f) => /^[A-Za-z0-9]{6,16}\.json$/.test(f)); } catch {}
+  return files
+    .map((f) => { try { return JSON.parse(fs.readFileSync(path.join(FAV_DIR, f), 'utf8')); } catch { return null; } })
+    .filter(Boolean)
+    .sort((a, b) => String(b.favorited).localeCompare(String(a.favorited)));
+}
+app.get('/api/favorites', (_req, res) => {
+  res.set('Cache-Control', 'no-cache');
+  res.json({ favorites: readFavorites() });
+});
+app.post('/api/favorites', (req, res) => {
+  const song = cleanFavSong(req.body?.song);
+  if (!song) return res.status(400).json({ error: 'not a song' });
+  const all = readFavorites();
+  const key = (x) => `${x.song.title}\n${x.song.library || JSON.stringify(x.song.steps || [])}`;
+  const same = all.find((f) => key(f) === key({ song }));
+  if (same) return res.json(same); // already a favorite
+  if (all.length >= FAV_MAX) return res.status(409).json({ error: `the favorites list is full (${FAV_MAX})` });
+  const fav = { id: newShareId(), favorited: new Date().toISOString(), song };
+  try { fs.writeFileSync(path.join(FAV_DIR, `${fav.id}.json`), JSON.stringify(fav)); }
+  catch (e) { return res.status(500).json({ error: 'could not store the favorite: ' + e.message }); }
+  res.json(fav);
+});
+app.delete('/api/favorites/:id', (req, res) => {
+  if (!SHARE_ID.test(req.params.id)) return res.status(404).json({ error: 'not found' });
+  try { fs.unlinkSync(path.join(FAV_DIR, `${req.params.id}.json`)); res.json({ ok: true }); }
+  catch { res.status(404).json({ error: 'not found' }); }
+});
+
 // The built-in system prompts, so the settings can show them and users can edit their own copies
 const PROMPTS = { code: SYSTEM_PROMPT, setlist: SETLIST_PROMPT, songs: SONGS_PROMPT, sheet: SHEET_PROMPT, library: LIBRARY_PROMPT };
 app.get('/api/prompts', (_req, res) => {
@@ -265,7 +331,7 @@ app.get('/api/models', async (req, res) => {
 // Chat: proxies (and streams) an OpenAI-style chat completion.
 // Body: { provider, model, messages:[{role,content}], code, error? }
 app.post('/api/chat', async (req, res) => {
-  const { provider, model, messages = [], code = '', temperature, mode = 'code', sounds = '', edited = false, systemPrompt = null } = req.body || {};
+  const { provider, model, messages = [], code = '', temperature, mode = 'code', sounds = '', edited = false, systemPrompt = null, fixing = false } = req.body || {};
   const p = getProvider(provider);
 
   const history = messages.slice(-12).map((m) => ({ role: m.role, content: String(m.content) }));
@@ -278,8 +344,11 @@ app.post('/api/chat', async (req, res) => {
   } else if (history.length && history[history.length - 1].role === 'user') {
     const last = history[history.length - 1];
     last.content =
-      `CURRENT CODE (this is exactly what is in the editor right now — it is the ONLY valid starting point; ` +
-      `ignore any code from earlier messages):\n\`\`\`javascript\n${code || '// (empty)'}\n\`\`\`\n\n` +
+      (fixing
+        ? 'CODE TO FIX (your previous attempt — it has NOT been applied; fix THIS code, keep everything that works):\n'
+        : 'CURRENT CODE (this is exactly what is in the editor right now — it is the ONLY valid starting point; ' +
+          'ignore any code from earlier messages):\n') +
+      `\`\`\`javascript\n${code || '// (empty)'}\n\`\`\`\n\n` +
       (edited
         ? 'NOTE: the performer has edited this code by hand since your last reply. Keep their edits and build on this version.\n\n'
         : '') +
@@ -362,7 +431,8 @@ const CLAUDE_EFFORT = CLAUDE_EFFORTS.includes(env.ANTHROPIC_EFFORT) ? env.ANTHRO
 const CLAUDE_MAX_TOKENS = Number(env.ANTHROPIC_MAX_TOKENS || 32000); // thinking counts toward this too
 const CLAUDE_FALLBACK_MODELS = ['claude-sonnet-5-5', 'claude-opus-5-5', 'claude-haiku-4-5'];
 let claudeClient = null;
-const claude = (p) => (claudeClient ||= new Anthropic({ apiKey: p.apiKey, timeout: REQUEST_TIMEOUT_MS }));
+// "overloaded" / rate-limit / 5xx responses are retried with backoff by the SDK before anything reaches the app
+const claude = (p) => (claudeClient ||= new Anthropic({ apiKey: p.apiKey, timeout: REQUEST_TIMEOUT_MS, maxRetries: 4 }));
 
 function claudeError(e) {
   if (e instanceof Anthropic.AuthenticationError) return 'Claude rejected the API key — check ANTHROPIC_API_KEY in .env';
@@ -370,7 +440,8 @@ function claudeError(e) {
   if (e instanceof Anthropic.NotFoundError) return `Claude: model not found (${e.message})`;
   if (e instanceof Anthropic.RateLimitError) return 'Claude: rate limited — wait a moment and try again';
   if (e instanceof Anthropic.BadRequestError) return `Claude: bad request (${e.message})`;
-  if (e instanceof Anthropic.APIError) return `Claude API error ${e.status ?? ''}: ${e.message}`;
+  if (e instanceof Anthropic.InternalServerError || e?.error?.error?.type === 'overloaded_error') return 'Claude is overloaded right now (retried 4 times) — try again in a minute';
+  if (e instanceof Anthropic.APIError) return `Claude API error ${e.status ?? ''}: ${e.error?.error?.message || e.message}`;
   return `Could not reach Claude: ${e.message}`;
 }
 
@@ -401,7 +472,8 @@ async function claudeChat(p, { model, system, mode, sounds, history, effort }, r
     max_tokens: CLAUDE_MAX_TOKENS,
     // the system prompt (+ the loaded-sounds list) is long and identical on every
     // request, so cache it: later requests read it at a fraction of the price
-    system: [{ type: 'text', text: system, cache_control: { type: 'ephemeral' } }],
+    // 1-hour cache: chat is used in bursts, so a 5-minute cache would keep expiring between requests
+    system: [{ type: 'text', text: system, cache_control: { type: 'ephemeral', ttl: '1h' } }],
     messages,
     thinking: { type: 'adaptive', display: 'summarized' },
     output_config: { effort: CLAUDE_EFFORTS.includes(effort) ? effort : CLAUDE_EFFORT },
