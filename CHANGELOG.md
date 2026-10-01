@@ -2,6 +2,14 @@
 
 The version is in `package.json`. Bump it when you release. Open pages also notice *any* redeploy through the build id, which is a hash of the app files, even if the version wasn't bumped.
 
+## 1.20.0
+- **Claude as an AI provider:** set `ANTHROPIC_API_KEY` in `.env` and pick **Claude** in ⚙ Settings → AI. The default model is Claude Sonnet 5.5, and `ANTHROPIC_MODEL` can change it.
+  - It uses Anthropic's official SDK, with streaming in the same format as the other providers, so every feature works with it.
+  - **Effort** (low / medium / high) replaces temperature for Claude.
+  - The instructions and sound list are prompt-cached.
+  - Server-side fallback is on for declined requests.
+  - The console shows each reply's tokens and approximate cost.
+
 ## 1.19.0
 - **⚙ Settings → 🤖 AI:** provider, model, **temperature** (how wild the AI gets), auto-apply and auto-fix moved out of the header and the chat. **switch on** (the bar timing) moved to Settings → General. The header is now just transport, volume and tools.
 - **⚙ Settings → 📝 Prompts:** read and edit the system prompts for chat, song sheets, song parts, songs and blocks. Your versions are saved in the browser and sent instead of the built-in ones (new `/api/prompts` endpoint, and `/api/chat` accepts a prompt override).

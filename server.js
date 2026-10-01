@@ -1,4 +1,5 @@
 import express from 'express';
+import Anthropic from '@anthropic-ai/sdk';
 import http from 'node:http';
 import https from 'node:https';
 import fs from 'node:fs';
@@ -24,6 +25,14 @@ const PROVIDERS = {
     model: env.LLAMACPP_MODEL || '',
     chatPath: '/v1/chat/completions',
     modelsPath: '/v1/models',
+  },
+  // Claude via Anthropic's API (official SDK). Key from ANTHROPIC_API_KEY, never sent to the browser.
+  anthropic: {
+    label: 'Claude',
+    kind: 'anthropic',
+    baseUrl: 'https://api.anthropic.com',
+    apiKey: env.ANTHROPIC_API_KEY || '',
+    model: env.ANTHROPIC_MODEL || 'claude-sonnet-5-5',
   },
   openwebui: {
     label: 'OpenWebUI',
@@ -226,7 +235,7 @@ app.get('/api/config', (_req, res) => {
     providers: Object.fromEntries(
       Object.entries(PROVIDERS).map(([k, p]) => [
         k,
-        { label: p.label, baseUrl: p.baseUrl, defaultModel: p.model, hasKey: !!p.apiKey },
+        { label: p.label, kind: p.kind || 'openai', baseUrl: p.baseUrl, defaultModel: p.model, hasKey: !!p.apiKey, defaultEffort: p.kind === 'anthropic' ? CLAUDE_EFFORT : undefined },
       ]),
     ),
   });
@@ -235,6 +244,7 @@ app.get('/api/config', (_req, res) => {
 // List models from the selected provider
 app.get('/api/models', async (req, res) => {
   const p = getProvider(req.query.provider);
+  if (p.kind === 'anthropic') return claudeModels(p, res);
   try {
     const r = await fetch(p.baseUrl + p.modelsPath, {
       headers: headersFor(p),
@@ -300,6 +310,10 @@ app.post('/api/chat', async (req, res) => {
     max_tokens: mode === 'sheet' || mode === 'library' ? Math.max(MAX_TOKENS, 4096) : MAX_TOKENS,
   };
 
+  if (p.kind === 'anthropic') {
+    return claudeChat(p, { model: model || p.model, system: body.messages[0].content, mode, sounds, history, effort: req.body?.effort }, res);
+  }
+
   const ac = new AbortController();
   const timer = setTimeout(() => ac.abort(), REQUEST_TIMEOUT_MS);
   res.on('close', () => ac.abort());
@@ -335,6 +349,102 @@ app.post('/api/chat', async (req, res) => {
     clearTimeout(timer);
   }
 });
+
+// ---------------------------------------------------------------------------
+// Claude (Anthropic API). The reply is streamed back in the same OpenAI-style SSE
+// the browser already parses: text → delta.content, thinking summaries →
+// delta.reasoning_content, plus a final usage line. Sampling parameters
+// (temperature) don't exist on current Claude models; effort controls how much
+// the model thinks before answering ("low" keeps live edits fast).
+// ---------------------------------------------------------------------------
+const CLAUDE_EFFORTS = ['low', 'medium', 'high'];
+const CLAUDE_EFFORT = CLAUDE_EFFORTS.includes(env.ANTHROPIC_EFFORT) ? env.ANTHROPIC_EFFORT : 'low';
+const CLAUDE_MAX_TOKENS = Number(env.ANTHROPIC_MAX_TOKENS || 32000); // thinking counts toward this too
+const CLAUDE_FALLBACK_MODELS = ['claude-sonnet-5-5', 'claude-opus-5-5', 'claude-haiku-4-5'];
+let claudeClient = null;
+const claude = (p) => (claudeClient ||= new Anthropic({ apiKey: p.apiKey, timeout: REQUEST_TIMEOUT_MS }));
+
+function claudeError(e) {
+  if (e instanceof Anthropic.AuthenticationError) return 'Claude rejected the API key — check ANTHROPIC_API_KEY in .env';
+  if (e instanceof Anthropic.PermissionDeniedError) return `Claude: this key can't use that model (${e.message})`;
+  if (e instanceof Anthropic.NotFoundError) return `Claude: model not found (${e.message})`;
+  if (e instanceof Anthropic.RateLimitError) return 'Claude: rate limited — wait a moment and try again';
+  if (e instanceof Anthropic.BadRequestError) return `Claude: bad request (${e.message})`;
+  if (e instanceof Anthropic.APIError) return `Claude API error ${e.status ?? ''}: ${e.message}`;
+  return `Could not reach Claude: ${e.message}`;
+}
+
+async function claudeModels(p, res) {
+  if (!p.apiKey) return res.status(502).json({ error: 'Claude needs ANTHROPIC_API_KEY in the server .env' });
+  try {
+    const list = [];
+    for await (const m of claude(p).models.list()) list.push({ id: m.id, name: m.display_name || m.id });
+    // current Claude models first, the configured default at the top
+    list.sort((a, b) => (a.id === p.model ? -1 : b.id === p.model ? 1 : 0));
+    res.json({ models: list });
+  } catch (e) {
+    if (e instanceof Anthropic.AuthenticationError) return res.status(502).json({ error: claudeError(e) });
+    // the model list is a convenience: fall back to the known current models
+    res.json({ models: CLAUDE_FALLBACK_MODELS.map((id) => ({ id, name: id })) });
+  }
+}
+
+async function claudeChat(p, { model, system, mode, sounds, history, effort }, res) {
+  if (!p.apiKey) return res.status(502).json({ error: 'Claude needs ANTHROPIC_API_KEY in the server .env' });
+  // the API wants the conversation to start with the user; same-role neighbours are merged by the API
+  const messages = history.filter((m) => m.role === 'user' || m.role === 'assistant');
+  while (messages.length && messages[0].role !== 'user') messages.shift();
+  if (!messages.length) return res.status(400).json({ error: 'nothing to send' });
+
+  const stream = claude(p).beta.messages.stream({
+    model,
+    max_tokens: CLAUDE_MAX_TOKENS,
+    // the system prompt (+ the loaded-sounds list) is long and identical on every
+    // request, so cache it: later requests read it at a fraction of the price
+    system: [{ type: 'text', text: system, cache_control: { type: 'ephemeral' } }],
+    messages,
+    thinking: { type: 'adaptive', display: 'summarized' },
+    output_config: { effort: CLAUDE_EFFORTS.includes(effort) ? effort : CLAUDE_EFFORT },
+    // if a request is declined, Anthropic re-runs it on its recommended fallback model
+    betas: ['server-side-fallback-2026-07-01'],
+    fallbacks: 'default',
+  });
+  res.on('close', () => stream.abort());
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache, no-transform',
+    Connection: 'keep-alive',
+    'X-Accel-Buffering': 'no',
+  });
+  const send = (obj) => res.write(`data: ${JSON.stringify(obj)}\n\n`);
+  try {
+    for await (const ev of stream) {
+      if (ev.type !== 'content_block_delta') continue;
+      if (ev.delta.type === 'text_delta') send({ choices: [{ delta: { content: ev.delta.text } }] });
+      else if (ev.delta.type === 'thinking_delta') send({ choices: [{ delta: { reasoning_content: ev.delta.thinking } }] });
+    }
+    const msg = await stream.finalMessage();
+    if (msg.stop_reason === 'refusal') {
+      const cat = msg.stop_details?.category;
+      send({ error: { message: `Claude declined this request${cat ? ` (${cat})` : ''}. Try rewording it.` } });
+    } else {
+      const u = msg.usage || {};
+      send({
+        usage: {
+          model: msg.model,
+          input: u.input_tokens, output: u.output_tokens,
+          cache_read: u.cache_read_input_tokens || 0, cache_write: u.cache_creation_input_tokens || 0,
+          stop: msg.stop_reason,
+        },
+      });
+    }
+    res.write('data: [DONE]\n\n');
+  } catch (e) {
+    if (!stream.controller?.signal?.aborted) send({ error: { message: claudeError(e) } });
+  } finally {
+    res.end();
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Listen: HTTP always, HTTPS optionally (browsers only allow AudioWorklet —
