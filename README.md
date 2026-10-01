@@ -113,12 +113,7 @@ Tick **⚡ live** in the header and your edits in the code window take effect ab
    - 2–3 chord progressions, e.g. *verse* `Am F C G`, *chorus* `F G Am Am`;
    - a one-bar **hook** melody;
    - 4–7 **parts** (drums, bass, keys, pad, hook …), each with one sound and optional variants such as `drums.half` or `drums.fill`;
-   - the **form**, with section names that fit the genre:
-     - pop / synthwave / house: intro, verse, pre-chorus, chorus, verse, pre-chorus, chorus, bridge, chorus, outro
-     - EDM: intro, build, drop, breakdown, build, drop, outro
-     - lo-fi: intro, A, A, B, A, outro
-
-   The form decides the song's length. Each section says which chords it uses and which parts play.
+   - the **form**: the order and length of the sections, copied from one of your song forms (see below). Each section says which chords it uses and which parts play.
 2. **Parts.** The AI writes every part once, as a library of named patterns (`drums_main`, `bass_main` …).
    - Harmonic parts (bass, chords, pads, arpeggios) are functions of the chord progression, so each section can give them its own chords.
    - The library is test-played silently before it's used. If a part is missing or a sound, scale or chord doesn't exist, it goes back to the AI with the error (up to 3 tries).
@@ -130,6 +125,17 @@ Tick **⚡ live** in the header and your edits in the code window take effect ab
    - **Repairs:** if a section fails when it's about to play, the parts are fixed with the error and the song's remaining sections are re-arranged. The old music keeps playing meanwhile.
    - **Fallback:** if no usable sheet or library comes back, that song is written block by block the old way.
 
+### 🎼 Song forms
+A form lists a song's sections with their lengths, e.g. `intro 4, verse 8, pre-chorus 4, chorus 8, …, outro 4`.
+- **Built-in forms:** pop, edm, drum & bass, hip hop, lo-fi, ambient and short, with short 4- and 8-bar sections (about 32–64 bars per song).
+- **🎼 edit forms** (in the Songs and Station tabs) opens the editor:
+  - Change a form's name, what it's *used for* (genres and moods, which is how *auto* picks it) and its sections.
+  - Add your own forms or delete any.
+  - **restore built-in forms** brings the originals back and keeps your own.
+  - Forms are saved in the browser.
+- **form** (in each tab): *auto* lets the AI pick the form that fits each song's genre, or you choose one form for every song.
+- **The form decides section lengths.** If the AI returns the form's sections, their bar counts are replaced with the form's. If it returns a different number of sections, each one is capped at the form's longest section, or at 16 bars when no form matches.
+
 ### 🎵 Songs
 ```
 Night Drive | synthwave, 100 bpm, A minor, pulsing bass, neon pads; slow build, big chorus
@@ -139,6 +145,10 @@ Rain on Glass | lo-fi hip hop, 80 bpm, jazzy Rhodes chords, vinyl crackle; laid 
 - **Click a song** to see its **song sheet**: tempo, key, chords, hook and parts, then its sections with their chords, the parts playing, and live status (✓ ready, ⏱ armed, ▶ playing). Each section's code and the shared parts code can be expanded. While a set runs, the view follows the playing song until you click another.
 - **Jump:** **⏭ go** on a song jumps to it. If it isn't written yet, it's written first and switched in as soon as it's ready. **⏭ go** on a section jumps to that section on the next boundary, and **Alt+1 … Alt+9** jump to the playing song's sections.
 - **⏸ hold this section** stays on the current section until you pick another or press **▶ continue the song**.
+- **🔗 Share song:** once a song is fully written, its view has a share button.
+  - The link contains the whole song: its sheet, its parts code and every arranged section.
+  - Opening the link puts the song in the Songs tab with **▶ Play this song**. It plays exactly as written, with no AI calls, so the person opening it doesn't need a model.
+  - The opener's own set list text isn't touched.
 - **Skipping ahead** stops writing anything above the section you picked that has no code yet (only possible for songs written block by block).
 - **loop** replays the set with the code that's already written, so looping needs no further AI calls. **✨ Write with AI** turns a theme into a set list.
 

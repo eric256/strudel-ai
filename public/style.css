@@ -328,3 +328,18 @@ dialog.about::backdrop { background: rgba(5, 6, 9, .6); }
 .sv-parts .chip { font-size: 11px; padding: 0 5px; }
 .sv-lib summary { cursor: pointer; color: var(--muted); }
 .sv-lib pre, .sv-sections pre { background: #0b0c10; border: 1px solid var(--border); border-radius: 6px; padding: 6px; font-family: var(--mono); font-size: 11px; overflow-x: auto; margin: 6px 0 0; }
+.sv-head { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.sv-play { margin-left: auto; font-size: 12px; padding: 2px 8px; color: var(--accent-2); }
+.sv-play + .sv-share { margin-left: 0; }
+.sv-share { margin-left: auto; font-size: 12px; padding: 2px 8px; color: var(--accent-2); }
+.sv-shared { display: flex; align-items: center; gap: 6px; }
+.sv-shared input { flex: 1; min-width: 0; font: 11px var(--mono); padding: 3px 6px; }
+.sv-shared button { font-size: 11px; padding: 2px 6px; }
+.sv-shared a { color: var(--accent-2); font-size: 12px; }
+.form-select { font-size: 12px; padding: 2px 4px; max-width: 220px; }
+.forms-edit { font-size: 12px; }
+dialog.forms .field { margin-top: 8px; }
+dialog.forms textarea { font-family: var(--mono); font-size: 12px; }
+.form-preview { margin: 8px 0; display: flex; flex-wrap: wrap; gap: 3px; align-items: center; }
+.form-preview .chip { min-width: calc(var(--w) * 6px + 36px); }
+.form-preview .muted { width: 100%; }

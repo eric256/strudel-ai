@@ -2145,7 +2145,10 @@ async function openSharedSong() {
     live.applied = song.code;
     const title = song.title ? `“${song.title}”` : 'a shared song';
     const take = decodeRecording(song.recording);
-    if (take) {
+    if (song.song?.steps?.length) {
+      const sg = loadSharedSong(song.song);
+      addMsg('info', `🔗 Opened the song ${title} — ${sg.blocks.length} sections, ${sg.bars} bars${sg.sheet ? `, ${sg.sheet.bpm} bpm in ${sg.sheet.key}` : ''}. Press ▶ Play this song in the 🎵 Songs tab. Your previous code is one ↶ Undo away.`);
+    } else if (take) {
       rec.last = take; // sharing again keeps the recording
       mirror().setCode(take.events[0].code);
       const div = addMsg('info', `🔗 Opened ${title} — a recording of ${take.events.length} timed change${take.events.length > 1 ? 's' : ''} (${fmtTime(takeSeconds(take))}). Your previous code is one ↶ Undo away. `);
@@ -2216,6 +2219,111 @@ function parseSongs(text) {
 }
 
 // ---------------------------------------------------------------------------
+// Song forms: the order and length of a song's sections. Users can edit and add
+// forms (saved in the browser); the song-sheet request lists them for the AI, and
+// the chosen form's bar counts are enforced on the sheet that comes back.
+// ---------------------------------------------------------------------------
+const DEFAULT_FORMS = [
+  { name: 'pop', use: 'pop, synthwave, funk, disco, house, indie dance', sections: 'intro 4, verse 8, pre-chorus 4, chorus 8, verse 8, pre-chorus 4, chorus 8, bridge 8, chorus 8, outro 4' },
+  { name: 'edm', use: 'EDM, techno, trance, big room, future bass, dubstep', sections: 'intro 8, build 8, drop 8, breakdown 8, build 4, drop 8, outro 4' },
+  { name: 'drum & bass', use: 'drum & bass, jungle, breakbeat, liquid', sections: 'intro 8, build 4, drop 8, breakdown 8, build 4, drop 8, outro 4' },
+  { name: 'hip hop', use: 'hip hop, trap, boom bap, r&b', sections: 'intro 4, verse 8, hook 8, verse 8, hook 8, bridge 4, hook 8, outro 4' },
+  { name: 'lo-fi', use: 'lo-fi, chillhop, jazz-hop, downtempo, chill', sections: 'intro 4, A 8, A 8, B 8, A 8, outro 4' },
+  { name: 'ambient', use: 'ambient, drone, cinematic, meditation, soundscape', sections: 'intro 8, A 8, B 8, A 8, outro 8' },
+  { name: 'short', use: 'quick sketches, jingles, short pieces', sections: 'intro 4, A 8, B 8, A 8, outro 4' },
+];
+let songForms = load().songForms || DEFAULT_FORMS.map((f) => ({ ...f }));
+let formIdx = 0;
+
+/** "intro 4, verse 8 …" → [{ name, bars }] */
+function parseFormSections(text) {
+  return String(text || '')
+    .split(/[,\n|→]+/)
+    .map((t) => t.trim())
+    .filter(Boolean)
+    .map((t) => {
+      const m = t.match(/^(.*?)[\s:x×]*(\d+)\s*(?:bars?)?$/i);
+      const name = (m ? m[1] : t).trim() || 'section';
+      return { name, bars: Math.max(1, Math.min(32, m ? Number(m[2]) : 8)) };
+    });
+}
+const formBars = (f) => parseFormSections(f.sections).reduce((a, x) => a + x.bars, 0);
+const findForm = (name) => songForms.find((f) => f.name.toLowerCase() === String(name || '').trim().toLowerCase());
+
+/** The forms part of a song-sheet request: one fixed form, or all of them to choose from. */
+function formsForRequest(choice) {
+  const line = (f) => `- "${f.name}"${f.use ? ` (for ${f.use})` : ''}: ${parseFormSections(f.sections).map((x) => `${x.name} ${x.bars}`).join(', ')}`;
+  const fixed = choice && choice !== 'auto' ? findForm(choice) : null;
+  if (fixed) return `SONG FORM — use exactly this one (set "form": "${fixed.name}"):\n${line(fixed)}`;
+  return `SONG FORMS — pick the one that fits this song's genre, and set "form" to its name:\n${songForms.map(line).join('\n')}`;
+}
+const formChoice = () => $(setl.mode === 'station' ? 'stationForm' : 'setForm')?.value || 'auto';
+
+function renderFormSelects() {
+  for (const id of ['setForm', 'stationForm']) {
+    const el = $(id);
+    const keep = el.value || load()[id] || 'auto';
+    el.innerHTML = '<option value="auto">auto (fits the genre)</option>' +
+      songForms.map((f) => `<option value="${esc(f.name)}">${esc(f.name)} · ${formBars(f)} bars</option>`).join('');
+    el.value = keep === 'auto' || findForm(keep) ? keep : 'auto';
+  }
+}
+function saveForms() { save({ songForms }); renderFormSelects(); }
+function renderFormsEditor() {
+  formIdx = Math.max(0, Math.min(formIdx, songForms.length - 1));
+  $('formSelect').innerHTML = songForms.map((f, i) => `<option value="${i}">${esc(f.name || 'untitled')}</option>`).join('');
+  $('formSelect').value = String(formIdx);
+  const f = songForms[formIdx] || { name: '', use: '', sections: '' };
+  $('formName').value = f.name;
+  $('formUse').value = f.use;
+  $('formSections').value = f.sections;
+  renderFormPreview();
+}
+function renderFormPreview() {
+  const secs = parseFormSections($('formSections').value);
+  $('formPreview').innerHTML = secs.length
+    ? secs.map((x) => `<span class="chip" style="--w:${x.bars}"><b>${esc(x.name)}</b> ${x.bars}</span>`).join('') +
+      `<div class="muted small">${secs.length} sections · ${formBars({ sections: $('formSections').value })} bars</div>`
+    : '<span class="muted small">no sections yet</span>';
+}
+for (const id of ['formName', 'formUse', 'formSections']) {
+  $(id).oninput = () => {
+    const f = songForms[formIdx];
+    if (!f) return;
+    f.name = $('formName').value.trim();
+    f.use = $('formUse').value.trim();
+    f.sections = $('formSections').value;
+    if (id === 'formName') $('formSelect').options[formIdx].textContent = f.name || 'untitled';
+    if (id === 'formSections') renderFormPreview();
+    saveForms();
+  };
+}
+$('formSelect').onchange = () => { formIdx = Number($('formSelect').value); renderFormsEditor(); };
+$('formNew').onclick = () => {
+  songForms.push({ name: 'my form', use: '', sections: 'intro 4, A 8, B 8, A 8, outro 4' });
+  formIdx = songForms.length - 1;
+  saveForms(); renderFormsEditor(); $('formName').select();
+};
+$('formDelete').onclick = () => {
+  if (!songForms[formIdx] || !confirm(`Delete the form “${songForms[formIdx].name}”?`)) return;
+  songForms.splice(formIdx, 1);
+  if (!songForms.length) songForms = DEFAULT_FORMS.map((f) => ({ ...f }));
+  saveForms(); renderFormsEditor();
+};
+$('formReset').onclick = () => {
+  for (const d of DEFAULT_FORMS) {
+    const f = findForm(d.name);
+    if (f) Object.assign(f, d); else songForms.push({ ...d });
+  }
+  saveForms(); renderFormsEditor();
+};
+for (const b of document.querySelectorAll('.forms-edit')) b.onclick = () => { renderFormsEditor(); $('formsDlg').showModal(); };
+$('formsClose').onclick = () => $('formsDlg').close();
+$('formsDlg').addEventListener('click', (e) => { if (e.target === $('formsDlg')) $('formsDlg').close(); });
+for (const id of ['setForm', 'stationForm']) $(id).onchange = () => save({ [id]: $(id).value });
+renderFormSelects();
+
+// ---------------------------------------------------------------------------
 // Song sheets: for the Songs tab and the Station, the AI first plans the whole song
 // as data (tempo, key, chord progressions, hook, parts, form), then writes every
 // part once as a library of named patterns. The app arranges each section from the
@@ -2278,7 +2386,7 @@ function sectionType(name) {
 }
 
 /** Validate + repair a song sheet from the model. Throws when it can't be used. */
-function normalizeSheet(raw) {
+function normalizeSheet(raw, choice = 'auto') {
   if (!raw || typeof raw !== 'object') throw new Error('the sheet is not an object');
   const bpm = Math.max(50, Math.min(200, Math.round(Number(raw.bpm) || 100)));
   // scale: "A:minor" (or derived from "key": "A minor"), checked against the real scale names
@@ -2304,7 +2412,7 @@ function normalizeSheet(raw) {
   const firstChords = Object.keys(chords)[0];
   const sections = [];
   for (const sec of Array.isArray(raw.sections) ? raw.sections : []) {
-    const bars = Math.max(4, Math.min(32, Math.round((Number(sec.bars) || 8) / 4) * 4));
+    const bars = Math.max(1, Math.min(16, Math.round(Number(sec.bars) || 8)));
     const ck = ident(sec.chords);
     const play = [];
     for (const ref of Array.isArray(sec.play) ? sec.play : []) {
@@ -2320,7 +2428,15 @@ function normalizeSheet(raw) {
     sections.push({ name, type: sectionType(name), bars, chords: chords[ck] ? ck : firstChords, play });
   }
   if (sections.length < 2) throw new Error('fewer than 2 sections');
-  return { bpm, key: String(raw.key || scale.replace(':', ' ')), scale, chords, hook, parts, sections };
+  // the form decides the section lengths: take its bar counts when the sections line up, otherwise cap them
+  const form = (choice !== 'auto' && findForm(choice)) || findForm(raw.form);
+  const fsecs = form ? parseFormSections(form.sections) : [];
+  if (fsecs.length === sections.length) sections.forEach((sec, j) => { sec.bars = fsecs[j].bars; });
+  else {
+    const cap = fsecs.length ? Math.max(...fsecs.map((x) => x.bars)) : 16;
+    for (const sec of sections) sec.bars = Math.min(sec.bars, cap);
+  }
+  return { form: form?.name || String(raw.form || ''), bpm, key: String(raw.key || scale.replace(':', ' ')), scale, chords, hook, parts, sections };
 }
 
 /** The part that gets the one-bar fill before choruses / drops (drums with a "fill" variant). */
@@ -2384,15 +2500,16 @@ function testLibrary(lib, sheet) {
 }
 
 async function writeSongSheet(song, signal) {
+  const choice = formChoice();
   const prev = setl.songs[setl.songs.indexOf(song) - 1]?.sheet;
   let msg = `SONG: "${song.title}" — ${song.desc}\n` +
     (prev ? `The previous song was ${prev.bpm} bpm in ${prev.key}; this one should flow from it (a related key or a nearby tempo is nice).\n` : '') +
-    'Write the song sheet JSON.';
+    `\n${formsForRequest(choice)}\n\nWrite the song sheet JSON.`;
   let lastErr;
   for (let attempt = 0; attempt < 3; attempt++) {
     song.phase = 'writing the song sheet';
     const text = await requestLLM({ mode: 'sheet', messages: [{ role: 'user', content: msg }], signal });
-    try { return normalizeSheet(parseJSONLoose(text)); }
+    try { return normalizeSheet(parseJSONLoose(text), choice); }
     catch (e) {
       lastErr = e;
       msg = msg.replace(/\n\nYOUR PREVIOUS REPLY[\s\S]*$/, '') +
@@ -2755,11 +2872,18 @@ function songViewHTML(sg, live) {
   if (!sg) return '';
   const sh = sg.sheet;
   const isCurrent = live && setl.songs[setl.current] === sg;
-  let h = `<div class="sv-head"><b>${esc(sg.title)}</b>${isCurrent ? ' <span class="sv-live">▶ playing</span>' : ''}</div>
+  const complete = sg.blocks?.length && sg.blocks.every((b) => b.code) && !sg.phase;
+  let h = `<div class="sv-head"><b>${esc(sg.title)}</b>${isCurrent ? ' <span class="sv-live">▶ playing</span>' : ''}
+      ${complete && !setl.running && setl.songs.includes(sg) ? '<button class="sv-play" title="Play this song (already written — no AI needed)">▶ Play this song</button>' : ''}
+      ${complete ? `<button class="sv-share" title="Create a link that plays this whole song: its sheet, parts and every section">🔗 Share song</button>` : ''}</div>
     <div class="sv-desc">${esc(sg.desc)}</div>`;
+  if (sg.shareUrl) {
+    h += `<div class="sv-shared">🔗 <input readonly value="${esc(sg.shareUrl)}" /><button class="sv-copy">📋 Copy</button><a href="${esc(sg.shareUrl)}" target="_blank" rel="noopener">open ↗</a></div>`;
+  }
   if (sg.phase) h += `<div class="sv-phase">✎ ${esc(sg.phase)}…</div>`;
   if (sh) {
     h += `<div class="sv-grid">
+      ${sh.form ? `<span class="k">form</span><span>${esc(sh.form)} · ${sh.sections.length} sections · ${sh.sections.reduce((a, x) => a + x.bars, 0)} bars</span>` : ''}
       <span class="k">tempo</span><span>${sh.bpm} bpm · ${esc(sh.key)} <code>${esc(sh.scale)}</code></span>
       <span class="k">chords</span><span>${Object.entries(sh.chords).map(([k, v]) => `<span class="chip"><b>${esc(k)}</b> ${esc(v.replace(/^<|>$/g, ''))}</span>`).join(' ')}</span>
       <span class="k">hook</span><span><code>${esc(sh.hook)}</code></span>
@@ -2803,7 +2927,7 @@ function renderSongs() {
   const selSet = pick('set', setSongs), selSt = pick('station', stationSongs);
   const stepKey = (sg) => sg?.blocks?.map((b) => b.status + (b.code ? b.code.length : 0) + (b.error || '')).join() || '';
   const key = JSON.stringify([setl.running, setl.mode, setl.planning, now?.title, selSet, selSt, setlist.hold, setlist.jumpTarget, setl.current,
-    ...[setSongs, stationSongs].map((l) => l.map((sg) => [sg.title, sg.status, sg.phase, sg.bars, sg.blocks?.filter((b) => b.code).length, sg.error, !!sg.sheet])),
+    ...[setSongs, stationSongs].map((l) => l.map((sg) => [sg.title, sg.status, sg.phase, sg.bars, sg.blocks?.filter((b) => b.code).length, sg.error, !!sg.sheet, sg.shareUrl])),
     stepKey(setSongs[selSet]), stepKey(stationSongs[selSt])]);
   if (key === lastSongsKey) return;
   lastSongsKey = key;
@@ -2838,8 +2962,67 @@ for (const id of ['setSongView', 'stationSongView']) {
   $(id).addEventListener('click', (e) => {
     const go = e.target.closest('.jump[data-i]');
     if (go) { e.preventDefault(); e.stopPropagation(); jumpTo(Number(go.dataset.i)); return; }
-    if (e.target.closest('.sv-hold')) { e.preventDefault(); setHold(!setlist.hold); renderSongs(); }
+    if (e.target.closest('.sv-hold')) { e.preventDefault(); setHold(!setlist.hold); renderSongs(); return; }
+    const sg = viewedSong(id === 'stationSongView' ? 'station' : 'set');
+    if (e.target.closest('.sv-share') && sg) { shareSong(sg, e.target.closest('.sv-share')); return; }
+    if (e.target.closest('.sv-play') && sg) { jumpToSong(setl.songs.indexOf(sg), setl.mode || 'set'); return; }
+    if (e.target.closest('.sv-copy') && sg?.shareUrl) {
+      navigator.clipboard?.writeText(sg.shareUrl).then(() => { e.target.textContent = '✓ Copied'; }, () => {});
+    }
   });
+}
+
+/** The song shown in a tab's song view (same choice renderSongs makes). */
+function viewedSong(tab) {
+  const list = tab === 'station' ? (setl.mode === 'station' ? setl.songs : [])
+    : setl.mode === 'set' && setl.songs.length && !setl.textDirty ? setl.songs : parseSongs($('setText').value);
+  const k = songSel[tab] ?? (setl.running && setl.mode === tab && setl.current >= 0 ? setl.current : null);
+  return k != null ? list[k] : null;
+}
+
+/** Share a finished song: its sheet, parts and every arranged section, playable without the AI. */
+async function shareSong(sg, btn) {
+  btn.disabled = true;
+  btn.textContent = 'creating link…';
+  try {
+    const steps = sg.blocks.map((b) => ({ bars: b.bars, prompt: b.prompt, code: b.code, fade: b.fade ?? null, fillStep: !!b.fillStep, section: b.section || null }));
+    const r = await fetch('/api/share', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        code: steps[0].code,
+        title: sg.title,
+        song: { title: sg.title, desc: sg.desc, sheet: sg.sheet || null, library: sg.library || null, steps },
+      }),
+    });
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.error || r.status);
+    sg.shareUrl = location.origin + j.path;
+    try { await navigator.clipboard.writeText(sg.shareUrl); } catch {}
+    addMsg('info', `🔗 “${sg.title}” shared: ${sg.shareUrl} (link copied)`);
+  } catch (e) {
+    addMsg('error', `Sharing “${sg.title}” failed: ${e.message}`);
+    btn.disabled = false;
+    btn.textContent = '🔗 Share song';
+  }
+  lastSongsKey = '';
+  renderSongs();
+}
+
+/** A shared whole song: load it into the Songs tab, ready to play without any AI calls. */
+function loadSharedSong(s) {
+  const song = {
+    title: s.title || 'shared song', desc: s.desc || '', status: 'ready', sheet: s.sheet || null, library: s.library || null,
+    blocks: s.steps.map((st) => ({ bars: st.bars, prompt: st.prompt, code: st.code, fade: st.fade ?? undefined, fillStep: st.fillStep, section: st.section || undefined, status: 'ready', error: null })),
+  };
+  song.bars = song.blocks.reduce((a, b) => a + b.bars, 0);
+  song.firstStep = song.blocks[0];
+  stopSet(); stopSetlist();
+  Object.assign(setl, { mode: 'set', songs: [song], current: -1, nextSong: 0, textDirty: false });
+  songSel.set = 0;
+  lastSongsKey = '';
+  document.querySelector('.tabs button[data-tab="setTab"]')?.click();
+  return song;
 }
 
 $('setText').value = saved.setText ?? '';
