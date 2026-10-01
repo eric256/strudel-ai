@@ -212,6 +212,13 @@ app.get('/api/share/:id', (req, res) => {
 
 app.get('/api/health', (_req, res) => res.json({ ok: true }));
 
+// The built-in system prompts, so the settings can show them and users can edit their own copies
+const PROMPTS = { code: SYSTEM_PROMPT, setlist: SETLIST_PROMPT, songs: SONGS_PROMPT, sheet: SHEET_PROMPT, library: LIBRARY_PROMPT };
+app.get('/api/prompts', (_req, res) => {
+  res.set('Cache-Control', 'no-cache');
+  res.json(PROMPTS);
+});
+
 // Public config for the UI (never exposes API keys)
 app.get('/api/config', (_req, res) => {
   res.json({
@@ -248,7 +255,7 @@ app.get('/api/models', async (req, res) => {
 // Chat: proxies (and streams) an OpenAI-style chat completion.
 // Body: { provider, model, messages:[{role,content}], code, error? }
 app.post('/api/chat', async (req, res) => {
-  const { provider, model, messages = [], code = '', temperature, mode = 'code', sounds = '', edited = false } = req.body || {};
+  const { provider, model, messages = [], code = '', temperature, mode = 'code', sounds = '', edited = false, systemPrompt = null } = req.body || {};
   const p = getProvider(provider);
 
   const history = messages.slice(-12).map((m) => ({ role: m.role, content: String(m.content) }));
@@ -276,7 +283,10 @@ app.post('/api/chat', async (req, res) => {
       {
         role: 'system',
         content:
-          ({ setlist: SETLIST_PROMPT, songs: SONGS_PROMPT, sheet: SHEET_PROMPT, library: LIBRARY_PROMPT }[mode] || SYSTEM_PROMPT) +
+          // the user's own version of this prompt (⚙ Settings → Prompts), if any
+          (typeof systemPrompt === 'string' && systemPrompt.trim() && systemPrompt.length <= 60_000
+            ? systemPrompt
+            : PROMPTS[mode] || SYSTEM_PROMPT) +
           (sounds && ['code', 'sheet', 'library'].includes(mode)
             ? '\n\n## AVAILABLE SOUNDS (the complete list loaded right now — use these exact names, never invent, renumber or zero-pad names)\n' +
               String(sounds).slice(0, 16000)

@@ -14,22 +14,13 @@
       <button id="play" title="Evaluate / play (Ctrl+Enter)">▶ Play</button>
       <button id="stop" title="Stop (Ctrl+.)">■ Stop</button>
       <button id="undo" title="Revert to previous code version" disabled>↶ Undo</button>
-      <label class="quant" title="When AI changes switch in">⏱
-        <select id="quantize">
-          <option value="0">immediately</option>
-          <option value="1">next bar</option>
-          <option value="2">2 bars</option>
-          <option value="4">4 bars</option>
-          <option value="8">8 bars</option>
-          <option value="16">16 bars</option>
-        </select>
-      </label>
       <label class="master" title="Master volume">🔊
         <input type="range" id="masterGain" min="0" max="1.5" step="0.01" value="1" />
         <span id="masterVal">100%</span></label>
       <button id="vizBtn" title="Show / hide the visualizer">📊<span class="lbl"> Viz</span></button>
       <button id="keysBtn" title="Show / hide the keyboard (play live, record a part)">🎹<span class="lbl"> Keys</span></button>
       <button id="padsBtn" title="Show / hide the 4×4 sound pad">🔲<span class="lbl"> Pads</span></button>
+      <button id="consoleBtn" title="Console: follow what the AI is writing, the checks and fixes, and any errors">🖥<span class="lbl"> Console</span></button>
       <button id="humBtn" class="hum-btn" title="Hold to hum a melody (or hold the ` key); tap to open the hum panel">🎤 Hum</button>
     </div>
     <div class="share-wrap">
@@ -52,11 +43,6 @@
     </div>
     <button id="settingsBtn" class="icon-btn" title="Settings: live edit, fade, autocomplete, song forms, stations, backup" aria-label="Settings">⚙</button>
     <button id="aboutBtn" class="icon-btn" title="About Strudel AI: version, recent changes, links" aria-label="About">ⓘ</button>
-    <div class="llm">
-      <select id="provider" title="LLM provider"></select>
-      <select id="model" title="Model"></select>
-      <button id="refresh" title="Reload model list">⟳</button>
-    </div>
   </header>
 
   <main>
@@ -97,10 +83,13 @@
         <div id="keysHandle" class="viz-handle" title="Drag to resize"></div>
         <div class="viz-bar">
           <b>🎹 Keys</b>
-          <select id="keysSound" title="Sound the keyboard plays"></select>
+          <select id="keysSound" title="Instrument the keyboard plays — or “custom” to write your own Strudel line"></select>
+          <input id="keysTemplate" class="keys-template" spellcheck="false" title="Your own Strudel line for the sound. {note} is replaced by the note you play (live) or the notes you recorded." placeholder='note({note}).s("sawtooth").lpf(1200).decay(0.2)' hidden />
+          <label title="How long a live note sounds">len <select id="keysLen"><option value="0.0625">1/16</option><option value="0.125" selected>1/8</option><option value="0.25">1/4</option><option value="0.5">1/2</option><option value="1">1 bar</option></select></label>
           <label title="Octave">oct <button id="keysDown" class="mini">−</button><span id="keysOct">4</span><button id="keysUp" class="mini">+</button></label>
           <button id="keysRec" class="rec-btn" title="Record: notes you play while the music runs are captured on the bar grid">⏺ Rec</button>
           <select id="keysGrid" title="Recording grid"><option value="8">1/8</option><option value="16" selected>1/16</option></select>
+          <label title="Add each recording to the music as soon as you stop recording (play along and layer your own parts)"><input type="checkbox" id="keysAuto" /> auto-add</label>
           <span id="keysInfo" class="muted small"></span>
           <span class="spacer"></span>
           <select id="keysDock" title="Where the keyboard is docked">
@@ -147,6 +136,20 @@
             <small class="muted">A pattern (e.g. <code>s("hh*8").gain(0.5)</code>) is added to the music as its own labelled line while the pad is on. <code>all(x =&gt; x.lpf(400))</code> or <code>setcpm(140/4)</code> lines work too.</small>
           </div>
         </div>
+      </section>
+      <section id="console-dock" class="dock dock-bottom" hidden>
+        <div id="consoleHandle" class="viz-handle" title="Drag to resize"></div>
+        <div class="viz-bar">
+          <b>🖥 Console</b>
+          <label title="Show the AI's text as it is written"><input type="checkbox" id="consoleStream" checked /> live AI text</label>
+          <button id="consoleClear" class="link">clear</button>
+          <span class="spacer"></span>
+          <select id="consoleDock" title="Where the console is docked">
+            <option value="bottom">dock: under the code</option><option value="top">dock: above the code</option><option value="side">dock: side panel</option>
+          </select>
+          <button id="consoleClose" class="link" title="Hide">✕</button>
+        </div>
+        <div id="consoleLog" class="console-log"></div>
       </section>
       <div id="error-bar" hidden></div>
       <div id="hum-panel" hidden>
@@ -236,9 +239,8 @@
         </div>
       </div>
       <div class="options">
-        <label><input type="checkbox" id="autoApply" checked /> auto-apply</label>
-        <label><input type="checkbox" id="autoFix" checked /> auto-fix errors</label>
-        <label>temp <input type="range" id="temp" min="0" max="1.5" step="0.05" value="0.7" /><span id="tempVal">0.7</span></label>
+        <span class="muted small" id="aiSummary" title="Change in ⚙ Settings → AI"></span>
+        <span class="spacer"></span>
         <button id="clearChat" class="link">clear chat</button>
       </div>
       <form id="chat-form">
@@ -269,11 +271,23 @@
     </div>
     <nav class="settings-tabs">
       <button data-sec="setGeneral" class="active">General</button>
+      <button data-sec="setAI">🤖 AI</button>
+      <button data-sec="setPrompts">📝 Prompts</button>
       <button data-sec="setForms">🎼 Song forms</button>
       <button data-sec="setStations">📻 Stations</button>
       <button data-sec="setBackup">💾 Backup</button>
     </nav>
     <section id="setGeneral" class="settings-sec">
+      <div class="set-row"><label class="quant set-fade" title="When AI changes switch in">switch on
+        <select id="quantize">
+          <option value="0">immediately</option>
+          <option value="1">next bar</option>
+          <option value="2">2 bars</option>
+          <option value="4">4 bars</option>
+          <option value="8">8 bars</option>
+          <option value="16">16 bars</option>
+        </select>
+      </label><span class="muted small">when AI changes, songs and keys recordings switch in: immediately or on the next 1 / 2 / 4 / 8 / 16-bar line</span></div>
       <div class="set-row"><label id="liveLabel" class="live" title="Live update: edits in the code window take effect as soon as you stop typing"><input type="checkbox" id="liveMode" /> ⚡ live</label><span class="muted small">edits in the code window take effect about half a second after you stop typing</span></div>
       <div class="set-row"><label class="quant set-fade" title="Crossfade into each new block / AI change: the old part fades out while the new one fades in, landing on the bar line">fade
         <select id="fade">
@@ -286,6 +300,31 @@
       </label><span class="muted small">crossfade into new blocks and AI changes</span></div>
       <div class="set-row"><label class="live" title="Autocomplete in the code editor: Strudel functions (with docs and examples), sounds, drum banks, scales and chords. Ctrl+Space shows it any time."><input type="checkbox" id="autoComplete" checked /> ⌨ autocomplete</label><span class="muted small">Strudel functions with docs, sounds, banks, scales, chords · Ctrl+Space</span></div>
       <p class="muted small">Settings, song forms, stations, pads, layout and your last code are saved in this browser (per address: <code>https://192.168.1.50</code> and <code>https://myhost</code> keep separate settings). Use 💾 Backup to move them.</p>
+    </section>
+    <section id="setAI" class="settings-sec" hidden>
+      <div class="set-row"><label>provider</label><select id="provider" title="LLM provider"></select></div>
+      <div class="set-row"><label>model</label><select id="model" title="Model"></select><button id="refresh" title="Reload model list">⟳</button></div>
+      <div class="set-row"><label>temperature <b id="tempVal">0.7</b></label>
+        <input type="range" id="temp" min="0" max="1.5" step="0.05" value="0.7" class="temp-range" />
+        <span class="muted small">how wild it gets: <b>0</b> predictable · <b>0.7</b> balanced · <b>1.2+</b> adventurous (more mistakes)</span></div>
+      <div class="set-row"><label><input type="checkbox" id="autoApply" checked /> auto-apply</label><span class="muted small">play the AI's code as soon as it's checked</span></div>
+      <div class="set-row"><label><input type="checkbox" id="autoFix" checked /> auto-fix errors</label><span class="muted small">send errors back to the AI (up to 2 times) before showing them</span></div>
+      <p class="muted small">API keys and server addresses are set in the server's <code>.env</code> and never reach the browser.</p>
+    </section>
+    <section id="setPrompts" class="settings-sec" hidden>
+      <p class="muted small">The instructions (system prompts) the AI gets for each job. Edit them to change its style or rules; your versions are saved in this browser and used instead of the built-in ones. The list of loaded sounds is still added automatically.</p>
+      <div class="station-row">
+        <select id="promptSelect">
+          <option value="code">Chat — edits the code</option>
+          <option value="sheet">Song sheet — plans a song</option>
+          <option value="library">Parts — writes a song's parts</option>
+          <option value="songs">Songs — invents songs for a set / station</option>
+          <option value="setlist">Blocks — fallback song sections</option>
+        </select>
+        <span id="promptState" class="muted small"></span>
+        <button id="promptReset" class="link" title="Go back to the built-in prompt">reset to built-in</button>
+      </div>
+      <textarea id="promptText" rows="16" spellcheck="false"></textarea>
     </section>
     <section id="setForms" class="settings-sec" hidden>
     <p class="muted small">A form is the order and length of a song's sections. The AI picks the form that fits each song's genre
