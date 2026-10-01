@@ -14,15 +14,23 @@ OWNER="$(gh api user -q .login)"
 echo "Publishing as github.com/$OWNER/$NAME ($VISIBILITY)"
 
 # fill in the owner/repo placeholders in README badges and package.json
-if grep -q "OWNER/strudel-ai" README.md package.json docker-compose.yml 2>/dev/null; then
-  sed -i.bak "s#OWNER/strudel-ai#$OWNER/$NAME#g" README.md package.json docker-compose.yml
+CURRENT="$(grep -o 'github.com/[A-Za-z0-9_.-]*/strudel-ai' package.json | head -1 | cut -d/ -f2-)"
+if [ -n "$CURRENT" ] && [ "$CURRENT" != "$OWNER/$NAME" ]; then
+  sed -i.bak "s#$CURRENT#$OWNER/$NAME#g" README.md package.json docker-compose.yml
   rm -f README.md.bak package.json.bak docker-compose.yml.bak
   git add README.md package.json docker-compose.yml
   git commit -m "Point links at github.com/$OWNER/$NAME"
 fi
 
-gh repo create "$NAME" "$VISIBILITY" --source . --remote origin --push \
-  --description "Strudel live-coding with an AI co-pilot: chat, hum-to-melody, song blocks, set lists and an autonomous AI radio station (llama.cpp / OpenWebUI)"
+DESC="Strudel live-coding with an AI co-pilot: chat, hum-to-melody, song blocks, set lists and an autonomous AI radio station (llama.cpp / OpenWebUI)"
+if gh repo view "$OWNER/$NAME" >/dev/null 2>&1; then
+  echo "Repository $OWNER/$NAME already exists — pushing to it."
+else
+  gh repo create "$OWNER/$NAME" "$VISIBILITY" --description "$DESC"
+fi
+git remote remove origin 2>/dev/null || true
+git remote add origin "https://github.com/$OWNER/$NAME.git"
+git push -u origin main
 git push origin --tags
 gh repo edit "$OWNER/$NAME" --add-topic strudel --add-topic live-coding --add-topic music --add-topic llm --add-topic llama-cpp --add-topic openwebui --add-topic docker >/dev/null || true
 

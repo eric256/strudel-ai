@@ -1,7 +1,7 @@
 services:
   strudel-ai:
     build: .
-    # Use the prebuilt image instead of building: set STRUDEL_AI_IMAGE=ghcr.io/OWNER/strudel-ai:latest in .env
+    # Use the prebuilt image instead of building: set STRUDEL_AI_IMAGE=ghcr.io/eric256/strudel-ai:latest in .env
     # and run `docker compose pull && docker compose up -d`.
     image: ${STRUDEL_AI_IMAGE:-strudel-ai:latest}
     container_name: strudel-ai

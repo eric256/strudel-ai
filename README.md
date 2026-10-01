@@ -1,7 +1,7 @@
 # Strudel AI 🎛️
 
-[![CI](https://github.com/OWNER/strudel-ai/actions/workflows/ci.yml/badge.svg)](https://github.com/OWNER/strudel-ai/actions/workflows/ci.yml)
-[![Image](https://github.com/OWNER/strudel-ai/actions/workflows/docker-publish.yml/badge.svg)](https://github.com/OWNER/strudel-ai/pkgs/container/strudel-ai)
+[![CI](https://github.com/eric256/strudel-ai/actions/workflows/ci.yml/badge.svg)](https://github.com/eric256/strudel-ai/actions/workflows/ci.yml)
+[![Image](https://github.com/eric256/strudel-ai/actions/workflows/docker-publish.yml/badge.svg)](https://github.com/eric256/strudel-ai/pkgs/container/strudel-ai)
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](LICENSE)
 
 A Docker webserver that runs the [Strudel](https://strudel.cc) live-coding REPL next to an AI chat panel.
@@ -18,7 +18,7 @@ Switch between them (and pick a model) from the dropdowns in the header.
 ## Quick start
 
 ```bash
-git clone https://github.com/OWNER/strudel-ai.git
+git clone https://github.com/eric256/strudel-ai.git
 cd strudel-ai
 cp .env.example .env       # set SITE_ADDRESS to include your LAN IP, plus the LLM URLs / API key
 docker compose up -d --build
@@ -235,7 +235,7 @@ LLAMACPP_URL=http://localhost:8080 npm start   # http://localhost:3000
 ```
 
 CI runs the checks, the tests, a server smoke test and a Docker build on every push and pull request.
-Every push to `main` publishes `ghcr.io/OWNER/strudel-ai:latest`, and every `v*` tag publishes a versioned image.
+Every push to `main` publishes `ghcr.io/eric256/strudel-ai:latest`, and every `v*` tag publishes a versioned image.
 To release: bump `version` in `package.json`, add a `CHANGELOG.md` entry, then `git tag vX.Y.Z && git push --tags`.
 
 ## License
