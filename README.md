@@ -70,6 +70,11 @@ Browser ── Strudel REPL (web component, WebAudio) ◄── setCode() + eval
 - The new code is evaluated straight away, so errors show up at once. The scheduler then gets a *spliced* pattern: notes before the boundary come from the old code, and notes from the boundary on come from the new code. The switch lands exactly on the downbeat, and no notes are cut or doubled.
 - Tempo changes (`setcpm`) in the new code are held back until the boundary too.
 - A yellow **⏱ … at bar N** pill counts down to a pending switch. Click it to cancel the switch.
+- **fade** (in the header) crossfades into the new code instead of cutting: *cut*, *1 beat*, *2 beats* (default), *1 bar* or *2 bars*.
+  - During the fade both versions play. The old one's notes get quieter and the new one's louder (equal-power curves, applied to each note's velocity). The new code lands on the bar line at full level.
+  - Notes that both versions play at the same moment, such as a kick that doesn't change, are played once at full level, so the shared groove doesn't dip.
+  - It applies to AI changes, song blocks, set lists and stations. Mute/solo, live edits and *immediately* switches stay instant.
+  - Strudel has one audio engine, so the crossfade happens in the pattern itself rather than by running a second Strudel and fading between them. That keeps both versions on exactly the same clock.
 - The header shows `bar.beat` and the current BPM.
 - Each chat reply also has **▶ Apply now** and **⏱ Apply on bar** buttons.
 
@@ -86,7 +91,13 @@ Tick **⚡ live** in the header and your edits in the code window take effect ab
 **📊 Viz** opens a docked panel:
 
 - **Piano roll:** the notes of the pattern that's playing, read straight from the scheduler, so you see one bar back and two bars ahead. The yellow line is the playhead. Pitched parts are drawn by pitch, drums get one lane per sound, and colours are per instrument.
-- **Spectrum / oscilloscope** of the master output.
+- **Sound views** of the master output:
+  - **dashboard:** oscilloscope, spectrum, vectorscope and meters side by side.
+  - **oscilloscope**, or a **stereo** version with left and right traces.
+  - **vectorscope:** the stereo field. Mono is a vertical line, and wide stereo is a cloud.
+  - **spectrum**, **spectrogram** (a scrolling waterfall) and **radial spectrum**.
+  - **level meters:** left/right RMS with peak hold, in dB.
+- **Combined views:** piano roll + spectrum, and piano roll + oscilloscope.
 - **Dock** it under the code, above it, or at the top of the side panel, and drag its edge to resize. All of this is remembered.
 
 ## Song blocks, Set list & 📻 Station
@@ -129,6 +140,13 @@ Rain on Glass | lo-fi hip hop, 80 bpm, jazzy Rhodes chords, vinyl crackle; laid 
 - **How the agent runs:** **📻 Start station** starts an agent that keeps the queue filled with **songs ahead** (1–3) planned songs. It asks the AI for new songs that fit the theme, aren't in the recently played list, and flow from the last one (related keys and tempos, an energy arc). Then it writes and plays them like a set list, endlessly.
 - **What you see:** the **On air** box shows the current song, and the list shows what's played, playing and coming up. **⏭ go** works there too.
 - If the AI fails 5 times in a row, the station stops itself.
+
+## About
+
+**ⓘ About** in the header, or a click on the version number, shows:
+- the version and build id;
+- the most recent changes, read from `CHANGELOG.md`;
+- links to the GitHub project, issues, releases, the full changelog and the Strudel docs.
 
 ## Master volume
 The 🔊 fader in the header sets the overall output level (0–150%), and double-clicking it resets it to 100%. It's remembered, and "duck music" while humming lowers it relative to this level.

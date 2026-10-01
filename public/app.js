@@ -100,20 +100,47 @@ const cps = () => scheduler()?.cps ?? 0.5;
 // (setcpm/setcps) in the new code are deferred until the switch too.
 // The result is a sample-accurate switch exactly on the bar line.
 // ---------------------------------------------------------------------------
-function splice(oldPat, newPat, at, onCross) {
+//
+// Crossfade: with fade > 0 both patterns play during [at - fade, at). The old one's
+// notes fade out and the new one's fade in (equal power, by note velocity), so the
+// new section arrives on the downbeat at full level. Notes both patterns play at the
+// same moment (same sound, same pitch) are played once, at full level, so a groove
+// shared by both sections doesn't dip.
+function splice(oldPat, newPat, at, onCross, fade = 0) {
   const Pattern = newPat.constructor;
   const start = (h) => (h.whole || h.part).begin.valueOf();
+  const from = at - fade;
+  const inFade = (h) => fade > 0 && start(h) >= from && start(h) < at;
+  const pos = (h) => Math.min(1, Math.max(0, (start(h) - from) / fade));
+  const key = (h) => {
+    const v = h.value;
+    return v && typeof v === 'object' ? `${start(h)}|${v.s}|${v.bank}|${v.note}|${v.n}|${v.freq}` : `${start(h)}|${v}`;
+  };
+  const scale = (h, k) => h.withValue((v) => (v && typeof v === 'object' ? { ...v, velocity: (v.velocity ?? 1) * k } : v));
   let crossed = false;
   return new Pattern((st) => {
     const b = st.span.begin.valueOf();
     const e = st.span.end.valueOf();
-    if (e <= at) return oldPat.query(st);
-    if (!crossed && !vizQuerying) { crossed = true; onCross?.(); }
+    if (e > at && !crossed && !vizQuerying) { crossed = true; onCross?.(); }
+    if (e <= from) return oldPat.query(st);
     if (b >= at) return newPat.query(st);
-    return [
-      ...oldPat.query(st).filter((h) => start(h) < at),
-      ...newPat.query(st).filter((h) => start(h) >= at),
-    ];
+    const olds = oldPat.query(st).filter((h) => start(h) < at);
+    const news = newPat.query(st).filter((h) => start(h) >= from);
+    const newKeys = new Set(news.filter(inFade).map(key));
+    const shared = new Set();
+    const out = [];
+    for (const h of olds) {
+      if (!inFade(h)) { out.push(h); continue; }
+      const k = key(h);
+      if (newKeys.has(k)) { shared.add(k); out.push(h); continue; }
+      out.push(scale(h, Math.cos((pos(h) * Math.PI) / 2)));
+    }
+    for (const h of news) {
+      if (!inFade(h)) { if (start(h) >= at) out.push(h); continue; }
+      if (shared.has(key(h))) continue;
+      out.push(scale(h, Math.sin((pos(h) * Math.PI) / 2)));
+    }
+    return out;
   });
 }
 
@@ -168,7 +195,7 @@ function dryRun(pat) {
  * The new pattern is test-queried first; if that fails, the old music keeps playing.
  * Returns the error (or null).
  */
-async function evaluateCode(code, { at = null, label = '', undo = true } = {}) {
+async function evaluateCode(code, { at = null, label = '', undo = true, fade = 0 } = {}) {
   const m = mirror();
   if (!m) return new Error('editor not ready');
   const sch = m.repl.scheduler;
@@ -220,15 +247,17 @@ async function evaluateCode(code, { at = null, label = '', undo = true } = {}) {
     recordSwitch(code, c, label);
     return null;
   }
+  // only fade over what hasn't been scheduled yet
+  const f = Math.max(0, Math.min(fade, at - switchCycle(sch) - 0.03));
   await proto.setPattern.call(
     sch,
     splice(old, captured, at, () => {
       if (deferredCps != null) setTimeout(() => proto.setCps.call(sch, deferredCps));
       if (state.pending?.at === at) setTimeout(() => { state.pending = null; });
-    }),
+    }, f),
     autostart,
   );
-  state.pending = { at, label, old, oldCode: prevCode, recEv: recordSwitch(code, at, label) };
+  state.pending = { at, label, old, oldCode: prevCode, recEv: recordSwitch(code, at, label, f) };
   return null;
 }
 
@@ -251,12 +280,14 @@ function cancelPending(restore = true) {
 }
 
 const quantize = () => Number($('quantize').value);
+/** Crossfade length in cycles for bar-line switches (0 = hard cut). */
+const fadeCycles = () => Number($('fade').value);
 
 /** Apply code using the current quantize setting. */
 function applyQuantized(code, label) {
   const q = quantize();
   const at = q > 0 && isPlaying() ? nextBoundary(q) : null;
-  return evaluateCode(code, { at, label });
+  return evaluateCode(code, { at, label, fade: fadeCycles() });
 }
 
 $('play').onclick = async () => {
@@ -276,6 +307,8 @@ $('undo').onclick = async () => {
 };
 $('quantize').value = saved.quantize ?? '4';
 $('quantize').onchange = () => save({ quantize: $('quantize').value });
+$('fade').value = saved.fade ?? '0.5';
+$('fade').onchange = () => save({ fade: $('fade').value });
 
 // Header clock: cycle / bar counter + countdown to armed switch
 setInterval(() => {
@@ -314,12 +347,12 @@ function switchCycle(sch = scheduler()) {
 }
 
 const MAX_TAKE_EVENTS = 3000;
-function recordSwitch(code, cycle, label = '') {
+function recordSwitch(code, cycle, label = '', fade = 0) {
   if (!isPlaying() || !code?.trim()) return null;
   if (!rec.take) rec.take = { events: [], started: Date.now(), end: 0 };
   const evs = rec.take.events;
   if (evs.length >= MAX_TAKE_EVENTS) return null;
-  const ev = { c: Math.round(cycle * 1e6) / 1e6, code, label: String(label || '').slice(0, 80) };
+  const ev = { c: Math.round(cycle * 1e6) / 1e6, code, label: String(label || '').slice(0, 80), fade: fade || 0 };
   // keep time order: an armed switch can be recorded before an earlier immediate one
   let k = evs.length;
   while (k > 0 && evs[k - 1].c > ev.c) k--;
@@ -400,7 +433,7 @@ function recordingForShare() {
   const events = take.events.map((ev) => {
     let i = index.get(ev.code);
     if (i === undefined) { i = codes.push(ev.code) - 1; index.set(ev.code, i); }
-    return { c: Math.round((ev.c - c0) * 1e6) / 1e6, i, label: ev.label };
+    return { c: Math.round((ev.c - c0) * 1e6) / 1e6, i, label: ev.label, ...(ev.fade ? { f: ev.fade } : {}) };
   });
   return { v: 1, codes, events, end: Math.max(0, Math.round((take.end - c0) * 1e3) / 1e3) };
 }
@@ -409,7 +442,7 @@ function decodeRecording(r) {
   if (!r || !Array.isArray(r.codes) || !Array.isArray(r.events) || !r.events.length) return null;
   const events = r.events
     .filter((ev) => Number.isFinite(ev.c) && typeof r.codes[ev.i] === 'string')
-    .map((ev) => ({ c: ev.c, code: r.codes[ev.i], label: String(ev.label || '') }))
+    .map((ev) => ({ c: ev.c, code: r.codes[ev.i], label: String(ev.label || ''), fade: Number(ev.f) || 0 }))
     .sort((a, b) => a.c - b.c);
   return events.length ? { events, end: Number(r.end) || events[events.length - 1].c } : null;
 }
@@ -464,10 +497,10 @@ function tickReplay() {
     }
     return;
   }
-  if ((ev.c - now) / cps() > 1) return; // arm about a second ahead
+  if ((ev.c - (ev.fade || 0) - now) / cps() > 1) return; // arm about a second before the change (or its crossfade)
   replay.busy = true;
   const at = Math.max(ev.c, switchCycle() + 0.06 * cps());
-  evaluateCode(ev.code, { at, label: `replay ${replay.i + 1}/${replay.events.length}`, undo: false })
+  evaluateCode(ev.code, { at, label: `replay ${replay.i + 1}/${replay.events.length}`, undo: false, fade: ev.fade || 0 })
     .then((err) => { if (err) addMsg('error', `Replay: change ${replay.i + 1} failed: ${err.message}`); })
     .finally(() => { replay.i++; replay.busy = false; });
 }
@@ -1456,11 +1489,15 @@ async function tickSetlist() {
   // first step waits for the next quantize boundary; late steps too
   let at = setlist.nextAt ?? nextBoundary(q);
   if (at < nextBoundary(1)) at = nextBoundary(q);
-  // arm ~2s before the switch so the editor shows what's next
-  const secsUntil = (at - nowCycle()) / cps();
+  // arm ~2s before the switch (or before its crossfade starts) so the editor shows what's next
+  const secsUntil = (at - fadeCycles() - nowCycle()) / cps();
   if (secsUntil > 2) return;
   step.status = 'armed';
-  const err = await evaluateCode(step.code, { at, label: step.song ? `“${step.song.title}” ${step.songPos + 1}/${step.songLen}` : `block ${setlist.playIndex + 1}` });
+  const err = await evaluateCode(step.code, {
+    at,
+    fade: fadeCycles(),
+    label: step.song ? `“${step.song.title}” ${step.songPos + 1}/${step.songLen}` : `block ${setlist.playIndex + 1}`,
+  });
   if (err) {
     // keep the old music playing, regenerate this section with the error and try again
     const idx = setlist.playIndex;
@@ -1729,6 +1766,8 @@ function renderMixer() {
     host.style.position = 'relative';
     host.appendChild(mixerEl);
     mixerEl.addEventListener('mousedown', (e) => e.preventDefault()); // keep editor focus/selection
+    // the code scrolls inside the editor: keep the M/S buttons next to their lines
+    host.querySelector('.cm-scroller')?.addEventListener('scroll', () => renderMixer(), { passive: true });
     mixerEl.addEventListener('click', (e) => {
       const b = e.target.closest('button[data-line]');
       if (b) toggleLine(Number(b.dataset.line), b.dataset.what);
@@ -2605,17 +2644,25 @@ function vizAnalyser() {
   try { node = globalThis.getSuperdoughAudioController?.().output.destinationGain; } catch {}
   if (!node) return null;
   if (viz.src !== node) {
-    viz.analyser = node.context.createAnalyser();
-    viz.analyser.fftSize = 2048;
-    viz.analyser.smoothingTimeConstant = 0.78;
+    const ctx = node.context;
+    const mk = () => { const a = ctx.createAnalyser(); a.fftSize = 2048; a.smoothingTimeConstant = 0.78; return a; };
+    viz.analyser = mk();
     node.connect(viz.analyser);
+    // left / right for the stereo views
+    const split = ctx.createChannelSplitter(2);
+    node.connect(split);
+    viz.left = mk();
+    viz.right = mk();
+    split.connect(viz.left, 0);
+    split.connect(viz.right, 1);
     viz.src = node;
     viz.freq = new Uint8Array(viz.analyser.frequencyBinCount);
     viz.wave = new Float32Array(viz.analyser.fftSize);
+    viz.waveL = new Float32Array(viz.analyser.fftSize);
+    viz.waveR = new Float32Array(viz.analyser.fftSize);
   }
   return viz.analyser;
 }
-
 function drawRoll(g, x0, y0, w, h) {
   const now = nowCycle();
   const span = 3, back = 1; // cycles visible, playhead at 1/3
@@ -2672,42 +2719,208 @@ function drawRoll(g, x0, y0, w, h) {
   g.beginPath(); g.moveTo(X(now) + 0.5, y0); g.lineTo(X(now) + 0.5, y0 + h); g.stroke();
 }
 
-function drawSpectrum(g, x0, y0, w, h) {
+/** Fills viz.waveL / viz.waveR; a mono output (silent right channel) is mirrored to both. */
+function vizStereo() {
+  if (!vizAnalyser()) return false;
+  viz.left.getFloatTimeDomainData(viz.waveL);
+  viz.right.getFloatTimeDomainData(viz.waveR);
+  if (!viz.waveR.some((v) => v !== 0)) viz.waveR.set(viz.waveL);
+  return true;
+}
+/** Log-spaced band levels 0..1 (30 Hz – 16 kHz). */
+function vizBands(n) {
   const an = vizAnalyser();
-  if (!an) return;
+  if (!an) return null;
   an.getByteFrequencyData(viz.freq);
   const bins = viz.freq.length, nyq = an.context.sampleRate / 2;
-  const bars = Math.max(16, Math.floor(w / 5));
   const fLo = Math.log(30), fHi = Math.log(Math.min(16000, nyq));
-  for (let k = 0; k < bars; k++) {
-    const fa = Math.exp(fLo + ((fHi - fLo) * k) / bars), fb = Math.exp(fLo + ((fHi - fLo) * (k + 1)) / bars);
+  const out = new Float32Array(n);
+  for (let k = 0; k < n; k++) {
+    const fa = Math.exp(fLo + ((fHi - fLo) * k) / n), fb = Math.exp(fLo + ((fHi - fLo) * (k + 1)) / n);
     const ia = Math.floor((fa / nyq) * bins), ib = Math.max(ia + 1, Math.floor((fb / nyq) * bins));
     let v = 0;
     for (let i = ia; i < ib && i < bins; i++) v = Math.max(v, viz.freq[i]);
-    const bh = (v / 255) * h;
-    g.fillStyle = `hsl(${250 - (k / bars) * 90}, 80%, ${45 + (v / 255) * 25}%)`;
+    out[k] = v / 255;
+  }
+  return out;
+}
+const vizLabel = (g, text, x, y) => { g.fillStyle = '#4a5063'; g.font = '10px ui-monospace, monospace'; g.fillText(text, x + 4, y + 11); };
+
+function drawSpectrum(g, x0, y0, w, h) {
+  const bars = Math.max(16, Math.floor(w / 5));
+  const lv = vizBands(bars);
+  if (!lv) return;
+  for (let k = 0; k < bars; k++) {
+    const bh = lv[k] * h;
+    g.fillStyle = `hsl(${250 - (k / bars) * 90}, 80%, ${45 + lv[k] * 25}%)`;
     g.fillRect(x0 + (k * w) / bars, y0 + h - bh, w / bars - 1, bh);
   }
 }
 
-function drawScope(g, x0, y0, w, h) {
-  const an = vizAnalyser();
-  if (!an) return;
-  an.getFloatTimeDomainData(viz.wave);
-  // start at a rising zero crossing so the wave stands still
-  let s0 = 0;
-  for (let i = 1; i < viz.wave.length / 2; i++) if (viz.wave[i - 1] < 0 && viz.wave[i] >= 0) { s0 = i; break; }
-  const n = viz.wave.length / 2;
-  g.strokeStyle = '#20d3a6';
+/** Index of a rising zero crossing, so periodic waves stand still. */
+function zeroCross(buf) {
+  for (let i = 1; i < buf.length / 2; i++) if (buf[i - 1] < 0 && buf[i] >= 0) return i;
+  return 0;
+}
+function traceWave(g, buf, s0, x0, y0, w, h, color) {
+  const n = buf.length / 2;
+  g.strokeStyle = color;
   g.lineWidth = 1.5;
   g.beginPath();
   for (let i = 0; i < n; i++) {
-    const x = x0 + (i / n) * w, y = y0 + h / 2 - viz.wave[s0 + i] * (h / 2) * 0.9;
+    const x = x0 + (i / n) * w, y = y0 + h / 2 - buf[s0 + i] * (h / 2) * 0.9;
     i ? g.lineTo(x, y) : g.moveTo(x, y);
   }
   g.stroke();
   g.lineWidth = 1;
 }
+function drawScope(g, x0, y0, w, h) {
+  const an = vizAnalyser();
+  if (!an) return;
+  an.getFloatTimeDomainData(viz.wave);
+  g.strokeStyle = '#1d2029';
+  g.beginPath(); g.moveTo(x0, y0 + h / 2); g.lineTo(x0 + w, y0 + h / 2); g.stroke();
+  traceWave(g, viz.wave, zeroCross(viz.wave), x0, y0, w, h, '#20d3a6');
+}
+function drawStereoScope(g, x0, y0, w, h) {
+  if (!vizStereo()) return;
+  const s0 = zeroCross(viz.waveL);
+  for (const [buf, y, c, name] of [[viz.waveL, y0, '#20d3a6', 'L'], [viz.waveR, y0 + h / 2, '#7c5cff', 'R']]) {
+    g.strokeStyle = '#1d2029';
+    g.beginPath(); g.moveTo(x0, y + h / 4); g.lineTo(x0 + w, y + h / 4); g.stroke();
+    traceWave(g, buf, s0, x0, y, w, h / 2, c);
+    vizLabel(g, name, x0, y);
+  }
+}
+/** Vectorscope: mid (L+R) up, side (L−R) across — mono is a vertical line, wide stereo a cloud. */
+function drawVectorscope(g, x0, y0, w, h) {
+  if (!vizStereo()) return;
+  const r = Math.min(w, h) / 2 - 6, cx = x0 + w / 2, cy = y0 + h / 2;
+  g.strokeStyle = '#1d2029';
+  g.beginPath(); g.arc(cx, cy, r, 0, Math.PI * 2); g.moveTo(cx - r, cy); g.lineTo(cx + r, cy); g.moveTo(cx, cy - r); g.lineTo(cx, cy + r); g.stroke();
+  g.fillStyle = 'rgba(32, 211, 166, .55)';
+  const L = viz.waveL, R = viz.waveR;
+  for (let i = 0; i < L.length; i += 2) {
+    const side = (L[i] - R[i]) * 0.707, mid = (L[i] + R[i]) * 0.707;
+    g.fillRect(cx + Math.max(-1, Math.min(1, side)) * r, cy - Math.max(-1, Math.min(1, mid)) * r, 1.5, 1.5);
+  }
+  vizLabel(g, 'vector', x0, y0);
+}
+/** Scrolling spectrogram (time → right, low notes at the bottom). */
+function drawSpectrogram(g, x0, y0, w, h) {
+  const rows = Math.max(32, Math.min(160, Math.floor(h / 2)));
+  const lv = vizBands(rows);
+  if (!lv) return;
+  const dpr = devicePixelRatio || 1;
+  const W = Math.round(w * dpr), H = Math.round(h * dpr);
+  let c = viz.specCanvas;
+  if (!c || c.width !== W || c.height !== H) {
+    c = viz.specCanvas = document.createElement('canvas');
+    c.width = W; c.height = H;
+    const sg = c.getContext('2d');
+    sg.fillStyle = '#0b0c10';
+    sg.fillRect(0, 0, W, H);
+  }
+  const sg = c.getContext('2d');
+  const step = Math.max(1, Math.round(2 * dpr));
+  sg.drawImage(c, -step, 0);
+  for (let k = 0; k < rows; k++) {
+    const v = lv[k];
+    sg.fillStyle = v < 0.02 ? '#0b0c10' : `hsl(${260 - v * 220}, 85%, ${8 + v * 55}%)`;
+    const y = H - ((k + 1) * H) / rows;
+    sg.fillRect(W - step, Math.floor(y), step, Math.ceil(H / rows) + 1);
+  }
+  g.drawImage(c, x0, y0, w, h);
+}
+/** Circular spectrum around a waveform ring. */
+function drawRadial(g, x0, y0, w, h) {
+  const n = 96;
+  const lv = vizBands(n);
+  if (!lv) return;
+  const cx = x0 + w / 2, cy = y0 + h / 2, r0 = Math.min(w, h) * 0.22, rMax = Math.min(w, h) / 2 - 4;
+  g.lineWidth = Math.max(1.5, (2 * Math.PI * r0) / n - 1.5);
+  for (let k = 0; k < n; k++) {
+    const a = (k / n) * Math.PI * 2 - Math.PI / 2, len = lv[k] * (rMax - r0);
+    g.strokeStyle = `hsl(${(k / n) * 300 + 200}, 80%, ${45 + lv[k] * 25}%)`;
+    g.beginPath();
+    g.moveTo(cx + Math.cos(a) * r0, cy + Math.sin(a) * r0);
+    g.lineTo(cx + Math.cos(a) * (r0 + len), cy + Math.sin(a) * (r0 + len));
+    g.stroke();
+  }
+  g.lineWidth = 1.5;
+  viz.analyser.getFloatTimeDomainData(viz.wave);
+  g.strokeStyle = '#e6e8ee';
+  g.beginPath();
+  const m = 256, s0 = zeroCross(viz.wave);
+  for (let i = 0; i <= m; i++) {
+    const a = (i / m) * Math.PI * 2 - Math.PI / 2, rr = r0 * (0.75 + viz.wave[s0 + i * 2] * 0.5);
+    i ? g.lineTo(cx + Math.cos(a) * rr, cy + Math.sin(a) * rr) : g.moveTo(cx + Math.cos(a) * rr, cy + Math.sin(a) * rr);
+  }
+  g.stroke();
+  g.lineWidth = 1;
+}
+/** L/R level meters: RMS bar, peak tick with hold, dB scale. */
+function drawMeters(g, x0, y0, w, h) {
+  if (!vizStereo()) return;
+  const db = (v) => (v > 0 ? 20 * Math.log10(v) : -96);
+  const norm = (d) => Math.max(0, Math.min(1, (d + 48) / 48)); // −48 dB … 0 dB
+  viz.peaks ||= [0, 0];
+  const now = performance.now();
+  const bw = Math.min(46, (w - 50) / 2);
+  [viz.waveL, viz.waveR].forEach((buf, ch) => {
+    let sum = 0, pk = 0;
+    for (const v of buf) { sum += v * v; pk = Math.max(pk, Math.abs(v)); }
+    const rms = norm(db(Math.sqrt(sum / buf.length))), peak = norm(db(pk));
+    const hold = viz.peaks[ch];
+    viz.peaks[ch] = peak >= hold ? peak : Math.max(peak, hold - (now - (viz.peakT || now)) / 2500);
+    const x = x0 + 30 + ch * (bw + 10);
+    const grd = g.createLinearGradient(0, y0 + h, 0, y0);
+    grd.addColorStop(0, '#20d3a6'); grd.addColorStop(0.75, '#ffd166'); grd.addColorStop(1, '#ff5c7a');
+    g.fillStyle = '#16181f';
+    g.fillRect(x, y0 + 4, bw, h - 8);
+    g.fillStyle = grd;
+    g.fillRect(x, y0 + 4 + (h - 8) * (1 - rms), bw, (h - 8) * rms);
+    g.fillStyle = '#e6e8ee';
+    g.fillRect(x, y0 + 4 + (h - 8) * (1 - viz.peaks[ch]), bw, 2);
+    vizLabel(g, ch ? 'R' : 'L', x + bw / 2 - 8, y0 + h - 16);
+  });
+  viz.peakT = now;
+  g.fillStyle = '#4a5063';
+  g.font = '9px ui-monospace, monospace';
+  for (const d of [0, -6, -12, -24, -36, -48]) g.fillText(String(d), x0 + 2, y0 + 8 + (h - 8) * (1 - norm(d)));
+}
+
+const VIZ_MODES = {
+  roll: (g, w, h) => drawRoll(g, 0, 0, w, h),
+  spectrum: (g, w, h) => drawSpectrum(g, 0, 0, w, h),
+  scope: (g, w, h) => drawScope(g, 0, 0, w, h),
+  stereo: (g, w, h) => drawStereoScope(g, 0, 0, w, h),
+  vector: (g, w, h) => drawVectorscope(g, 0, 0, w, h),
+  spectrogram: (g, w, h) => drawSpectrogram(g, 0, 0, w, h),
+  radial: (g, w, h) => drawRadial(g, 0, 0, w, h),
+  meters: (g, w, h) => drawMeters(g, 0, 0, w, h),
+  all: (g, w, h) => {
+    const sh = Math.max(30, Math.round(h * 0.28));
+    drawRoll(g, 0, 0, w, h - sh - 2);
+    drawSpectrum(g, 0, h - sh, w, sh);
+  },
+  rollscope: (g, w, h) => {
+    const sh = Math.max(30, Math.round(h * 0.32));
+    drawRoll(g, 0, 0, w, h - sh - 2);
+    drawScope(g, 0, h - sh, w, sh);
+  },
+  dashboard: (g, w, h) => {
+    // scope | spectrum | vectorscope | meters, side by side
+    const vw = Math.min(h, w * 0.22), mw = Math.min(110, w * 0.12);
+    const rest = w - vw - mw - 12, sw = rest / 2;
+    drawScope(g, 0, 0, sw - 4, h);
+    drawSpectrum(g, sw, 0, sw - 4, h);
+    drawVectorscope(g, rest + 4, 0, vw, h);
+    drawMeters(g, rest + vw + 12, 0, mw, h);
+    g.strokeStyle = '#1d2029';
+    for (const x of [sw - 2, rest + 2, rest + vw + 8]) { g.beginPath(); g.moveTo(x, 0); g.lineTo(x, h); g.stroke(); }
+  },
+};
 
 function drawViz() {
   if (!viz.on) return;
@@ -2720,15 +2933,7 @@ function drawViz() {
   const g = c.getContext('2d');
   g.setTransform(dpr, 0, 0, dpr, 0, 0);
   g.clearRect(0, 0, w, h);
-  const mode = $('vizMode').value;
-  if (mode === 'roll') drawRoll(g, 0, 0, w, h);
-  else if (mode === 'spectrum') drawSpectrum(g, 0, 0, w, h);
-  else if (mode === 'scope') drawScope(g, 0, 0, w, h);
-  else {
-    const sh = Math.max(30, Math.round(h * 0.28));
-    drawRoll(g, 0, 0, w, h - sh - 2);
-    drawSpectrum(g, 0, h - sh, w, sh);
-  }
+  (VIZ_MODES[$('vizMode').value] || VIZ_MODES.all)(g, w, h);
 }
 
 function setVizDock(where) {
@@ -2786,6 +2991,53 @@ function showViz(on) {
   handle.addEventListener('pointerup', end);
   handle.addEventListener('pointercancel', end);
 })();
+
+// ---------------------------------------------------------------------------
+// About: version, recent changes (from CHANGELOG.md) and project links.
+// ---------------------------------------------------------------------------
+/** Tiny renderer for the changelog: "## x.y.z" headings, "- " bullets, **bold**, `code`. */
+function renderChangelog(md, versions = 3) {
+  const inline = (t) => esc(t).replace(/\*\*(.+?)\*\*/g, '<b>$1</b>').replace(/`([^`]+)`/g, '<code>$1</code>');
+  const parts = md.split(/^## /m).slice(1, versions + 1);
+  if (!parts.length) return '<p class="muted">No changelog available.</p>';
+  return parts.map((p) => {
+    const [head, ...lines] = p.split('\n');
+    let html = `<h4>${head.trim() === APP_VERSION ? `v${esc(head.trim())} <span class="tag">this version</span>` : 'v' + esc(head.trim())}</h4><ul>`;
+    let item = null;
+    const flush = () => { if (item !== null) html += `<li>${inline(item)}</li>`; item = null; };
+    for (const l of lines) {
+      const m = l.match(/^\s*- (.*)$/);
+      if (m && !/^\s{2,}-/.test(l)) { flush(); item = m[1]; }
+      else if (m) { flush(); html += `<li class="sub">${inline(m[1])}</li>`; }
+      else if (l.trim() && item !== null) item += ' ' + l.trim();
+    }
+    flush();
+    return html + '</ul>';
+  }).join('');
+}
+
+async function openAbout() {
+  const dlg = $('aboutDlg');
+  $('aboutVersion').textContent = 'v' + APP_VERSION;
+  $('aboutBuild').textContent = `build ${APP_BUILD}`;
+  if (!dlg.open) dlg.showModal();
+  try {
+    const a = await fetch('/api/about', { cache: 'no-cache' }).then((r) => r.json());
+    const repo = a.repo || 'https://github.com/eric256/strudel-ai';
+    $('aboutRepo').href = repo;
+    $('aboutIssues').href = repo + '/issues';
+    $('aboutReleases').href = repo + '/releases';
+    $('aboutChangelog').href = repo + '/blob/main/CHANGELOG.md';
+    if (a.version && a.version !== APP_VERSION) $('aboutBuild').textContent += ` · v${a.version} is deployed — it loads when you stop`;
+    $('aboutChanges').innerHTML = renderChangelog(a.changelog || '');
+  } catch (e) {
+    $('aboutChanges').textContent = `Couldn't load the changelog: ${e.message}`;
+  }
+}
+$('aboutBtn').onclick = openAbout;
+$('appVersion').onclick = openAbout;
+$('aboutClose').onclick = () => $('aboutDlg').close();
+$('aboutDlg').addEventListener('click', (e) => { if (e.target === $('aboutDlg')) $('aboutDlg').close(); }); // click outside
 
 // handy for debugging from the browser console
 window.strudelAI = { rec, replay, startReplay, recordingForShare, viz, checkScales, checkSounds, prepareCode, evaluateCode, dryRun, hum, transcribe, ensureSliders, setlist, setl };

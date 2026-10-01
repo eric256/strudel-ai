@@ -47,9 +47,11 @@ select { padding: 5px 6px; max-width: 260px; }
 main { flex: 1; display: flex; min-height: 0; }
 
 #editor-pane { flex: 1 1 60%; min-width: 0; display: flex; flex-direction: column; position: relative; }
-#editor-wrap { flex: 1; overflow: auto; min-height: 0; }
-#editor-wrap > div { min-height: 100%; }
-#editor-wrap .cm-editor { min-height: 100%; font-size: 15px; }
+/* the editor fills the pane and scrolls inside, so the horizontal scrollbar sits at the bottom of the window */
+#editor-wrap { flex: 1; overflow: hidden; min-height: 0; }
+#editor-wrap > div { height: 100%; overflow: hidden; }
+#editor-wrap .cm-editor { height: 100%; font-size: 15px; }
+#editor-wrap .cm-scroller { overflow: auto; }
 #editor-wrap strudel-editor { display: none; }
 #error-bar {
   background: #2a1219; color: var(--danger); border-top: 1px solid #5a2030;
@@ -274,3 +276,27 @@ body.viz-resizing { cursor: row-resize; user-select: none; }
 .viz-bar .spacer { flex: 1; }
 #vizCanvas { flex: 1; min-height: 0; width: 100%; display: block; background: #0b0c10; }
 #vizBtn.on { border-color: var(--accent); color: var(--accent); }
+
+/* about */
+.brand .ver { cursor: pointer; }
+dialog.about {
+  width: min(560px, calc(100vw - 32px)); max-height: min(80vh, 720px); overflow: auto;
+  background: var(--panel); color: var(--text); border: 1px solid var(--border); border-radius: 10px;
+  padding: 14px 18px; box-shadow: 0 16px 48px rgba(0,0,0,.5);
+}
+dialog.about::backdrop { background: rgba(5, 6, 9, .6); }
+.about-head { display: flex; align-items: center; justify-content: space-between; }
+.about .muted { color: var(--muted); }
+.about .small { font-size: 12px; }
+.about-ver { margin: 8px 0 4px; font-family: var(--mono); }
+.about-links { display: flex; flex-wrap: wrap; gap: 6px 14px; margin: 10px 0; }
+.about-links a { color: var(--accent-2); text-decoration: none; font-size: 13px; }
+.about-links a:hover { text-decoration: underline; }
+.about h3 { font-size: 14px; margin: 14px 0 4px; }
+.about-changes h4 { font: 600 13px var(--mono); margin: 10px 0 4px; color: var(--accent); }
+.about-changes .tag { font: 10px system-ui; color: #ffd166; border: 1px solid #6b5a1e; border-radius: 4px; padding: 0 4px; margin-left: 4px; }
+.about-changes ul { margin: 0; padding-left: 18px; font-size: 13px; }
+.about-changes li { margin: 2px 0; }
+.about-changes li.sub { margin-left: 16px; list-style: circle; }
+.about-changes code { font-family: var(--mono); font-size: 12px; background: var(--panel-2); padding: 0 3px; border-radius: 3px; }
+.icon-btn { padding: 5px 9px; }

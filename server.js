@@ -104,6 +104,16 @@ app.use(
 // app files: always revalidate, so a new build is picked up on the next load
 app.use(express.static(PUBLIC_DIR, { setHeaders: (res) => res.set('Cache-Control', 'no-cache') }));
 
+// About dialog: version + the changelog (CHANGELOG.md is copied into the image)
+const CHANGELOG = (() => {
+  try { return fs.readFileSync(path.join(__dirname, 'CHANGELOG.md'), 'utf8'); } catch { return ''; }
+})();
+const REPO_URL = 'https://github.com/eric256/strudel-ai';
+app.get('/api/about', (_req, res) => {
+  res.set('Cache-Control', 'no-cache');
+  res.json({ version: VERSION, build: BUILD, repo: REPO_URL, changelog: CHANGELOG });
+});
+
 app.get('/api/version', (_req, res) => {
   res.set('Cache-Control', 'no-store');
   res.json({ version: VERSION, build: BUILD });
@@ -148,7 +158,8 @@ function cleanRecording(r) {
   const events = [];
   for (const ev of r.events) {
     if (!ev || !Number.isFinite(ev.c) || ev.c < 0 || !Number.isInteger(ev.i) || ev.i < 0 || ev.i >= r.codes.length) return false;
-    events.push({ c: ev.c, i: ev.i, label: String(ev.label || '').slice(0, 80) });
+    const f = Number(ev.f);
+    events.push({ c: ev.c, i: ev.i, label: String(ev.label || '').slice(0, 80), ...(f > 0 && f <= 8 ? { f } : {}) });
   }
   return { v: 1, codes: r.codes, events, end: Number.isFinite(r.end) ? r.end : events[events.length - 1].c };
 }

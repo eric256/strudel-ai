@@ -25,6 +25,15 @@
         </select>
       </label>
       <label id="liveLabel" class="live" title="Live update: edits in the code window take effect as soon as you stop typing"><input type="checkbox" id="liveMode" /> ⚡ live</label>
+      <label class="quant" title="Crossfade into each new block / AI change: the old part fades out while the new one fades in, landing on the bar line">fade
+        <select id="fade">
+          <option value="0">cut</option>
+          <option value="0.25">1 beat</option>
+          <option value="0.5">2 beats</option>
+          <option value="1">1 bar</option>
+          <option value="2">2 bars</option>
+        </select>
+      </label>
       <label class="master" title="Master volume">🔊
         <input type="range" id="masterGain" min="0" max="1.5" step="0.01" value="1" />
         <span id="masterVal">100%</span></label>
@@ -53,6 +62,7 @@
         <small class="muted">Anyone who can reach this server can open the link.</small>
       </div>
     </div>
+    <button id="aboutBtn" class="icon-btn" title="About Strudel AI: version, recent changes, links" aria-label="About">ⓘ</button>
     <div class="llm">
       <select id="provider" title="LLM provider"></select>
       <select id="model" title="Model"></select>
@@ -68,10 +78,21 @@
         <div class="viz-bar">
           <b>📊 Visualizer</b>
           <select id="vizMode" title="What to show">
-            <option value="all">piano roll + spectrum</option>
-            <option value="roll">piano roll</option>
-            <option value="spectrum">spectrum</option>
-            <option value="scope">oscilloscope</option>
+            <optgroup label="Notes">
+              <option value="all">piano roll + spectrum</option>
+              <option value="rollscope">piano roll + oscilloscope</option>
+              <option value="roll">piano roll</option>
+            </optgroup>
+            <optgroup label="Sound">
+              <option value="dashboard">dashboard (scope · spectrum · vector · meters)</option>
+              <option value="scope">oscilloscope</option>
+              <option value="stereo">stereo oscilloscope (L / R)</option>
+              <option value="vector">vectorscope (stereo field)</option>
+              <option value="spectrum">spectrum</option>
+              <option value="spectrogram">spectrogram (waterfall)</option>
+              <option value="radial">radial spectrum</option>
+              <option value="meters">level meters</option>
+            </optgroup>
           </select>
           <select id="vizDock" title="Where the visualizer is docked">
             <option value="bottom">dock: under the code</option>
@@ -191,6 +212,25 @@
       </div>
     </aside>
   </main>
+
+  <dialog id="aboutDlg" class="about">
+    <div class="about-head">
+      <div class="brand">🎛️ <b>strudel</b><span>ai</span></div>
+      <button id="aboutClose" class="link" title="Close">✕</button>
+    </div>
+    <p class="about-ver"><b id="aboutVersion"></b> <span id="aboutBuild" class="muted"></span></p>
+    <p class="muted">A Strudel live-coding REPL with an AI co-pilot that writes and switches the music on the bar line.</p>
+    <nav class="about-links">
+      <a id="aboutRepo" target="_blank" rel="noopener">GitHub project ↗</a>
+      <a id="aboutIssues" target="_blank" rel="noopener">Report an issue ↗</a>
+      <a id="aboutReleases" target="_blank" rel="noopener">Releases ↗</a>
+      <a id="aboutChangelog" target="_blank" rel="noopener">Full changelog ↗</a>
+      <a href="https://strudel.cc/learn/" target="_blank" rel="noopener">Strudel docs ↗</a>
+    </nav>
+    <h3>Recent changes</h3>
+    <div id="aboutChanges" class="about-changes">loading…</div>
+    <p class="muted small">Licensed AGPL-3.0-or-later, like Strudel, which it bundles.</p>
+  </dialog>
 
   <script type="module" src="/app.js"></script>
 </body>
