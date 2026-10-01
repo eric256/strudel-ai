@@ -388,7 +388,7 @@ $('play').onclick = async () => {
   const err = await evaluateCode(getCode());
   if (err) addMsg('error', `Not applied: ${err.message}`);
 };
-$('stop').onclick = () => { stopReplay(); if (mp3.autoSong) mp3Stop(); cancelPending(false); stopSet?.(); stopSetlist(); mirror()?.stop(); if (upd.available) setTimeout(reloadForUpdate, 300); };
+$('stop').onclick = () => { stopReplay(); mp3TakeEnd(false); cancelPending(false); stopSet?.(); stopSetlist(); mirror()?.stop(); if (upd.available) setTimeout(reloadForUpdate, 300); };
 $('undo').onclick = async () => {
   cancelPending(false);
   const prev = state.versions.pop();
@@ -1727,7 +1727,7 @@ async function tickSetlist() {
       stopSetlist();
       // the last section has played out: stop (sounds already scheduled still ring out)
       mirror()?.stop();
-      if (mp3.autoSong) setTimeout(mp3Stop, 1500);
+      setTimeout(mp3TakeEnd, 1500); // let the tail ring out into the recording
       return;
     }
   }
@@ -2711,6 +2711,22 @@ function sectionType(name) {
 }
 
 /** Validate + repair a song sheet from the model. Throws when it can't be used. */
+const MAX_KEY_SHIFT = 3;      // semitones a section may move away from the song's key
+const MAX_TEMPO_DRIFT = 0.08; // a section's tempo stays within ±8% of the song's
+// usual spellings: major-ish roots Db Eb F# Ab Bb, minor roots C# Eb F# G# Bb
+const ROOT_MAJOR = ['C', 'Db', 'D', 'Eb', 'E', 'F', 'F#', 'G', 'Ab', 'A', 'Bb', 'B'];
+const ROOT_MINOR = ['C', 'C#', 'D', 'Eb', 'E', 'F', 'F#', 'G', 'G#', 'A', 'Bb', 'B'];
+const NOTE_PC = { C: 0, D: 2, E: 4, F: 5, G: 7, A: 9, B: 11 };
+/** Move every chord root (and slash bass) of a progression by n semitones: "<Am F C G>" +2 → "<Bm G D A>". */
+function transposeProgression(prog, n) {
+  if (!n) return prog;
+  return prog.replace(/(^|[\s<\[/])([A-G])([#b]?)(m(?!aj)|o)?/g, (_, pre, l, acc, minor = '') => {
+    const pc = (NOTE_PC[l] + (acc === '#' ? 1 : acc === 'b' ? -1 : 0) + n + 120) % 12;
+    return pre + (minor && pre !== '/' ? ROOT_MINOR : ROOT_MAJOR)[pc] + minor;
+  });
+}
+const signed = (n) => (n > 0 ? `+${n}` : String(n));
+
 function normalizeSheet(raw, choice = 'auto', { enforceForm = true } = {}) {
   if (!raw || typeof raw !== 'object') throw new Error('the sheet is not an object');
   const bpm = Math.max(50, Math.min(200, Math.round(Number(raw.bpm) || 100)));
@@ -2750,7 +2766,17 @@ function normalizeSheet(raw, choice = 'auto', { enforceForm = true } = {}) {
     if (!play.length && sections.length) play.push(...sections[sections.length - 1].play);
     if (!play.length) play.push({ part: parts[0].id, variant: 'main' });
     const name = String(sec.name || sec.type || 'section').slice(0, 40);
-    sections.push({ name, type: sectionType(name), bars, chords: chords[ck] ? ck : firstChords, play });
+    const out = { name, type: sectionType(name), bars, chords: chords[ck] ? ck : firstChords, play };
+    // key and tempo may move a little as the song goes on (a lifted last chorus, a tempo push)
+    const shift = Math.round(Number(sec.shift ?? sec.transpose) || 0);
+    if (shift) out.shift = Math.max(-MAX_KEY_SHIFT, Math.min(MAX_KEY_SHIFT, shift));
+    const sbpm = Math.round(Number(sec.bpm) || 0);
+    if (sbpm) {
+      const lim = Math.max(2, Math.round(bpm * MAX_TEMPO_DRIFT));
+      const b2 = Math.max(bpm - lim, Math.min(bpm + lim, sbpm));
+      if (b2 !== bpm) out.bpm = b2;
+    }
+    sections.push(out);
   }
   if (sections.length < 2) throw new Error('fewer than 2 sections');
   // the form decides the section lengths: take its bar counts when the sections line up, otherwise cap them
@@ -2929,17 +2955,23 @@ async function writeSongLibrary(song, signal, { fix = null, prev = null } = {}) 
 function sectionCode(song, sec, { fill = false } = {}) {
   const lib = song.library;
   const fp = fill ? fillPart(song.sheet) : null;
+  const shift = sec.shift || 0;
+  const moves = [shift ? `key ${signed(shift)}` : '', sec.bpm ? `${sec.bpm} bpm` : ''].filter(Boolean).join(' · ');
   const lines = [
-    `// ${song.title} — ${sec.name}${fill ? ' (fill)' : ''} · ${fill ? 1 : sec.bars} bars · chords: ${sec.chords}`,
+    `// ${song.title} — ${sec.name}${fill ? ' (fill)' : ''} · ${fill ? 1 : sec.bars} bars · chords: ${sec.chords}${moves ? ` · ${moves}` : ''}`,
     LIB_START,
-    lib.trim(),
+    // a section with its own tempo replaces the song's tempo line
+    (sec.bpm ? lib.replace(/setcp[ms]\([^)]*\)/, `setcpm(${sec.bpm}/4)`) : lib).trim(),
     '',
     SEC_START,
-    `const sectionChords = ${JSON.stringify(song.sheet.chords[sec.chords])}`,
+    `const sectionChords = ${JSON.stringify(transposeProgression(song.sheet.chords[sec.chords], shift))}`,
   ];
   for (const x of sec.play) {
     const id = `${x.part}_${fp && x.part === fp.id ? 'fill' : x.variant}`;
-    lines.push(`${x.part}: ${partExpr(lib, id)}.postgain(slider(1, 0, 1.5))`);
+    const part = song.sheet.parts.find((p) => p.id === x.part);
+    // harmonic parts follow the (moved) chords; melodic plain parts (the hook) are moved with them; drums never
+    const lift = shift && !isFnPart(lib, id) && !/drum|perc|beat|fx|noise/i.test(`${part?.role} ${x.part}`) ? `.transpose(${shift})` : '';
+    lines.push(`${x.part}: ${partExpr(lib, id)}${lift}.postgain(slider(1, 0, 1.5))`);
   }
   return lines.join('\n') + '\n';
 }
@@ -3125,13 +3157,14 @@ function makeFeeder() {
       ($('setLoop').checked && !setl.single && setl.songs.length > 0) || setl.songs.some((sg) => sg.status === 'writing')),
     onStepStart: (step) => {
       if (!step.song) return;
+      mp3SongStep(step);
+      if (padsState.follow && step.song.pads && padsState.owner !== step.song) loadPads(step.song.pads, step.song);
       const k = setl.songs.indexOf(step.song);
       if (k < 0 || (k === setl.current && step.song.status === 'playing')) return;
       setl.songs.forEach((sg) => { if (sg.status === 'playing' && sg !== step.song) sg.status = 'done'; });
       step.song.status = 'playing';
       step.song.playedAt = Date.now();
       logPlayed(step.song, setl.mode === 'station' ? `station “${setl.station?.name || ''}”` : 'songs');
-      if (mp3.autoSong && mp3.autoSong !== step.song) mp3Stop(); // recording a song: it ended
       setl.current = k;
       addMsg('info', `🎵 now playing: “${step.song.title}” — ${step.song.desc}`);
       if (setl.mode === 'station') document.title = `📻 ${step.song.title} · ${setl.station.name || 'Station'}`;
@@ -3178,6 +3211,7 @@ function stopSet(stopEngine = true) {
   setl.running = false;
   setl.abort?.abort();
   setl.songs.forEach((sg) => { if (sg.status === 'writing') sg.status = 'waiting'; });
+  if (stopEngine) mp3TakeEnd(false); // stopped mid-song: drop the partial recording
   if (stopEngine && setlist.feeder) stopSetlist();
   updateSetButtons();
   document.title = 'Strudel AI';
@@ -3246,8 +3280,10 @@ function songViewHTML(sg, live) {
       ${mine && sh && sg.library ? btn('edit', songEdit.sg === sg ? '✎ editing…' : '✎ Edit', 'Edit the sections, chords and parts (or ask the chat)') : ''}
       ${btn('fav', favOf(sg) ? '★ favorite' : '☆ Favorite', favOf(sg) ? 'A favorite on this server — click to remove it from the shared list' : 'Add to ★ Favorites: everyone on this server sees it, and it survives restarts')}
       ${mine ? '' : btn('save', '📁 Save to My songs', 'Copy this song into 📁 My songs, where you can edit it, keep it and export it')}
-      ${sg.pads ? btn('pads', padsState.owner === sg ? '🔲 song pads ✓' : '🔲 Song pads', 'Load this song’s 16 pads (its own parts, key and chords) into the pad dock to jam along') : ''}
-      ${btn('mp3', mp3.autoSong === sg ? '■ stop MP3' : '🎙 MP3', 'Play the song from the start and record it to an MP3 file')}
+      ${sg.pads ? btn('pads', padsState.follow ? '🔲 song pads ✓' : '🔲 Song pads', padsState.follow ? 'Song pads are on: the pad dock switches to each song’s pads as the songs change — click to go back to your own pads' : 'Load this song’s 16 pads (its own parts, key and chords) into the pad dock — and keep switching to each new song’s pads as the songs change') : ''}
+      ${sg.take ? btn('mp3', `⬇ MP3 <span class="muted">${fmtTime(sg.take.secs)}</span>`, `Download the recording of this song (${(sg.take.size / 1e6).toFixed(1)} MB) — kept until the page is reloaded`)
+        : mp3.seg?.sg === sg ? btn('mp3', '🎙 recording…', 'Recording this song as it plays — ⬇ MP3 appears when it has played to its end')
+        : btn('mp3', mp3.want.has(sg) ? '🎙 MP3 next time' : '🎙 MP3', setl.running ? 'Record this song the next time it plays from the start (the music keeps playing)' : 'Play this song from the start and record it — download the MP3 when it ends')}
       ${btn('json', '⬇ JSON', 'Download the whole song (sheet, parts, sections, pads) as a .json file — import it on any Strudel AI server')}
       ${btn('link', '🔗 Link', 'Create a link that plays this whole song on this server')}
     </div>`;
@@ -3277,7 +3313,8 @@ function songViewHTML(sg, live) {
       const queued = i >= 0 && setlist.jumpTarget === i && st.status !== 'armed' && st.status !== 'playing';
       const sec = st.section;
       const parts = sec ? sec.play.map((x) => `<span class="chip part" style="--c:${vizColor(x.part)}">${esc(x.part)}${x.variant !== 'main' ? `<small>.${esc(st.fillStep && fillPart(sh)?.id === x.part ? 'fill' : x.variant)}</small>` : st.fillStep && fillPart(sh)?.id === x.part ? '<small>.fill</small>' : ''}</span>`).join('') : '';
-      const name = sec ? `${esc(st.prompt)}${sec && !st.fillStep ? ` <span class="sv-chords">${esc(sec.chords)}</span>` : ''}` : esc(st.prompt);
+      const moves = sec && !st.fillStep ? [sec.shift ? `key ${signed(sec.shift)}` : '', sec.bpm ? `${sec.bpm} bpm` : ''].filter(Boolean).join(' · ') : '';
+      const name = sec ? `${esc(st.prompt)}${sec && !st.fillStep ? ` <span class="sv-chords">${esc(sec.chords)}</span>` : ''}${moves ? ` <span class="sv-move" title="This section moves the key and/or tempo">${esc(moves)}</span>` : ''}` : esc(st.prompt);
       return `<details class="step ${st.status}${queued ? ' queued' : ''}${st.fillStep ? ' fill' : ''}" data-j="${j}">
         <summary><span class="ico">${queued ? '⏭' : STATUS_ICON[st.status] || ''}</span>
           <span class="bars">${st.bars}</span><span class="prompt">${name}${parts ? `<span class="sv-parts">${parts}</span>` : ''}</span>
@@ -3306,8 +3343,8 @@ function renderSongs() {
   const stepKey = (sg) => sg?.blocks?.map((b) => b.status + (b.code ? b.code.length : 0) + (b.error || '')).join() || '';
   const key = JSON.stringify([setl.running, setl.mode, setl.planning, now?.title, selSet, selSt, setlist.hold, setlist.jumpTarget, setl.current,
     ...[setSongs, stationSongs].map((l) => l.map((sg) => [sg.title, sg.status, sg.phase, sg.bars, sg.blocks?.filter((b) => b.code).length, sg.error, !!sg.sheet, sg.shareUrl])),
-    stepKey(setView), stepKey(stationSongs[selSt]), songSel.set, songEdit.sg?.title, padsState.owner?.title,
-    mySongs.map((sg) => [sg.title, sg.bars, setl.songs[setl.current] === sg]), mp3.rec ? mp3.autoSong?.title || 1 : 0,
+    stepKey(setView), stepKey(stationSongs[selSt]), songSel.set, songEdit.sg?.title, padsState.owner?.title, padsState.follow,
+    mySongs.map((sg) => [sg.title, sg.bars, setl.songs[setl.current] === sg]), mp3.seg?.sg?.title || '', mp3.takes.length, mp3.want.size,
     favorites.map((f) => [f.id, setl.songs[setl.current] === f.song])]);
   if (key === lastSongsKey) return;
   lastSongsKey = key;
@@ -3363,8 +3400,11 @@ function songAction(act, sg, btn, view) {
   else if (act === 'edit-cancel') { songEdit.sg = null; lastSongsKey = ''; renderSongs(); }
   else if (act === 'save') addToMySongs(sg);
   else if (act === 'fav') toggleFavorite(sg);
-  else if (act === 'pads') { if (padsState.owner === sg) loadPads(null); else loadPads(sg.pads, sg); }
-  else if (act === 'mp3') { if (mp3.autoSong === sg) mp3Stop(); else recordSongMp3(sg); }
+  else if (act === 'pads') {
+    if (padsState.owner === sg && padsState.follow) { setPadsFollow(false); loadPads(null); }
+    else { loadPads(sg.pads, sg); setPadsFollow(true); }
+  }
+  else if (act === 'mp3') songMp3(sg);
   else if (act === 'json') download(`${slug(sg.title)}.strudel-song.json`, JSON.stringify(songToJSON(sg), null, 1));
   else if (act === 'link') shareSong(sg, btn);
   lastSongsKey = '';
@@ -4393,7 +4433,7 @@ const DEFAULT_PADS = [
 const myPads = (load().pads || DEFAULT_PADS).map((p, i) => ({ ...DEFAULT_PADS[i], ...p }));
 let pads = myPads;
 // owner: null = your own pads; a song = that song's pads (edits are saved with the song)
-const padsState = { edit: false, sel: null, pending: new Map(), rec: null, owner: null };
+const padsState = { edit: false, sel: null, pending: new Map(), rec: null, owner: null, follow: !!saved.padsFollow };
 function savePads() {
   if (padsState.owner) { padsState.owner.pads = pads; if (isMine(padsState.owner)) saveMySongs(); }
   else save({ pads: myPads });
@@ -4566,7 +4606,18 @@ function padsRecToggle() {
   });
 }
 $('padsRec').onclick = padsRecToggle;
-$('padsMine').onclick = () => loadPads(null);
+$('padsMine').onclick = () => { setPadsFollow(false); loadPads(null); };
+/** Follow the song: whenever a new song starts, its pads replace the ones in the dock. */
+function setPadsFollow(on) {
+  padsState.follow = on;
+  $('padsFollow').checked = on;
+  save({ padsFollow: on });
+  const cur = setl.songs[setl.current];
+  if (on && setl.running && cur?.pads && padsState.owner !== cur) loadPads(cur.pads, cur);
+  lastSongsKey = '';
+}
+$('padsFollow').checked = padsState.follow;
+$('padsFollow').onchange = () => setPadsFollow($('padsFollow').checked);
 setupDock('pads', { onShow: () => { renderPads.key = ''; renderPads(); } });
 
 // ---------------------------------------------------------------------------
@@ -4601,7 +4652,17 @@ function songFromJSON(j) {
   if (!song.blocks.length) throw new Error('the song has no sections');
   song.bars = song.blocks.reduce((a, b) => a + b.bars, 0);
   song.firstStep = song.blocks[0];
-  song.pads ||= songPads(song);
+  const fresh = songPads(song);
+  // older songs' pads referred to the song's library consts (lead_main …), which only exist while the song plays:
+  // swap those for the self-contained versions
+  const libRef = (c) => !/typeof sectionChords/.test(c) && (/^\s*\(?[A-Za-z]\w*_\w+\)?(\(sectionChords\))?\s*$/.test(c) || /\bsectionChords\b/.test(c));
+  song.pads = song.pads && fresh
+    ? song.pads.map((p) => {
+      if (!libRef(p.code || '')) return p;
+      const f = fresh.find((q) => q.label === p.label);
+      return { ...p, code: f ? f.code : p.code.replace(/\bsectionChords\b/g, padProg(song.sheet)) };
+    })
+    : song.pads || fresh;
   return song;
 }
 const slug = (t) => String(t || 'song').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'song';
@@ -4758,7 +4819,7 @@ function rawSheet(sh) {
     form: sh.form, bpm: sh.bpm, key: sh.key, scale: sh.scale, hook: sh.hook,
     chords: Object.fromEntries(Object.entries(sh.chords).map(([k, v]) => [k, v.replace(/^<|>$/g, '')])),
     parts: sh.parts.map((p) => ({ name: p.id, role: p.role, sound: p.sound, variants: p.variants, desc: p.desc })),
-    sections: sh.sections.map((x) => ({ name: x.name, bars: x.bars, chords: x.chords, play: x.play.map((y) => (y.variant === 'main' ? y.part : `${y.part}.${y.variant}`)) })),
+    sections: sh.sections.map((x) => ({ name: x.name, bars: x.bars, chords: x.chords, play: x.play.map((y) => (y.variant === 'main' ? y.part : `${y.part}.${y.variant}`)), ...(x.shift ? { shift: x.shift } : {}), ...(x.bpm ? { bpm: x.bpm } : {}) })),
   };
 }
 /**
@@ -4822,8 +4883,8 @@ function songEditorHTML(sg) {
     <div class="sv-edit-row"><label>title <input data-f="title" value="${esc(sg.title)}" /></label><label>bpm <input data-f="bpm" type="number" min="50" max="200" value="${r.bpm}" /></label><label>scale <input data-f="scale" value="${esc(r.scale)}" /></label></div>
     <label>chords — <span class="muted">one per line: <code>name: Am F C G</code></span>
       <textarea data-f="chords" rows="3">${esc(Object.entries(r.chords).map(([k, v]) => `${k}: ${v}`).join('\n'))}</textarea></label>
-    <label>sections — <span class="muted">one per line: <code>name | bars | chords | parts (part or part.variant)</code></span>
-      <textarea data-f="sections" rows="${Math.min(14, r.sections.length + 1)}">${esc(r.sections.map((x) => `${x.name} | ${x.bars} | ${x.chords} | ${x.play.join(', ')}`).join('\n'))}</textarea></label>
+    <label>sections — <span class="muted">one per line: <code>name | bars | chords | parts (part or part.variant)</code>, optionally <code>| key +2, 106 bpm</code></span>
+      <textarea data-f="sections" rows="${Math.min(14, r.sections.length + 1)}">${esc(r.sections.map((x) => `${x.name} | ${x.bars} | ${x.chords} | ${x.play.join(', ')}${x.shift || x.bpm ? ` | ${[x.shift ? `key ${signed(x.shift)}` : '', x.bpm ? `${x.bpm} bpm` : ''].filter(Boolean).join(', ')}` : ''}`).join('\n'))}</textarea></label>
     <label>parts — <span class="muted">one per line: <code>name | role | sound | variants</code></span>
       <textarea data-f="parts" rows="${Math.min(8, r.parts.length + 1)}">${esc(r.parts.map((p) => `${p.name} | ${p.role} | ${p.sound} | ${p.variants.join(', ')}`).join('\n'))}</textarea></label>
     <label>parts code — <span class="muted">a <code>const name_variant = …</code> for every part.variant the sections use (harmonic parts take <code>(prog)</code>)</span>
@@ -4841,7 +4902,11 @@ async function saveSongEditor(el, sg) {
   raw.key = raw.scale.replace(':', ' ');
   raw.chords = Object.fromEntries(lines(v('chords')).map((l) => { const i = l.indexOf(':'); return [l.slice(0, i).trim(), l.slice(i + 1).trim()]; }).filter(([k, c]) => k && c));
   raw.parts = lines(v('parts')).map((l) => { const [name, role, sound, variants] = l.split('|').map((x) => (x || '').trim()); return { name, role, sound, variants: (variants || 'main').split(/[,\s]+/).filter(Boolean) }; });
-  raw.sections = lines(v('sections')).map((l) => { const [name, bars, chords, play] = l.split('|').map((x) => (x || '').trim()); return { name, bars: Number(bars) || 8, chords, play: (play || '').split(/[,\s]+/).filter(Boolean) }; });
+  raw.sections = lines(v('sections')).map((l) => {
+    const [name, bars, chords, play, moves = ''] = l.split('|').map((x) => (x || '').trim());
+    return { name, bars: Number(bars) || 8, chords, play: (play || '').split(/[,\s]+/).filter(Boolean),
+      shift: Number(moves.match(/key\s*([+-]?\d+)/i)?.[1]) || 0, bpm: Number(moves.match(/(\d+)\s*bpm/i)?.[1]) || 0 };
+  });
   const msg = el.querySelector('.sv-edit-msg');
   msg.textContent = 'checking…';
   const title = v('title').trim();
@@ -4855,34 +4920,49 @@ async function saveSongEditor(el, sg) {
 }
 
 // --- song pads: 16 pads built from the song itself (its parts, key and chords) — no AI needed
+/** The expression a library const is defined as (so a pad can play the part without the library loaded). */
+function libExpr(lib, id) {
+  const m = new RegExp(`^\\s*(?:const|let|var)\\s+${id}\\s*=\\s*`, 'm').exec(lib);
+  if (!m) return null;
+  const rest = lib.slice(m.index + m[0].length);
+  const end = rest.search(/^\s*(?:const|let|var)\s+[\w$]+\s*=|^\s*setcp[ms]\(/m);
+  return (end < 0 ? rest : rest.slice(0, end)).trim().replace(/;\s*$/, '');
+}
+/** Chords for a pad: the section's chords when one of the song's sections plays, else the song's first progression. */
+const padProg = (sh) => `(typeof sectionChords === 'undefined' ? ${JSON.stringify(Object.values(sh.chords)[0])} : sectionChords)`;
 function songPads(sg) {
   const sh = sg.sheet, lib = sg.library;
   if (!sh || !lib) return null;
   const pads = [];
+  const FIXED = 12; // the jam / drum / effect / tempo pads below
   const add = (label, code, mode = 'toggle', color = '#7c5cff') => { if (pads.length < 16) pads.push({ label, code, mode, color }); };
+  // pads must work whatever is playing (see padProg)
+  const prog = padProg(sh);
   const drums = sh.parts.find((p) => /drum|perc|beat/i.test(p.role + p.id));
   const bank = drums && /^[A-Z]/.test(drums.sound) ? `.bank("${drums.sound}")` : '';
   const scale = sh.scale;
   // the song's own extra variants (half-time drums, fills, …) and the hook
   for (const p of sh.parts) for (const v of p.variants) {
     if (v === 'main' && !/hook|lead|melody/i.test(p.role + p.id)) continue;
-    const id = `${p.id}_${v}`;
-    if (definesId(lib, id)) add(v === 'main' ? p.id : `${p.id} ${v}`, partExpr(lib, id), v === 'fill' ? 'once' : 'toggle', v === 'fill' ? '#ffd166' : '#20d3a6');
+    const id = `${p.id}_${v}`, expr = libExpr(lib, id);
+    if (!expr || pads.length >= 16 - FIXED) continue;
+    // the part's own code, inlined (the library consts only exist while one of this song's sections plays)
+    const code = isFnPart(lib, id) ? `(${expr})(${prog})` : `(${expr})`;
+    add(v === 'main' ? p.id : `${p.id} ${v}`, code, v === 'fill' ? 'once' : 'toggle', v === 'fill' ? '#ffd166' : '#20d3a6');
   }
   // jam parts in the song's key, following the section's chords
   add('arp', `n("0 2 4 7 4 2").scale("${scale}").fast(2).s("triangle").gain(0.4)`, 'toggle', '#20d3a6');
-  add('stabs', 'chord(sectionChords).voicing().struct("~ x ~ x").s("square").decay(0.1).sustain(0).gain(0.3)', 'toggle', '#20d3a6');
-  add('sub', 'chord(sectionChords).rootNotes(1).s("sine").gain(0.6)', 'toggle', '#20d3a6');
-  add('lead', `n("<0 [2 4] 7 [4 2]>").scale("${scale}").add(note(12)).s("sawtooth").lpf(2000).decay(0.2).sustain(0.3).gain(0.3)`, 'toggle', '#20d3a6');
-  add('pad', 'chord(sectionChords).voicing().s("supersaw").attack(0.4).release(1).lpf(1800).gain(0.25)', 'toggle', '#7c5cff');
+  add('stabs', `chord(${prog}).voicing().struct("~ x ~ x").s("square").decay(0.1).sustain(0).gain(0.3)`, 'toggle', '#20d3a6');
+  add('jam lead', `n("<0 [2 4] 7 [4 2]>").scale("${scale}").add(note(12)).s("sawtooth").lpf(2000).decay(0.2).sustain(0.3).gain(0.3)`, 'toggle', '#20d3a6');
+  add('pad', `chord(${prog}).voicing().s("supersaw").attack(0.4).release(1).lpf(1800).gain(0.25)`, 'toggle', '#7c5cff');
   add('snare roll', `s("sd*16")${bank}.gain(saw.range(0.2, 0.9))`, 'once', '#ffd166');
   add('crash', `s("cr")${bank}.gain(0.6)`, 'once', '#ffd166');
-  add('shaker', `s("hh*16")${bank}.gain(0.25).pan(sine)`, 'toggle', '#ffd166');
   add('riser', 's("white").lpf(saw.range(200, 8000)).gain(0.25)', 'hold', '#7c5cff');
   add('filter all', 'all(x => x.lpf(500))', 'hold', '#7c5cff');
   add('echo all', 'all(x => x.delay(0.5).delaytime(0.1875).delayfeedback(0.6))', 'hold', '#7c5cff');
+  add('tempo −¼', 'all(x => x.slow(4/3))', 'hold', '#ff8fa3'); // everything at ¾ speed while held
+  add('tempo +¼', 'all(x => x.fast(5/4))', 'hold', '#ff8fa3'); // everything at 1¼ speed while held
   add('half time', 'all(x => x.slow(2))', 'hold', '#7c5cff');
-  add('stutter', 'all(x => x.ply(2))', 'hold', '#7c5cff');
   return pads;
 }
 
@@ -4961,11 +5041,15 @@ function applyPadsReply(block) {
 }
 
 // ---------------------------------------------------------------------------
-// 🎙 MP3 recording: taps the master output (what you hear), encodes to MP3 in a
-// Web Worker (lamejs) while recording, and downloads the file when you stop.
-// "🎙 MP3" on a song plays it from the start and stops when it ends.
+// 🎙 MP3 recording: one tap on the master output (what you hear) feeds MP3
+// encoders running in Web Workers (lamejs). Two kinds of recording share it:
+//  · song takes: every song is recorded in the background as it plays (from its
+//    first section); when it has played to its end the take is kept and the song
+//    gets a "⬇ MP3" button. Songs cut short are thrown away. Never touches playback.
+//  · the status-bar ⏺ MP3: records everything until clicked again, then downloads.
 // ---------------------------------------------------------------------------
-const mp3 = { rec: null, autoSong: null };
+const mp3 = { rec: null, seg: null, tap: null, takes: [], want: new Set() };
+const MP3_MAX_TAKES = 20; // takes live in memory for this page; oldest are dropped
 function mp3Worker() {
   const lib = new URL('/vendor/lamejs/lame.min.js', location.href).href;
   const src = `importScripts(${JSON.stringify(lib)});
@@ -4979,22 +5063,54 @@ onmessage = (e) => {
 };`;
   return new Worker(URL.createObjectURL(new Blob([src], { type: 'text/javascript' })));
 }
+/** Connect (or disconnect, when nothing records) the shared tap on the master output. */
+function mp3TapUpdate() {
+  const need = !!(mp3.rec || mp3.seg);
+  if (need && !mp3.tap) {
+    const ctx = audioCtx();
+    let node;
+    try { node = globalThis.getSuperdoughAudioController().output.destinationGain; } catch { return false; }
+    const proc = ctx.createScriptProcessor(4096, 2, 2);
+    proc.onaudioprocess = (e) => {
+      const l = e.inputBuffer.getChannelData(0), r = e.inputBuffer.numberOfChannels > 1 ? e.inputBuffer.getChannelData(1) : l;
+      for (const sink of [mp3.rec, mp3.seg]) if (sink) sink.worker.postMessage({ type: 'data', l: l.slice(), r: r.slice() });
+    };
+    node.connect(proc);
+    proc.connect(ctx.destination); // a ScriptProcessor only runs when connected; it outputs silence
+    mp3.tap = { node, proc };
+  } else if (!need && mp3.tap) {
+    try { mp3.tap.node.disconnect(mp3.tap.proc); mp3.tap.proc.disconnect(); } catch {}
+    mp3.tap = null;
+  }
+  return true;
+}
+function mp3Sink(name) {
+  const worker = mp3Worker();
+  worker.postMessage({ type: 'start', sampleRate: audioCtx().sampleRate });
+  return { worker, name, t0: performance.now() };
+}
+/** Finish an encoder: cb(blob, seconds) once the MP3 is flushed. */
+function mp3Finish(sink, cb) {
+  const secs = (performance.now() - sink.t0) / 1000;
+  if (!cb) { sink.worker.terminate(); return; }
+  sink.worker.onmessage = (e) => { sink.worker.terminate(); cb(new Blob(e.data, { type: 'audio/mpeg' }), secs); };
+  sink.worker.postMessage({ type: 'end' });
+}
+const mp3Name = (name) => `${slug(name)}-${new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-')}.mp3`;
+function downloadBlob(name, blob) {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = name;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+}
+
+// ---- status-bar ⏺ MP3: record everything ----
 async function mp3Start(name = 'strudel-ai') {
   if (mp3.rec) return;
   await ensureAudio();
-  const ctx = audioCtx();
-  let node;
-  try { node = globalThis.getSuperdoughAudioController().output.destinationGain; } catch { warnUser('MP3: the audio engine is not ready yet — press ▶ first'); return; }
-  const worker = mp3Worker();
-  worker.postMessage({ type: 'start', sampleRate: ctx.sampleRate });
-  const proc = ctx.createScriptProcessor(4096, 2, 2);
-  proc.onaudioprocess = (e) => {
-    const l = e.inputBuffer.getChannelData(0), r = e.inputBuffer.numberOfChannels > 1 ? e.inputBuffer.getChannelData(1) : l;
-    worker.postMessage({ type: 'data', l: l.slice(), r: r.slice() });
-  };
-  node.connect(proc);
-  proc.connect(ctx.destination); // a ScriptProcessor only runs when connected; it outputs silence
-  mp3.rec = { worker, proc, node, name, t0: performance.now() };
+  mp3.rec = mp3Sink(name);
+  if (!mp3TapUpdate()) { mp3Finish(mp3.rec); mp3.rec = null; warnUser('MP3: the audio engine is not ready yet — press ▶ first'); return; }
   $('mp3Btn').classList.add('on');
   clog('info', `🎙 recording MP3 “${name}”…`);
 }
@@ -5002,45 +5118,68 @@ function mp3Stop() {
   const r = mp3.rec;
   if (!r) return;
   mp3.rec = null;
-  mp3.autoSong = null;
-  clearTimeout(mp3.timer);
-  try { r.node.disconnect(r.proc); r.proc.disconnect(); } catch {}
+  mp3TapUpdate();
   $('mp3Btn').classList.remove('on');
   $('mp3Btn').textContent = '⏺ MP3';
-  const secs = (performance.now() - r.t0) / 1000;
-  r.worker.onmessage = (e) => {
-    const blob = new Blob(e.data, { type: 'audio/mpeg' });
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = `${slug(r.name)}-${new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-')}.mp3`;
-    a.click();
-    setTimeout(() => URL.revokeObjectURL(a.href), 5000);
-    r.worker.terminate();
-    clog('ok', `🎙 MP3 saved: ${a.download} (${fmtTime(secs)}, ${(blob.size / 1e6).toFixed(1)} MB)`);
-  };
-  r.worker.postMessage({ type: 'end' });
-  lastSongsKey = '';
-}
-/** Play a song from its first section and record it; stops when the song is over. */
-async function recordSongMp3(sg) {
-  mp3Stop();
-  if (isPlaying()) { mirror()?.stop(); await sleep(250); }
-  playSong(sg);
-  // start recording when the song's first section actually switches in
-  const t0 = performance.now();
-  const wait = setInterval(async () => {
-    if (sg.blocks?.[0]?.status === 'playing' || sg.blocks?.[0]?.status === 'done') {
-      clearInterval(wait);
-      await mp3Start(sg.title);
-      mp3.autoSong = sg;
-      const bpm = sg.sheet?.bpm || Math.round(cps() * 240) || 120;
-      mp3.timer = setTimeout(mp3Stop, ((sg.bars * 4 * 60) / bpm + 3) * 1000); // safety stop: song length + tail
-      lastSongsKey = '';
-    } else if (performance.now() - t0 > 60000) { clearInterval(wait); warnUser(`MP3: “${sg.title}” didn't start`); }
-  }, 50);
+  mp3Finish(r, (blob, secs) => {
+    const name = mp3Name(r.name);
+    downloadBlob(name, blob);
+    clog('ok', `🎙 MP3 saved: ${name} (${fmtTime(secs)}, ${(blob.size / 1e6).toFixed(1)} MB)`);
+  });
 }
 $('mp3Btn').onclick = () => (mp3.rec ? mp3Stop() : mp3Start(setl.songs[setl.current]?.title || 'strudel-ai'));
 setInterval(() => { if (mp3.rec) $('mp3Btn').textContent = `■ ${fmtTime((performance.now() - mp3.rec.t0) / 1000)}`; }, 500);
 
+// ---- song takes: recorded in the background, kept when the song plays to its end ----
+const recordSongsOn = () => $('recSongs').checked;
+if (saved.recSongs !== undefined) $('recSongs').checked = saved.recSongs;
+$('recSongs').onchange = () => { save({ recSongs: $('recSongs').checked }); if (!recordSongsOn()) mp3TakeEnd(false); lastSongsKey = ''; };
+/** A section of a song started playing: begin, follow or end the song's take. */
+function mp3SongStep(step) {
+  const sg = step.song;
+  const idx = sg.blocks?.indexOf(step) ?? -1;
+  if (mp3.seg && mp3.seg.sg !== sg) mp3TakeEnd(); // the previous song is over (complete if it reached its last section)
+  if (mp3.seg) { mp3.seg.reached = Math.max(mp3.seg.reached, idx); return; }
+  if (idx !== 0 || !(recordSongsOn() || mp3.want.has(sg))) return; // takes start at the song's first section
+  mp3.seg = Object.assign(mp3Sink(sg.title), { sg, reached: 0 });
+  if (!mp3TapUpdate()) { mp3Finish(mp3.seg); mp3.seg = null; return; }
+  mp3.want.delete(sg);
+  clog('info', `🎙 recording “${sg.title}” in the background — it can be downloaded when the song is over`);
+  lastSongsKey = '';
+}
+/** End the current take: keep it if the song got to its last section (and `keep` allows), else drop it. */
+function mp3TakeEnd(keep = true) {
+  const seg = mp3.seg;
+  if (!seg) return;
+  mp3.seg = null;
+  mp3TapUpdate();
+  const sg = seg.sg, whole = keep && seg.reached >= (sg.blocks?.length || 1) - 1;
+  lastSongsKey = '';
+  if (!whole) { mp3Finish(seg); clog('info', `🎙 “${sg.title}” didn't play to its end — its recording was discarded`); return; }
+  mp3Finish(seg, (blob, secs) => {
+    if (sg.take) URL.revokeObjectURL(sg.take.url);
+    sg.take = { url: URL.createObjectURL(blob), name: mp3Name(sg.title), secs, size: blob.size };
+    mp3.takes = mp3.takes.filter((t) => t !== sg).concat(sg);
+    while (mp3.takes.length > MP3_MAX_TAKES) { const old = mp3.takes.shift(); URL.revokeObjectURL(old.take.url); delete old.take; }
+    clog('ok', `🎙 “${sg.title}” recorded (${fmtTime(secs)}, ${(blob.size / 1e6).toFixed(1)} MB) — ⬇ MP3 in its song view`);
+    lastSongsKey = '';
+    renderSongs();
+  });
+}
+/** The song view's MP3 button: download the take, or record the song next time it plays from the start. */
+function songMp3(sg) {
+  if (sg.take) {
+    const a = document.createElement('a');
+    a.href = sg.take.url;
+    a.download = sg.take.name;
+    a.click();
+    return;
+  }
+  if (mp3.seg?.sg === sg) return addMsg('info', `🎙 “${sg.title}” is being recorded — ⬇ MP3 appears when it has played to its end`);
+  mp3.want.add(sg);
+  if (!setl.running) { playSong(sg); return; } // nothing playing: play it now (and record it)
+  addMsg('info', `🎙 “${sg.title}” will be recorded the next time it plays from the start — the music keeps playing`);
+}
+
 // handy for debugging from the browser console
-window.strudelAI = { normalizeSheet, playSong, getForms: () => songForms, getFavorites: () => favorites, loadFavorites, getPads: () => pads, mySongs, activeSong, songFromJSON, songToJSON, mp3, session, pads, padsState, keysState, noteOn, noteOff, setPad, docks, rec, replay, startReplay, recordingForShare, viz, checkScales, checkSounds, prepareCode, evaluateCode, dryRun, hum, transcribe, ensureSliders, setlist, setl };
+window.strudelAI = { normalizeSheet, playSong, songMp3, loadPads, songPads, transposeProgression, sectionCode, getForms: () => songForms, getFavorites: () => favorites, loadFavorites, getPads: () => pads, mySongs, activeSong, songFromJSON, songToJSON, mp3, session, pads, padsState, keysState, noteOn, noteOff, setPad, docks, rec, replay, startReplay, recordingForShare, viz, checkScales, checkSounds, prepareCode, evaluateCode, dryRun, hum, transcribe, ensureSliders, setlist, setl };

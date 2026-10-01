@@ -146,7 +146,9 @@ Tick **⚡ live** (⚙ Settings → General) and your edits in the code window t
 
 ## 🎙 Recording to MP3
 
-**⏺ MP3** in the status bar records what you hear (the master output) and saves an MP3 when you click it again. **🎙 MP3** on a song records just that song, from its first bar to its end.
+**⏺ MP3** in the status bar records what you hear (the master output) and saves an MP3 when you click it again.
+
+**Songs are recorded as they play** (⚙ Settings → General → 🎙 record songs, on by default). Recording never interrupts the music: each song is recorded in the background from its first section, and once it has played to its end its toolbar shows **⬇ MP3** to download it. Songs that are cut short (skipped, stopped, or joined mid-way) are discarded. Recordings stay in memory until the page is reloaded; the last 20 are kept.
 
 Encoding happens in the browser while you record (lamejs, 192 kbps stereo), so nothing is uploaded.
 - **Dock** it under the code, above it, or at the top of the side panel, and drag its edge to resize. All of this is remembered.
@@ -212,17 +214,20 @@ Every finished song has a toolbar:
 | ☆ Favorite | adds it to **★ Favorites**, a list stored on the server that everyone who opens this server sees and that survives restarts. Click again to remove it |
 | 📁 Save to My songs | copies it into **My songs** (kept in your browser) — this is how a station song moves to the Songs tab to be worked on |
 | ✎ Edit | (My songs) edit the song as text: tempo, scale, chords (`name: Am F C G`), sections (`name \| bars \| chords \| parts`), parts (`name \| role \| sound \| variants`) and the parts code. **apply** checks and test-plays the parts and re-arranges the song; a song that's playing switches over from its next section |
-| 🔲 Song pads | loads the song's own 16 pads into the pad dock to jam along (see below) |
-| 🎙 MP3 | plays the song from the start and records it to an MP3 file, stopping when the song ends |
+| 🔲 Song pads | loads the song's own 16 pads into the pad dock to jam along, and keeps following: as songs change, the dock switches to each new song's pads (**follow song** in the pad dock; click again or **↩ my pads** to stop) |
+| ⬇ MP3 / 🎙 MP3 | **⬇ MP3** downloads the song's recording once it has played to its end. With no recording yet, **🎙 MP3** plays the song now if nothing is playing, or records it the next time it plays from the start (the station keeps playing) |
 | ⬇ JSON | downloads the whole song (sheet, parts, sections, pads) as a `.json` file. **⬆ import** loads such a file — or a session log — on any Strudel AI server |
 | 🔗 Link | a short link to the song on this server |
 
 **Chat edits the song, too:** with a song playing (or open in the Songs tab), ask things like *"make the chorus 16 bars"*, *"add a breakdown before the last chorus"* or *"give the bass a funkier line"*. The chat changes the song's sheet and parts, and they're checked and re-arranged the same way. The song is only sent to the AI when your message is about the song (sections, chorus, chords, parts …), which keeps requests small.
 
+**Key and tempo can move:** where the genre does it, a section may lift the key (e.g. a pop or gospel last chorus +1 or +2 semitones) or push the tempo a little (up to ±8%). Chords and melodies move with the key and drums never do. Dance genres like techno and house keep one key and tempo. The song view marks those sections (`key +2`, `108 bpm`), and the song editor takes them as an optional last column: `chorus | 4 | chorus | drums, bass | key +2, 108 bpm`.
+
 **Song pads** are made from the song itself, with no AI:
-- the song's extra variants (half-time drums, fills, the hook);
-- jam parts in the song's key that follow the current section's chords (arp, stabs, sub, lead, pad);
-- drum one-shots and effects (snare roll, crash, shaker, riser, filter, echo, half time, stutter).
+- the song's extra variants (half-time drums, fills, the hook), with the part's code built in, so they play even when that song isn't playing;
+- jam parts in the song's key that follow the current section's chords (arp, stabs, jam lead, pad);
+- drum one-shots and effects (snare roll, crash, riser, filter, echo, half time);
+- **tempo −¼ / tempo +¼**: hold to play everything at ¾ or 1¼ speed.
 
 Edit them like any pads; they're saved with the song. **↩ my pads** goes back to your own set.
 

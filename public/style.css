@@ -325,6 +325,7 @@ dialog.about::backdrop { background: rgba(5, 6, 9, .6); }
 .sv-sections .step .prompt { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; }
 .sv-sections .step.fill { margin-left: 18px; opacity: .85; }
 .sv-chords { color: var(--muted); font-family: var(--mono); font-size: 11px; }
+.sv-move { color: var(--accent2, #ffd166); font-family: var(--mono); font-size: 11px; border: 1px solid currentColor; border-radius: 4px; padding: 0 4px; }
 .sv-parts .chip { font-size: 11px; padding: 0 5px; }
 .sv-lib summary { cursor: pointer; color: var(--muted); }
 .sv-lib pre, .sv-sections pre { background: #0b0c10; border: 1px solid var(--border); border-radius: 6px; padding: 6px; font-family: var(--mono); font-size: 11px; overflow-x: auto; margin: 6px 0 0; }

@@ -2,6 +2,14 @@
 
 The version is in `package.json`. Bump it when you release. Open pages also notice *any* redeploy through the build id, which is a hash of the app files, even if the version wasn't bumped.
 
+## 1.22.0
+- **Songs record as they play:** every song is recorded in the background from its first section. When it has played to its end, **⬇ MP3** in its toolbar downloads it. Songs cut short are discarded. Set it in ⚙ Settings → General (🎙 record songs).
+  - **🎙 MP3** on a station song no longer stops the station. It records that song the next time it plays from the start.
+- **Key and tempo changes:** sections may lift the key (−3…+3 semitones) or nudge the tempo (±8%) where the genre does it, such as a pop last chorus up a whole step. Chords and melodies move, drums don't. The song view and the song editor (`| key +2, 108 bpm`) show them.
+- **Song pads follow the songs:** turning on 🔲 Song pads (or **follow song** in the pad dock) stays on, and the dock switches to each new song's pads as songs change.
+- **Song pads always play:** song part pads (e.g. the lead or hook) carry their own code. They no longer fail with "lead_main is not defined" when another song or your own code is playing. Pads saved with older songs are repaired when the song loads.
+- **Tempo pads:** **tempo −¼** and **tempo +¼** (hold) play everything at ¾ or 1¼ speed.
+
 ## 1.21.0
 - **★ Favorites:** ☆ a song and it's stored on the server. Everyone who opens this server sees it in the Songs tab, it survives restarts, and it plays without any AI calls.
 - **📁 My songs:**

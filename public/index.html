@@ -108,6 +108,7 @@
         <div class="viz-bar">
           <b>🔲 Pads</b> <span id="padsSource" class="muted small"></span>
           <button id="padsMine" class="link" title="Back to your own pads" hidden>↩ my pads</button>
+          <label class="small" title="Song pads: whenever a new song starts, the dock switches to that song’s pads"><input type="checkbox" id="padsFollow" /> follow song</label>
           <label title="When a pad switches in">sync <select id="padsSync"><option value="0.25">next beat</option><option value="1">next bar</option></select></label>
           <button id="padsEdit" title="Program the pads: click a pad to edit its label, code and mode">✎ program</button>
           <button id="padsRec" class="rec-btn" title="Record: pad changes while the music runs are written into the code as masks, so the performance loops">⏺ Rec</button>
@@ -315,6 +316,7 @@
         </select>
       </label><span class="muted small">crossfade into new blocks and AI changes</span></div>
       <div class="set-row"><label class="live" title="Autocomplete in the code editor: Strudel functions (with docs and examples), sounds, drum banks, scales and chords. Ctrl+Space shows it any time."><input type="checkbox" id="autoComplete" checked /> ⌨ autocomplete</label><span class="muted small">Strudel functions with docs, sounds, banks, scales, chords · Ctrl+Space</span></div>
+      <div class="set-row"><label class="live" title="Record every song in the background as it plays; when a song has played to its end, its song view gets a ⬇ MP3 download button. Songs that are cut short are discarded."><input type="checkbox" id="recSongs" checked /> 🎙 record songs</label><span class="muted small">record songs as they play · ⬇ MP3 in the song view once a song has finished</span></div>
       <p class="muted small">Settings, song forms, stations, pads, layout and your last code are saved in this browser (per address: <code>https://192.168.1.50</code> and <code>https://myhost</code> keep separate settings). Use 💾 Backup to move them.</p>
     </section>
     <section id="setAI" class="settings-sec" hidden>
