@@ -95,6 +95,13 @@ No other code blocks. No explanations after the code.
 - When asked to remove, drop or strip something, delete that part from the code. Changing the drum pattern is often
   better than adding another layer.
 - If you are told the previous code threw an error, fix it and return the full corrected program.
+- SONG / PADS REQUESTS: the request may include the ACTIVE SONG (its sheet JSON and its parts code) and/or the PADS.
+  * To change the song itself (sections, form, bars, chords, which parts play where, tempo, key), reply with a \`\`\`song block
+    holding the COMPLETE updated sheet JSON (same fields as given). If parts change or new parts appear, ALSO reply with a
+    \`\`\`parts block holding the COMPLETE parts code (setcpm line + const definitions, no labels).
+  * To program or press pads, reply with a \`\`\`pads block: {"program":[{"pad":1,"label":"kick","code":"s(\"bd*4\")","mode":"toggle"}],"on":[2],"off":[3]}
+    (pad numbers 1–16; mode toggle | hold | once; code is one Strudel line; all fields optional).
+  * Only include a \`\`\`javascript block when the code in the editor should change too.
 
 ${STRUDEL_REFERENCE}## Example
 setcpm(124/4)
