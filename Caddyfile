@@ -1,0 +1,38 @@
+# HTTPS reverse proxy for Strudel AI.
+# Browsers only enable AudioWorklet (which Strudel needs) on https:// or http://localhost,
+# so this terminates TLS in front of the app. Configure via .env (see .env.example):
+#   SITE_ADDRESS  – comma-separated names/IPs you will type in the browser
+#   TLS_ISSUER    – "internal" (self-signed local CA, for LAN use) or an e-mail address
+#                   (real Let's Encrypt certificate, needs a public DNS name + ports 80/443 reachable)
+#   DEFAULT_SNI   – the IP/name used when a browser connects by bare IP address (no SNI)
+{
+	default_sni {$DEFAULT_SNI:localhost}
+	# don't try to install the local CA into the container's own trust store
+	skip_install_trust
+	# port 80 is handled by the http:// block below (CA download + redirect)
+	auto_https disable_redirects
+}
+
+# Plain HTTP: serve the local CA certificate (so you can trust it on your devices),
+# redirect everything else to HTTPS.
+http:// {
+	handle /strudel-ai-ca.crt {
+		root * /data/caddy/pki/authorities/local
+		rewrite * /root.crt
+		header Content-Type application/x-x509-ca-cert
+		header Content-Disposition "attachment; filename=strudel-ai-ca.crt"
+		file_server
+	}
+	handle {
+		redir https://{host}:{$HTTPS_PUBLIC_PORT:443}{uri} permanent
+	}
+}
+
+{$SITE_ADDRESS:localhost} {
+	tls {$TLS_ISSUER:internal}
+
+	reverse_proxy {$UPSTREAM:strudel-ai:3000} {
+		# stream AI replies (Server-Sent Events) immediately instead of buffering
+		flush_interval -1
+	}
+}

@@ -1,0 +1,172 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Strudel AI</title>
+  <link rel="stylesheet" href="/style.css" />
+  <script src="/vendor/strudel/index.js"></script>
+</head>
+<body>
+  <header>
+    <div class="brand">🎛️ <b>strudel</b><span>ai</span> <small id="appVersion" class="ver"></small></div>
+    <div class="transport">
+      <button id="play" title="Evaluate / play (Ctrl+Enter)">▶ Play</button>
+      <button id="stop" title="Stop (Ctrl+.)">■ Stop</button>
+      <button id="undo" title="Revert to previous code version" disabled>↶ Undo</button>
+      <label class="quant" title="When AI changes switch in">⏱
+        <select id="quantize">
+          <option value="0">immediately</option>
+          <option value="1">next bar</option>
+          <option value="2">2 bars</option>
+          <option value="4">4 bars</option>
+          <option value="8">8 bars</option>
+          <option value="16">16 bars</option>
+        </select>
+      </label>
+      <label class="master" title="Master volume">🔊
+        <input type="range" id="masterGain" min="0" max="1.5" step="0.01" value="1" />
+        <span id="masterVal">100%</span></label>
+      <span id="status" class="status">stopped</span>
+      <button id="pending" class="pending" title="Click to cancel this pending change" hidden></button>
+      <button id="updatePill" class="update-pill" hidden></button>
+      <button id="humBtn" class="hum-btn" title="Hold to hum a melody (or hold the ` key); tap to open the hum panel">🎤 Hum</button>
+    </div>
+    <div class="share-wrap">
+      <button id="shareBtn" title="Create a link others can open">🔗 Share</button>
+      <div id="sharePop" class="share-pop" hidden>
+        <label>Title <input id="shareTitle" placeholder="untitled jam" maxlength="120" /></label>
+        <label><input type="checkbox" id="shareSetlist" /> include song blocks &amp; set list</label>
+        <button id="shareCreate">Create link</button>
+        <div id="shareResult" hidden>
+          <input id="shareUrl" readonly />
+          <div class="share-actions">
+            <button id="shareCopy">📋 Copy</button>
+            <a id="shareOpen" target="_blank" rel="noopener">open ↗</a>
+          </div>
+        </div>
+        <small class="muted">Anyone who can reach this server can open the link.</small>
+      </div>
+    </div>
+    <div class="llm">
+      <select id="provider" title="LLM provider"></select>
+      <select id="model" title="Model"></select>
+      <button id="refresh" title="Reload model list">⟳</button>
+    </div>
+  </header>
+
+  <main>
+    <section id="editor-pane">
+      <div id="editor-wrap"></div>
+      <div id="error-bar" hidden></div>
+      <div id="hum-panel" hidden>
+        <div class="hum-head">
+          <span id="humStatus">🎤 listening…</span>
+          <span class="spacer"></span>
+          <label title="Rhythm grid">grid
+            <select id="humGrid"><option value="8">1/8</option><option value="16" selected>1/16</option></select></label>
+          <label title="Snap notes to the scale used in the code (if any)"><input type="checkbox" id="humSnap" checked /> snap to key</label>
+          <label title="Lower the music while you hum so the mic hears you, not the speakers"><input type="checkbox" id="humDuck" checked /> duck music</label>
+          <select id="humMode" title="What to do with the melody">
+            <option value="ai">→ AI arranges it</option>
+            <option value="insert">→ insert as-is</option>
+            <option value="none">→ just show it</option>
+          </select>
+          <button id="humClose" class="link" title="Close">✕</button>
+        </div>
+        <canvas id="humCanvas" height="110"></canvas>
+        <div class="hum-foot">
+          <code id="humMini"></code>
+          <span class="spacer"></span>
+          <button id="humSendAI" disabled>✨ Send to AI</button>
+          <button id="humInsert" disabled>＋ Insert as-is</button>
+        </div>
+      </div>
+    </section>
+
+    <div id="resizer" title="Drag to resize · double-click to reset"></div>
+
+    <aside id="chat-pane">
+      <nav class="tabs">
+        <button class="active" data-tab="chatTab">Chat</button>
+        <button data-tab="setlistTab">Blocks</button>
+        <button data-tab="setTab">Set list</button>
+        <button data-tab="stationTab">📻 Station</button>
+      </nav>
+      <div id="setlistTab" class="tab" hidden>
+        <p class="hint"><b>Song blocks</b> — the sections of one song, one per line: <code>bars | instruction</code>. Code for every block is generated ahead of time
+          (each builds on the previous one) and switched in exactly on the bar line. Click <b>⏭ go</b> (or press Alt+1…9) to jump to any block.</p>
+        <div id="blocksDriver" class="driver" hidden></div>
+        <textarea id="setlist" spellcheck="false"></textarea>
+        <div class="sl-buttons">
+          <button id="slStart">▶ Play blocks</button>
+          <button id="slStop" disabled>■ Stop</button>
+          <label><input type="checkbox" id="loopSetlist" /> loop</label>
+          <label title="Off = stay on a section until you pick another one"><input type="checkbox" id="autoAdvance" checked /> auto-advance</label>
+          <span class="spacer"></span>
+          <button id="slWrite">✨ Write with AI</button>
+          <button id="slExample" class="link">example</button>
+        </div>
+        <div id="slStatus"></div>
+      </div>
+      <div id="setTab" class="tab" hidden>
+        <p class="hint"><b>Set list</b> — one song per line: <code>title | description</code> (style, tempo, key, mood…).
+          While a song plays, the AI writes the next song's blocks and code, and switches to it on the bar line when the current song ends.</p>
+        <textarea id="setText" spellcheck="false" placeholder="Night Drive | synthwave, 100 bpm, A minor, pulsing bass, neon pads&#10;Rain on Glass | lo-fi hip hop, 80 bpm, jazzy Rhodes chords, vinyl crackle"></textarea>
+        <div class="sl-buttons">
+          <button id="setStart">▶ Start set</button>
+          <button id="setStop" disabled>■ Stop</button>
+          <label><input type="checkbox" id="setLoop" /> loop</label>
+          <span class="spacer"></span>
+          <button id="setWrite">✨ Write with AI</button>
+        </div>
+        <div id="setStatus" class="songs"></div>
+      </div>
+      <div id="stationTab" class="tab" hidden>
+        <p class="hint"><b>Station</b> — give it a theme and it runs on its own: an AI agent keeps inventing new songs for the theme,
+          writes their blocks and code ahead of time, and plays them one after another.</p>
+        <div class="station-row">
+          <select id="stationSelect" title="Saved stations"></select>
+          <button id="stationNew" title="New station">＋ New</button>
+          <button id="stationDelete" class="link" title="Delete this station">delete</button>
+        </div>
+        <label class="field">Name <input id="stationName" maxlength="60" placeholder="Late Night Lo-fi" /></label>
+        <label class="field">Theme <textarea id="stationTheme" rows="3" placeholder="late-night lo-fi with jazzy chords, 70–90 bpm, rainy city mood, occasional upbeat tracks"></textarea></label>
+        <div class="sl-buttons">
+          <button id="stationStart">📻 Start station</button>
+          <button id="stationStop" disabled>■ Stop</button>
+          <label title="How many future songs the agent keeps planned">songs ahead
+            <select id="stationAhead"><option>1</option><option selected>2</option><option>3</option></select></label>
+        </div>
+        <div id="stationNow" class="on-air" hidden></div>
+        <div id="stationStatus" class="songs"></div>
+      </div>
+      <div id="chatTab" class="tab">
+      <div id="messages">
+        <div class="msg system">
+          Describe the music you want and the AI will rewrite the code live.<br />
+          Try: <em>“dark techno at 128 bpm”</em>, <em>“add a jazzy chord progression”</em>,
+          <em>“make the hats swing”</em>, <em>“drop everything but the bass”</em>.<br />
+          <small>Changes switch in on the bar line (see “switch on” at the top). Click anywhere once to enable audio. Ctrl+Enter in the editor re-evaluates your own edits.</small>
+        </div>
+      </div>
+      <div class="options">
+        <label><input type="checkbox" id="autoApply" checked /> auto-apply</label>
+        <label><input type="checkbox" id="autoFix" checked /> auto-fix errors</label>
+        <label>temp <input type="range" id="temp" min="0" max="1.5" step="0.05" value="0.7" /><span id="tempVal">0.7</span></label>
+        <button id="clearChat" class="link">clear chat</button>
+      </div>
+      <form id="chat-form">
+        <textarea id="input" rows="2" placeholder="Make it groovier… (Enter to send, Shift+Enter for newline)"></textarea>
+        <div class="send-col">
+          <button id="send" type="submit">Send</button>
+          <button id="queueBtn" type="button" title="Add this instruction as an 8-bar song block instead of sending it now">+ Block</button>
+        </div>
+      </form>
+      </div>
+    </aside>
+  </main>
+
+  <script type="module" src="/app.js"></script>
+</body>
+</html>

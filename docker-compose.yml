@@ -1,0 +1,46 @@
+services:
+  strudel-ai:
+    build: .
+    # Use the prebuilt image instead of building: set STRUDEL_AI_IMAGE=ghcr.io/OWNER/strudel-ai:latest in .env
+    # and run `docker compose pull && docker compose up -d`.
+    image: ${STRUDEL_AI_IMAGE:-strudel-ai:latest}
+    container_name: strudel-ai
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      HTTPS_PORT: ""          # TLS is handled by the caddy service below
+    expose:
+      - "3000"
+    # Optional direct access from this machine only (http://localhost:3000 also counts as secure):
+    # ports:
+    #   - "127.0.0.1:3000:3000"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"   # reach llama.cpp / OpenWebUI running on the host
+    volumes:
+      - songs:/app/data          # shared songs (share links) survive rebuilds
+    #   - ./my-prompt.md:/app/my-prompt.md:ro   # optional custom system prompt (add under volumes:, set SYSTEM_PROMPT_FILE)
+
+  caddy:
+    image: caddy:2-alpine
+    container_name: strudel-ai-caddy
+    restart: unless-stopped
+    depends_on:
+      - strudel-ai
+    ports:
+      - "${HTTP_PUBLIC_PORT:-80}:80"
+      - "${HTTPS_PUBLIC_PORT:-443}:443"
+      - "${HTTPS_PUBLIC_PORT:-443}:443/udp"   # HTTP/3
+    environment:
+      SITE_ADDRESS: ${SITE_ADDRESS:-localhost}
+      DEFAULT_SNI: ${DEFAULT_SNI:-localhost}
+      TLS_ISSUER: ${TLS_ISSUER:-internal}
+      HTTPS_PUBLIC_PORT: ${HTTPS_PUBLIC_PORT:-443}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data        # certificates + local CA (keep it, or devices must re-trust the CA)
+      - caddy_config:/config
+
+volumes:
+  songs:
+  caddy_data:
+  caddy_config:
