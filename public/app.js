@@ -618,9 +618,17 @@ async function loadConfig() {
   await loadModels();
 }
 
+function renderProviderControls() {
+  const claude = state.config?.providers?.[$('provider').value]?.kind === 'anthropic';
+  $('effortRow').hidden = !claude;
+  $('tempRow').hidden = claude;
+}
+
 async function loadModels() {
   const provider = $('provider').value;
   const pcfg = state.config.providers[provider];
+  renderProviderControls();
+  if (pcfg.kind === 'anthropic') $('claudeEffort').value = load().claudeEffort || pcfg.defaultEffort || 'low';
   const sel = $('model');
   sel.innerHTML = '<option>loading…</option>';
   try {
@@ -766,13 +774,24 @@ async function requestLLM({ messages, code = '', mode = 'code', onUpdate, signal
   const update = onUpdate;
   onUpdate = (u) => { entry.stream((u.thinking ? `[thinking] ${u.thinking.slice(-600)}\n\n` : '') + u.content); update?.(u); };
   try {
+    lastUsage = null;
     const text = await requestLLMRaw({ messages, code, mode, onUpdate, signal, edited, sounds });
-    entry.done(`✓ AI · ${mode}${label ? ` · ${label}` : ''}: ${text.length} chars in ${((performance.now() - t0) / 1000).toFixed(1)}s`, 'ok');
+    entry.done(`✓ AI · ${mode}${label ? ` · ${label}` : ''}: ${text.length} chars in ${((performance.now() - t0) / 1000).toFixed(1)}s${usageText(lastUsage)}`, 'ok');
     return text;
   } catch (e) {
     entry.done(`✗ AI · ${mode}${label ? ` · ${label}` : ''}: ${e.name === 'AbortError' ? 'stopped' : e.message}`, e.name === 'AbortError' ? 'info' : 'error');
     throw e;
   }
+}
+
+let lastUsage = null; // token usage of the last Claude reply (other providers don't report it)
+// $ per million tokens: input, output, cache read, cache write (5 min)
+const CLAUDE_PRICES = { 'claude-sonnet-5-5': [2, 10, 0.2, 2.5], 'claude-opus-5-5': [4, 20, 0.2, 5], 'claude-haiku-4-5': [1, 5, 0.1, 1.25] };
+function usageText(u) {
+  if (!u) return '';
+  const p = CLAUDE_PRICES[u.model];
+  const cost = p ? (u.input * p[0] + u.output * p[1] + u.cache_read * p[2] + u.cache_write * p[3]) / 1e6 : null;
+  return ` · ${u.input + u.cache_read + u.cache_write} in (${u.cache_read} cached) / ${u.output} out` + (cost != null ? ` · ≈${(cost * 100).toFixed(1)}¢` : '');
 }
 
 async function requestLLMRaw({ messages, code, mode, onUpdate, signal, edited, sounds }) {
@@ -789,6 +808,7 @@ async function requestLLMRaw({ messages, code, mode, onUpdate, signal, edited, s
       sounds,
       systemPrompt: promptOverride(mode),
       temperature: Number($('temp').value),
+      effort: $('claudeEffort').value,
     }),
     signal,
   });
@@ -820,6 +840,7 @@ async function requestLLMRaw({ messages, code, mode, onUpdate, signal, edited, s
       let j;
       try { j = JSON.parse(data); } catch { continue; }
       if (j.error) throw new Error(j.error.message || JSON.stringify(j.error));
+      if (j.usage) { lastUsage = j.usage; continue; }
       const d = j.choices?.[0]?.delta || j.choices?.[0]?.message || {};
       if (d.reasoning_content || d.reasoning) thinking += d.reasoning_content || d.reasoning;
       if (d.content) content += d.content;
@@ -3847,9 +3868,11 @@ $('promptReset').onclick = () => {
 function renderAISummary() {
   const model = $('model').selectedOptions[0]?.textContent || 'default model';
   const own = Object.keys(load().prompts || {}).length;
-  $('aiSummary').textContent = `🤖 ${model} · temp ${$('temp').value}${$('autoApply').checked ? '' : ' · manual apply'}${own ? ` · ${own} custom prompt${own > 1 ? 's' : ''}` : ''}`;
+  const claude = state.config?.providers?.[$('provider').value]?.kind === 'anthropic';
+  $('aiSummary').textContent = `🤖 ${model} · ${claude ? `effort ${$('claudeEffort').value}` : `temp ${$('temp').value}`}${$('autoApply').checked ? '' : ' · manual apply'}${own ? ` · ${own} custom prompt${own > 1 ? 's' : ''}` : ''}`;
 }
-for (const id of ['model', 'provider', 'temp', 'autoApply']) $(id).addEventListener('change', renderAISummary);
+for (const id of ['model', 'provider', 'temp', 'autoApply', 'claudeEffort']) $(id).addEventListener('change', renderAISummary);
+$('claudeEffort').addEventListener('change', () => save({ claudeEffort: $('claudeEffort').value }));
 $('temp').addEventListener('input', renderAISummary);
 $('aiSummary').onclick = () => openSettings('setAI');
 setInterval(renderAISummary, 2000);

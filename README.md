@@ -12,6 +12,7 @@ Works with:
 
 - **llama.cpp** (`llama-server`, OpenAI-compatible `/v1/chat/completions`)
 - **OpenWebUI** (`/api/chat/completions` with an API key — so you can use any model OpenWebUI fronts: Ollama, llama.cpp, OpenAI, etc.)
+- **Claude** (Anthropic's API, through the official `@anthropic-ai/sdk`) — Claude Sonnet 5.5 by default
 
 Switch between them, pick a model and set the temperature in **⚙ Settings → AI**.
 
@@ -46,6 +47,28 @@ llama-server -m your-model.gguf --host 0.0.0.0 --port 8080 -c 8192
    ```
 
 > If llama.cpp / OpenWebUI run in Docker on the same compose network, use their service name instead of `host.docker.internal`.
+
+### Claude
+
+1. Create an API key at [console.anthropic.com](https://console.anthropic.com) → **API Keys**.
+2. `.env`:
+   ```
+   ANTHROPIC_API_KEY=sk-ant-...
+   DEFAULT_PROVIDER=anthropic         # optional: select Claude by default
+   ANTHROPIC_MODEL=claude-sonnet-5-5  # default; claude-opus-5-5 is the most capable
+   ANTHROPIC_EFFORT=low               # low | medium | high
+   ```
+3. Rebuild: `docker compose up -d --build`, then pick **Claude** in **⚙ Settings → AI**.
+
+**How it works:**
+- The server talks to Claude with the official SDK and streams the reply to the browser in the same format as the other providers, so chat, songs, stations, keys and pads all work unchanged. The key never leaves the server.
+- **Effort** replaces temperature, because Claude has no temperature setting. It controls how much Claude thinks before answering:
+  - **low** (default) keeps live changes quick;
+  - **medium** / **high** can help with songs and parts, but take longer and cost more.
+- Claude's short reasoning summary appears collapsed above its reply, and in the 🖥 Console.
+- **Prompt caching:** the long, unchanging instructions plus the sound list are cached, so repeat requests read them at about a tenth of the price.
+- **Cost:** the console shows each reply's token usage and approximate cost. As a rough guide on Sonnet 5.5, a chat change is about 1–2¢ and a whole station song (sheet + parts) about 5–7¢.
+- **Declines:** if Claude declines a request, Anthropic's server-side fallback retries it on a recommended fallback model. If that doesn't help either, the chat shows a short "Claude declined" message.
 
 ## How it works
 
@@ -332,13 +355,17 @@ Before any AI-written code plays, the app checks it:
 
 | Variable | Default | Notes |
 |---|---|---|
-| `DEFAULT_PROVIDER` | `llamacpp` | `llamacpp` or `openwebui` |
+| `DEFAULT_PROVIDER` | `llamacpp` | `llamacpp`, `openwebui` or `anthropic` |
 | `LLAMACPP_URL` | `http://host.docker.internal:8080` | |
 | `LLAMACPP_API_KEY` | – | only if `llama-server --api-key` |
 | `LLAMACPP_MODEL` | – | usually blank |
 | `OPENWEBUI_URL` | `http://host.docker.internal:3000` | |
 | `OPENWEBUI_API_KEY` | – | required for OpenWebUI |
 | `OPENWEBUI_MODEL` | – | default model id; can pick in UI |
+| `ANTHROPIC_API_KEY` | – | enables the **Claude** provider |
+| `ANTHROPIC_MODEL` | `claude-sonnet-5-5` | default Claude model; can pick in UI |
+| `ANTHROPIC_EFFORT` | `low` | `low` / `medium` / `high`; UI setting overrides per browser |
+| `ANTHROPIC_MAX_TOKENS` | `32000` | per Claude reply, thinking included |
 | `LLM_TEMPERATURE` | `0.7` | UI slider overrides per request |
 | `LLM_MAX_TOKENS` | `2048` | |
 | `LLM_TIMEOUT_MS` | `180000` | |
