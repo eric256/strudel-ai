@@ -260,15 +260,15 @@ header { gap: 10px; padding: 6px 10px; }
 .step.skipped .ico { color: var(--muted); }
 
 /* docked visualizer */
-#viz-dock {
+#viz-dock, .dock {
   flex: 0 0 auto; height: var(--viz-h, 190px); min-height: 90px; display: flex; flex-direction: column;
   background: var(--panel); border-top: 1px solid var(--border); position: relative;
 }
-#viz-dock[hidden] { display: none; }
-#viz-dock.dock-top, #viz-dock.dock-side { border-top: none; border-bottom: 1px solid var(--border); }
+#viz-dock[hidden], .dock[hidden] { display: none; }
+.dock.dock-top, .dock.dock-side { border-top: none; border-bottom: 1px solid var(--border); }
 .viz-handle { flex: 0 0 5px; cursor: row-resize; touch-action: none; }
 .viz-handle:hover, body.viz-resizing .viz-handle { background: var(--accent); }
-#viz-dock.dock-top .viz-handle, #viz-dock.dock-side .viz-handle { order: 3; }
+.dock.dock-top .viz-handle, .dock.dock-side .viz-handle { order: 9; }
 body.viz-resizing { cursor: row-resize; user-select: none; }
 .viz-bar { display: flex; align-items: center; gap: 8px; padding: 2px 10px 4px; font-size: 12px; color: var(--muted); flex-wrap: wrap; }
 .viz-bar b { color: var(--text); font-weight: 600; }
@@ -370,3 +370,70 @@ dialog.forms textarea { font-family: var(--mono); font-size: 12px; }
 #editor-wrap .autocomplete-info-example-code, #editor-wrap .cm-completionInfo pre {
   white-space: pre-wrap; font: 12px var(--mono); background: #0b0c10; border: 1px solid var(--border); border-radius: 4px; padding: 4px 6px; margin: 3px 0;
 }
+
+/* status bar */
+#statusbar {
+  display: flex; align-items: center; gap: 10px; padding: 3px 12px; min-height: 26px;
+  background: var(--panel); border-top: 1px solid var(--border); font: 12px var(--mono); color: var(--muted);
+}
+#statusbar .status { min-width: 150px; }
+#statusbar .sb-item { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#statusbar #sbSong { color: var(--text); max-width: 40vw; }
+#statusbar .sb-spacer { flex: 1; }
+#statusbar #sbRec { color: #ffb3c1; }
+#statusbar button { font-size: 11px; padding: 1px 8px; }
+header button.on, .icon-btn.on { border-color: var(--accent); color: var(--accent); }
+
+/* settings */
+dialog.settings { width: min(620px, calc(100vw - 32px)); }
+.settings-tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--border); margin: 8px 0 10px; flex-wrap: wrap; }
+.settings-tabs button { border: none; border-radius: 6px 6px 0 0; background: none; color: var(--muted); padding: 6px 10px; }
+.settings-tabs button.active { color: var(--text); box-shadow: inset 0 -2px 0 var(--accent); }
+.settings-sec { display: flex; flex-direction: column; gap: 8px; }
+.settings-sec[hidden] { display: none; }
+.set-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 6px 0; border-bottom: 1px dashed var(--border); }
+.set-row label { display: flex; align-items: center; gap: 6px; color: var(--text); font-size: 13px; min-width: 150px; }
+.set-row .quant { color: var(--text); font-size: 13px; }
+.settings .station-row { display: flex; gap: 6px; }
+.settings .station-row select { flex: 1; }
+.button-like { display: inline-block; border: 1px solid var(--border); border-radius: 6px; padding: 5px 10px; background: var(--panel-2); cursor: pointer; font-size: 13px; }
+.button-like:hover { border-color: var(--accent); }
+.station-theme { color: var(--muted); font-size: 12px; font-style: italic; }
+
+/* keys + pads docks */
+.viz-bar .mini { padding: 0 6px; font-size: 12px; }
+.viz-bar label { display: flex; align-items: center; gap: 3px; }
+.rec-btn.on { background: #5a2030; border-color: var(--danger); color: #fff; animation: pulse .6s ease-in-out infinite alternate; }
+.keyboard { position: relative; flex: 1; min-height: 60px; margin: 0 10px 8px; user-select: none; touch-action: none; }
+.key { position: absolute; top: 0; border: 1px solid #2a2e3a; border-radius: 0 0 5px 5px; cursor: pointer; }
+.key.white { height: 100%; background: linear-gradient(#e9ebf1, #cfd3dd); z-index: 1; }
+.key.white span { position: absolute; bottom: 4px; left: 0; right: 0; text-align: center; font: 10px var(--mono); color: #555; }
+.key.black { height: 60%; background: linear-gradient(#2a2d36, #111318); z-index: 2; }
+.key.white.down { background: linear-gradient(#b9f2e3, #20d3a6); }
+.key.black.down { background: linear-gradient(#4a3a99, #7c5cff); }
+.keys-result { display: flex; align-items: center; gap: 8px; padding: 0 10px 8px; flex-wrap: wrap; }
+.keys-result code { font: 12px var(--mono); color: var(--accent-2); word-break: break-all; }
+.keys-result button { font-size: 12px; padding: 2px 8px; }
+.pads-body { flex: 1; min-height: 0; display: flex; gap: 10px; padding: 0 10px 8px; }
+.pads-grid { flex: 1; display: grid; grid-template-columns: repeat(4, 1fr); grid-auto-rows: 1fr; gap: 6px; min-height: 0; user-select: none; touch-action: none; }
+.pad {
+  position: relative; border-radius: 8px; border: 1px solid color-mix(in srgb, var(--pc) 55%, transparent);
+  background: color-mix(in srgb, var(--pc) 12%, var(--panel-2)); color: var(--text); padding: 4px; min-height: 28px;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; overflow: hidden;
+}
+.pad .pad-label { font-size: 12px; font-weight: 600; text-align: center; line-height: 1.2; }
+.pad .pad-mode { font: 9px var(--mono); color: var(--muted); text-transform: uppercase; }
+.pad.on { background: color-mix(in srgb, var(--pc) 60%, var(--panel-2)); box-shadow: 0 0 12px color-mix(in srgb, var(--pc) 60%, transparent); }
+.pad.pending { animation: pulse .3s ease-in-out infinite alternate; }
+.pad.selected { outline: 2px solid var(--text); }
+.pad-editor { width: 300px; display: flex; flex-direction: column; gap: 4px; font-size: 12px; overflow: auto; }
+.pad-editor textarea { font: 12px var(--mono); }
+.pad-editor .muted { color: var(--muted); }
+.pad-editor input[type=color] { width: 32px; height: 22px; padding: 0; border: none; background: none; }
+@media (max-width: 800px) { .pads-body { flex-direction: column; } .pad-editor { width: auto; } }
+
+/* compact header: button labels collapse to icons on narrower screens */
+@media (max-width: 1500px) { header .lbl { display: none; } }
+.set-row { flex-wrap: nowrap; }
+.set-row > label { flex: 0 0 170px; }
+.set-row > .muted { flex: 1; }

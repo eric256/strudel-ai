@@ -1,7 +1,7 @@
 // Unit tests for the hum → melody pipeline (pure functions, no browser needed).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { yin, rms, transcribe, intervalsToSemitones, tonicPc, snapToSet, barToMini } from '../public/hum.js';
+import { yin, rms, transcribe, intervalsToSemitones, tonicPc, snapToSet, barToMini, polyBarToMini, polyBarsToMini } from '../public/hum.js';
 
 const SR = 48000;
 
@@ -65,4 +65,12 @@ test('scale helpers and snapping', () => {
 test('mini-notation weights are reduced and rests merged', () => {
   assert.equal(barToMini([{ s: 0, e: 4, midi: 60 }, { s: 8, e: 12, midi: 64 }], 16), 'c4 ~ e4 ~');
   assert.equal(barToMini([], 16), '~');
+});
+
+test('polyBarToMini: chords, rests and lengths', () => {
+  // c-major chord on beat 1 (4 steps), e4 on beat 3 (2 steps), rest after
+  const bar = [{ s: 0, e: 4, midi: 60 }, { s: 0, e: 4, midi: 64 }, { s: 0, e: 3, midi: 67 }, { s: 8, e: 10, midi: 64 }];
+  assert.equal(polyBarToMini(bar, 16), '[c4,e4,g4]@2 ~@2 e4 ~@3');
+  assert.equal(polyBarToMini([], 16), '~');
+  assert.equal(polyBarsToMini([[{ s: 0, e: 16, midi: 48 }], []], 16), '<[c3] ~>');
 });

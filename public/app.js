@@ -1,4 +1,4 @@
-import { HumRecorder, transcribe, intervalsToSemitones, tonicPc, midiToName, freqToMidi } from './hum.js';
+import { HumRecorder, transcribe, intervalsToSemitones, tonicPc, midiToName, freqToMidi, polyBarsToMini } from './hum.js';
 // Strudel AI — browser app
 const $ = (id) => document.getElementById(id);
 
@@ -2397,9 +2397,7 @@ $('formReset').onclick = () => {
   }
   saveForms(); renderFormsEditor();
 };
-for (const b of document.querySelectorAll('.forms-edit')) b.onclick = () => { renderFormsEditor(); $('formsDlg').showModal(); };
-$('formsClose').onclick = () => $('formsDlg').close();
-$('formsDlg').addEventListener('click', (e) => { if (e.target === $('formsDlg')) $('formsDlg').close(); });
+for (const b of document.querySelectorAll('.forms-edit')) b.onclick = () => openSettings('setForms');
 for (const id of ['setForm', 'stationForm']) $(id).onchange = () => save({ [id]: $(id).value });
 renderFormSelects();
 
@@ -3137,21 +3135,24 @@ const DEFAULT_STATIONS = [
 ];
 let stations = load().stations || DEFAULT_STATIONS;
 let stationIdx = Math.min(load().stationIdx ?? 0, stations.length - 1);
-const currentStation = () => ({ name: $('stationName').value.trim(), theme: $('stationTheme').value.trim() });
+const currentStation = () => ({ name: stations[stationIdx]?.name || '', theme: stations[stationIdx]?.theme || '' });
 function renderStations() {
-  $('stationSelect').innerHTML = stations.map((st, i) => `<option value="${i}">${esc(st.name || 'untitled')}</option>`).join('');
-  $('stationSelect').value = String(stationIdx);
+  const opts = stations.map((st, i) => `<option value="${i}">${esc(st.name || 'untitled')}</option>`).join('');
+  for (const id of ['stationSelect', 'stationEditSelect']) { $(id).innerHTML = opts; $(id).value = String(stationIdx); }
   $('stationName').value = stations[stationIdx]?.name || '';
   $('stationTheme').value = stations[stationIdx]?.theme || '';
+  $('stationThemeView').textContent = stations[stationIdx]?.theme || 'No theme yet — ✎ edit stations to write one.';
 }
 function saveStations() { save({ stations, stationIdx }); }
 renderStations();
-$('stationSelect').onchange = () => { stationIdx = Number($('stationSelect').value); saveStations(); renderStations(); };
+for (const id of ['stationSelect', 'stationEditSelect']) $(id).onchange = () => { stationIdx = Number($(id).value); saveStations(); renderStations(); };
 for (const id of ['stationName', 'stationTheme']) {
   $(id).oninput = () => {
-    stations[stationIdx] = currentStation();
+    stations[stationIdx] = { name: $('stationName').value.trim(), theme: $('stationTheme').value.trim() };
     saveStations();
-    if (id === 'stationName') $('stationSelect').options[stationIdx].textContent = $('stationName').value || 'untitled';
+    const name = $('stationName').value || 'untitled';
+    for (const sel of ['stationSelect', 'stationEditSelect']) if ($(sel).options[stationIdx]) $(sel).options[stationIdx].textContent = name;
+    $('stationThemeView').textContent = $('stationTheme').value || 'No theme yet — ✎ edit stations to write one.';
   };
 }
 $('stationNew').onclick = () => { stations.push({ name: 'New station', theme: '' }); stationIdx = stations.length - 1; saveStations(); renderStations(); $('stationTheme').focus(); };
@@ -3517,61 +3518,69 @@ function drawViz() {
   (VIZ_MODES[$('vizMode').value] || VIZ_MODES.all)(g, w, h);
 }
 
-function setVizDock(where) {
-  const dock = $('viz-dock');
-  if (where === 'side') $('chat-pane').insertBefore(dock, $('chat-pane').firstChild);
-  else if (where === 'top') $('editor-pane').insertBefore(dock, $('editor-wrap'));
-  else { where = 'bottom'; $('editor-pane').insertBefore(dock, $('editor-wrap').nextSibling); }
-  dock.className = `dock-${where}`;
-  $('vizDock').value = where;
-  lastMixerKey = '';
-  window.dispatchEvent(new Event('resize'));
-}
-
-function showViz(on) {
-  viz.on = on;
-  $('viz-dock').hidden = !on;
-  $('vizBtn').classList.toggle('on', on);
-  cancelAnimationFrame(viz.raf);
-  if (on) drawViz();
-  lastMixerKey = '';
-  window.dispatchEvent(new Event('resize'));
-}
-
-(() => {
+// ---------------------------------------------------------------------------
+// Docks: the visualizer, keyboard and pads share docking (under / above the code
+// or in the side panel), resizing, show / hide, and a remembered layout.
+// ---------------------------------------------------------------------------
+const docks = {};
+function setupDock(name, { onShow, onHide } = {}) {
+  const el = $(`${name}-dock`), sel = $(`${name}Dock`), btn = $(`${name}Btn`), handle = $(`${name}Handle`);
+  const d = { name, el, on: false };
+  const relayout = () => { lastMixerKey = ''; window.dispatchEvent(new Event('resize')); };
+  d.place = (where) => {
+    if (where === 'side') $('chat-pane').insertBefore(el, $('chat-pane').firstChild);
+    else if (where === 'top') $('editor-pane').insertBefore(el, $('editor-wrap'));
+    else { where = 'bottom'; $('editor-pane').insertBefore(el, $('editor-wrap').nextSibling); }
+    el.classList.remove('dock-bottom', 'dock-top', 'dock-side');
+    el.classList.add(`dock-${where}`);
+    sel.value = where;
+    relayout();
+  };
+  d.show = (on) => {
+    d.on = on;
+    el.hidden = !on;
+    btn.classList.toggle('on', on);
+    (on ? onShow : onHide)?.();
+    relayout();
+  };
   const st = load();
-  if (st.vizMode) $('vizMode').value = st.vizMode;
-  if (st.vizH) $('viz-dock').style.setProperty('--viz-h', st.vizH + 'px');
-  setVizDock(st.vizDock || 'bottom');
-  showViz(!!st.vizOn);
-  $('vizBtn').onclick = () => { showViz(!viz.on); save({ vizOn: viz.on }); };
-  $('vizClose').onclick = () => { showViz(false); save({ vizOn: false }); };
-  $('vizMode').onchange = () => save({ vizMode: $('vizMode').value });
-  $('vizDock').onchange = () => { setVizDock($('vizDock').value); save({ vizDock: $('vizDock').value }); };
-  const handle = $('vizHandle');
+  if (st[`${name}H`]) el.style.setProperty('--viz-h', st[`${name}H`] + 'px');
+  d.place(st[`${name}Dock`] || 'bottom');
+  btn.onclick = () => { d.show(!d.on); save({ [`${name}On`]: d.on }); };
+  $(`${name}Close`).onclick = () => { d.show(false); save({ [`${name}On`]: false }); };
+  sel.onchange = () => { d.place(sel.value); save({ [`${name}Dock`]: sel.value }); };
   let drag = null;
   handle.addEventListener('pointerdown', (e) => {
-    drag = { y: e.clientY, h: $('viz-dock').getBoundingClientRect().height, down: $('vizDock').value !== 'bottom' };
+    drag = { y: e.clientY, h: el.getBoundingClientRect().height, down: sel.value !== 'bottom' };
     handle.setPointerCapture(e.pointerId);
     document.body.classList.add('viz-resizing');
   });
   handle.addEventListener('pointermove', (e) => {
     if (!drag) return;
     const dy = e.clientY - drag.y;
-    const hgt = Math.max(90, Math.min(window.innerHeight * 0.7, drag.h + (drag.down ? dy : -dy)));
-    $('viz-dock').style.setProperty('--viz-h', Math.round(hgt) + 'px');
+    el.style.setProperty('--viz-h', Math.round(Math.max(90, Math.min(window.innerHeight * 0.7, drag.h + (drag.down ? dy : -dy)))) + 'px');
     lastMixerKey = '';
   });
   const end = () => {
     if (!drag) return;
     drag = null;
     document.body.classList.remove('viz-resizing');
-    save({ vizH: Math.round($('viz-dock').getBoundingClientRect().height) });
-    window.dispatchEvent(new Event('resize'));
+    save({ [`${name}H`]: Math.round(el.getBoundingClientRect().height) });
+    relayout();
   };
   handle.addEventListener('pointerup', end);
   handle.addEventListener('pointercancel', end);
-})();
+  d.show(!!st[`${name}On`]);
+  docks[name] = d;
+  return d;
+}
+
+if (load().vizMode) $('vizMode').value = load().vizMode;
+$('vizMode').onchange = () => save({ vizMode: $('vizMode').value });
+setupDock('viz', {
+  onShow: () => { viz.on = true; cancelAnimationFrame(viz.raf); drawViz(); },
+  onHide: () => { viz.on = false; cancelAnimationFrame(viz.raf); },
+});
 
 // ---------------------------------------------------------------------------
 // About: version, recent changes (from CHANGELOG.md) and project links.
@@ -3620,5 +3629,465 @@ $('appVersion').onclick = openAbout;
 $('aboutClose').onclick = () => $('aboutDlg').close();
 $('aboutDlg').addEventListener('click', (e) => { if (e.target === $('aboutDlg')) $('aboutDlg').close(); }); // click outside
 
+// ---------------------------------------------------------------------------
+// ⚙ Settings: live edit, fade, autocomplete, song forms, stations, backup.
+// Everything is kept in localStorage (STORE_KEY), so it survives reloads and updates.
+// ---------------------------------------------------------------------------
+function openSettings(sec = 'setGeneral') {
+  for (const b of document.querySelectorAll('.settings-tabs button')) b.classList.toggle('active', b.dataset.sec === sec);
+  for (const el of document.querySelectorAll('.settings-sec')) el.hidden = el.id !== sec;
+  if (sec === 'setForms') renderFormsEditor();
+  if (sec === 'setStations') renderStations();
+  $('settingsMsg').textContent = '';
+  if (!$('settingsDlg').open) $('settingsDlg').showModal();
+}
+$('settingsBtn').onclick = () => openSettings();
+$('settingsClose').onclick = () => $('settingsDlg').close();
+$('settingsDlg').addEventListener('click', (e) => { if (e.target === $('settingsDlg')) $('settingsDlg').close(); });
+for (const b of document.querySelectorAll('.settings-tabs button')) b.onclick = () => openSettings(b.dataset.sec);
+for (const b of document.querySelectorAll('.stations-edit')) b.onclick = () => openSettings('setStations');
+$('settingsExport').onclick = () => {
+  const blob = new Blob([JSON.stringify({ app: 'strudel-ai', version: APP_VERSION, exported: new Date().toISOString(), settings: load() }, null, 2)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `strudel-ai-settings-${new Date().toISOString().slice(0, 10)}.json`;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  $('settingsMsg').textContent = '✓ exported';
+};
+$('settingsImport').onchange = async () => {
+  const f = $('settingsImport').files[0];
+  if (!f) return;
+  try {
+    const j = JSON.parse(await f.text());
+    const st = j.settings || j;
+    if (!st || typeof st !== 'object' || Array.isArray(st)) throw new Error('not a settings file');
+    if (!confirm('Replace this browser\'s settings, forms, stations and pads with the ones in this file?')) return;
+    localStorage.setItem(STORE_KEY, JSON.stringify(st));
+    saveSession();
+    location.reload();
+  } catch (e) {
+    $('settingsMsg').textContent = `⚠ couldn't import: ${e.message}`;
+  }
+};
+$('settingsReset').onclick = () => {
+  if (!confirm('Reset everything this browser has saved (settings, forms, stations, pads, layout and your code)?')) return;
+  try { localStorage.removeItem(STORE_KEY); } catch {}
+  location.reload();
+};
+
+// ---------------------------------------------------------------------------
+// Status bar (bottom): bar.beat + tempo, the song / section playing, the pending
+// change, the recording, replay and update notices.
+// ---------------------------------------------------------------------------
+setInterval(() => {
+  const step = setlist.running ? setlist.steps.find((s) => s.status === 'playing') : null;
+  const sg = $('sbSong');
+  if (step) {
+    const pos = step.song?.blocks ? ` (${step.song.blocks.indexOf(step) + 1}/${step.song.blocks.length})` : '';
+    sg.hidden = false;
+    sg.textContent = `${step.song ? `🎵 ${step.song.title} · ` : '▶ '}${step.prompt}${pos}${setlist.hold ? ' · ⏸ held' : ''}`;
+  } else sg.hidden = true;
+  const take = rec.take?.events.length ? rec.take : null;
+  $('sbRec').textContent = take ? `⏺ ${take.events.length} change${take.events.length > 1 ? 's' : ''} · ${fmtTime(takeSeconds(take))}` : '';
+}, 250);
+
+// ---------------------------------------------------------------------------
+// 🎹 Keys: an on-screen keyboard (also the computer keyboard and MIDI keyboards)
+// that plays a sound live through Strudel's engine. ⏺ Rec captures what you play
+// on the bar grid and turns it into a note("…") part.
+// ---------------------------------------------------------------------------
+const keysState = { oct: Number(load().keysOct) || 4, rec: null, held: new Map(), kbd: new Map(), midiInputs: [], result: null };
+const KEY_LETTERS = { a: 0, w: 1, s: 2, e: 3, d: 4, f: 5, t: 6, g: 7, y: 8, h: 9, u: 10, j: 11, k: 12, o: 13, l: 14, p: 15, ';': 16 };
+const isBlack = (m) => [1, 3, 6, 8, 10].includes(((m % 12) + 12) % 12);
+
+function keysSounds() {
+  const reg = globalThis.soundMap?.get?.() || {};
+  const synths = Object.keys(reg).filter((k) => reg[k].data?.type === 'synth' && !['user', 'bus', 'one'].includes(k));
+  const fonts = Object.keys(reg).filter((k) => reg[k].data?.type === 'soundfont');
+  const samples = ['piano'].filter((k) => reg[k]);
+  return [...samples, ...synths, ...fonts];
+}
+function renderKeysSounds() {
+  const list = keysSounds();
+  const sel = $('keysSound');
+  if (sel.options.length === list.length) return;
+  const want = sel.value || load().keysSound || (list.includes('piano') ? 'piano' : 'triangle');
+  sel.innerHTML = list.map((k) => `<option>${esc(k)}</option>`).join('') || '<option>triangle</option>';
+  sel.value = list.includes(want) ? want : sel.options[0].value;
+}
+$('keysSound').onchange = () => save({ keysSound: $('keysSound').value });
+
+function renderKeyboard() {
+  const lo = keysState.oct * 12 + 12; // c<oct>
+  const whites = [];
+  for (let m = lo; m <= lo + 24; m++) if (!isBlack(m)) whites.push(m);
+  const w = 100 / whites.length;
+  let html = '';
+  whites.forEach((m, i) => {
+    html += `<div class="key white" data-m="${m}" style="left:${i * w}%;width:${w}%"><span>${m % 12 === 0 ? midiToName(m) : ''}</span></div>`;
+  });
+  whites.forEach((m, i) => {
+    if (m + 1 <= lo + 24 && isBlack(m + 1)) html += `<div class="key black" data-m="${m + 1}" style="left:${(i + 0.68) * w}%;width:${w * 0.64}%"></div>`;
+  });
+  $('keysBoard').innerHTML = html;
+  $('keysOct').textContent = keysState.oct;
+}
+
+function keysCycle() {
+  // the cycle you HEAR right now (what you play along to), or time-based when nothing plays
+  const c = audibleCycle(0);
+  return c ?? (performance.now() - (keysState.rec?.t0 ?? performance.now())) / 1000 * cps();
+}
+async function keysPlay(midi, vel = 0.8) {
+  try {
+    const ctx = audioCtx();
+    if (ctx.state !== 'running') await ctx.resume();
+    const s = $('keysSound').value || 'triangle';
+    globalThis.superdough?.({ s, note: midi, velocity: vel, gain: 0.8 }, ctx.currentTime + 0.005, 0.6);
+  } catch (e) { console.warn('[strudel-ai] keys:', e); }
+}
+function noteOn(midi, vel = 0.8, src = 'ui') {
+  if (keysState.held.has(midi)) return;
+  keysState.held.set(midi, { c0: keysState.rec ? keysCycle() : null, src });
+  keysPlay(midi, vel);
+  $('keysBoard').querySelector(`.key[data-m="${midi}"]`)?.classList.add('down');
+}
+function noteOff(midi) {
+  const h = keysState.held.get(midi);
+  if (!h) return;
+  keysState.held.delete(midi);
+  $('keysBoard').querySelector(`.key[data-m="${midi}"]`)?.classList.remove('down');
+  if (keysState.rec && h.c0 != null) keysState.rec.notes.push({ midi, c0: h.c0, c1: Math.max(keysCycle(), h.c0 + 0.01) });
+  renderKeysInfo();
+}
+
+// pointer: press, slide across keys, release
+let keysPointer = null;
+$('keysBoard').addEventListener('pointerdown', (e) => {
+  const k = e.target.closest('.key');
+  if (!k) return;
+  e.preventDefault();
+  $('keysBoard').setPointerCapture(e.pointerId);
+  keysPointer = Number(k.dataset.m);
+  noteOn(keysPointer);
+});
+$('keysBoard').addEventListener('pointermove', (e) => {
+  if (keysPointer == null) return;
+  const k = document.elementFromPoint(e.clientX, e.clientY)?.closest?.('#keysBoard .key');
+  const m = k ? Number(k.dataset.m) : null;
+  if (m !== keysPointer) { noteOff(keysPointer); keysPointer = m; if (m != null) noteOn(m); }
+});
+for (const ev of ['pointerup', 'pointercancel']) $('keysBoard').addEventListener(ev, () => { if (keysPointer != null) noteOff(keysPointer); keysPointer = null; });
+
+// computer keyboard (only while the keys are shown and you're not typing somewhere)
+const typingTarget = (e) => e.target.closest?.('input, textarea, select, .cm-editor, [contenteditable="true"]');
+document.addEventListener('keydown', (e) => {
+  if (!docks.keys?.on || e.repeat || e.ctrlKey || e.metaKey || e.altKey || typingTarget(e)) return;
+  if (e.key === 'z' || e.key === 'x') { setKeysOct(keysState.oct + (e.key === 'x' ? 1 : -1)); e.preventDefault(); return; }
+  const off = KEY_LETTERS[e.key.toLowerCase()];
+  if (off === undefined) return;
+  e.preventDefault();
+  const m = keysState.oct * 12 + 12 + off;
+  keysState.kbd.set(e.code, m);
+  noteOn(m, 0.8, 'kbd');
+});
+document.addEventListener('keyup', (e) => {
+  const m = keysState.kbd.get(e.code);
+  if (m === undefined) return;
+  keysState.kbd.delete(e.code);
+  noteOff(m);
+});
+function setKeysOct(o) {
+  keysState.oct = Math.max(1, Math.min(7, o));
+  save({ keysOct: keysState.oct });
+  renderKeyboard();
+}
+$('keysDown').onclick = () => setKeysOct(keysState.oct - 1);
+$('keysUp').onclick = () => setKeysOct(keysState.oct + 1);
+
+// MIDI keyboards (Web MIDI)
+async function connectMidi() {
+  if (keysState.midiAccess !== undefined || !navigator.requestMIDIAccess) return;
+  keysState.midiAccess = null;
+  try {
+    const acc = await navigator.requestMIDIAccess();
+    keysState.midiAccess = acc;
+    const hook = () => {
+      keysState.midiInputs = [...acc.inputs.values()];
+      for (const inp of keysState.midiInputs) {
+        inp.onmidimessage = (msg) => {
+          const [st, note, vel] = msg.data;
+          const cmd = st & 0xf0;
+          if (cmd === 0x90 && vel > 0) noteOn(note, vel / 127, 'midi');
+          else if (cmd === 0x80 || (cmd === 0x90 && vel === 0)) noteOff(note);
+        };
+      }
+      renderKeysInfo();
+    };
+    acc.onstatechange = hook;
+    hook();
+  } catch { renderKeysInfo(); }
+}
+
+function renderKeysInfo() {
+  const r = keysState.rec;
+  const midi = keysState.midiInputs.length ? `MIDI: ${keysState.midiInputs.map((i) => i.name).join(', ')}` : 'keys: A W S E D F … (Z / X octave)';
+  $('keysInfo').textContent = r ? `⏺ recording · ${r.notes.length} note${r.notes.length === 1 ? '' : 's'}` : midi;
+}
+
+function keysRecToggle() {
+  if (!keysState.rec) {
+    keysState.rec = { notes: [], t0: performance.now() };
+    $('keysRec').classList.add('on');
+    $('keysResult').hidden = true;
+    renderKeysInfo();
+    return;
+  }
+  for (const m of [...keysState.held.keys()]) noteOff(m);
+  const r = keysState.rec;
+  keysState.rec = null;
+  $('keysRec').classList.remove('on');
+  renderKeysInfo();
+  if (!r.notes.length) return;
+  const grid = Number($('keysGrid').value);
+  const startBar = Math.floor(Math.min(...r.notes.map((n) => n.c0)));
+  const endBar = Math.min(startBar + 8, Math.ceil(Math.max(...r.notes.map((n) => n.c1)) - 1e-6));
+  const nBars = Math.max(1, endBar - startBar);
+  const bars = Array.from({ length: nBars }, () => []);
+  for (const n of r.notes) {
+    const s = Math.round((n.c0 - startBar) * grid);
+    const e = Math.max(s + 1, Math.round((n.c1 - startBar) * grid));
+    const bar = Math.floor(s / grid);
+    if (bar >= nBars) continue;
+    bars[bar].push({ s: s - bar * grid, e: Math.min(e - bar * grid, grid), midi: n.midi });
+  }
+  // a bar plays at cycle c via "<…>" index c mod n: rotate so the recorded bars land where you played them
+  const ordered = Array.from({ length: nBars }, (_, k) => bars[((k - startBar) % nBars + nBars) % nBars]);
+  keysState.result = { mini: polyBarsToMini(ordered, grid), bars: nBars, sound: $('keysSound').value };
+  $('keysMini').textContent = `note("${keysState.result.mini}").s("${keysState.result.sound}")`;
+  $('keysResult').hidden = false;
+}
+$('keysRec').onclick = keysRecToggle;
+$('keysDiscard').onclick = () => { keysState.result = null; $('keysResult').hidden = true; };
+$('keysInsert').onclick = () => {
+  const r = keysState.result;
+  if (!r) return;
+  const existing = new Set(patternLines(getCode()).map((p) => p.base));
+  let name = 'keys';
+  for (let i = 2; existing.has(name); i++) name = `keys${i}`;
+  const code = getCode().trimEnd() + `\n${name}: note("${r.mini}").s("${r.sound}")\n  .room(slider(0.2, 0, 1))\n  .gain(slider(0.8, 0, 1.2))\n`;
+  applyQuantized(code, 'recorded keys').then((err) => {
+    if (err) addMsg('error', `Couldn't insert the recording: ${err.message}`);
+    else { addMsg('info', state.pending ? `🎹 recording armed — starts at bar ${state.pending.at + 1}` : '🎹 recording inserted'); $('keysResult').hidden = true; }
+  });
+};
+$('keysAI').onclick = async () => {
+  const r = keysState.result;
+  if (!r || state.busy) return;
+  const typed = $('input').value.trim();
+  $('input').value = '';
+  const instruction = typed || 'Add this recorded part to the music as a new part with a fitting sound and effects.';
+  const msg = `${instruction}\n\nRECORDED PART (${r.bars} bar${r.bars > 1 ? 's' : ''}, one bar per cycle, played on "${r.sound}"):\nnote("${r.mini}")\n` +
+    'Use this note pattern EXACTLY as written (same notes, chords and rhythm). You may choose the sound, octave (.transpose), effects and gain.';
+  document.querySelector('.tabs button[data-tab="chatTab"]')?.click();
+  addMsg('user', `🎹 ${instruction}\nnote("${r.mini}")`);
+  setBusy(true);
+  state.abort = new AbortController();
+  try { await runTurn(msg); $('keysResult').hidden = true; }
+  catch (err) { addMsg(err.name === 'AbortError' ? 'info' : 'error', err.name === 'AbortError' ? 'stopped' : err.message); }
+  finally { setBusy(false); }
+};
+if (load().keysGrid) $('keysGrid').value = load().keysGrid;
+$('keysGrid').onchange = () => save({ keysGrid: $('keysGrid').value });
+renderKeyboard();
+setupDock('keys', { onShow: () => { renderKeysSounds(); renderKeysInfo(); connectMidi(); } });
+setInterval(() => { if (docks.keys?.on) renderKeysSounds(); }, 2000);
+
+// ---------------------------------------------------------------------------
+// 🔲 Pads: a 4×4 grid, each pad programmed with a line of Strudel code. Pressing a
+// pad adds or removes its line ("padN: …") in the running code on the next beat /
+// bar, so pads layer with whatever is playing (and with mute / solo). Statements like
+// all(x => x.lpf(400)) or setcpm(140/4) work too. ⏺ Rec writes the pad performance
+// into the code as .mask("…") patterns, so it keeps looping.
+// ---------------------------------------------------------------------------
+const DEFAULT_PADS = [
+  { label: 'kick', code: 's("bd*4").bank("RolandTR909")', mode: 'toggle', color: '#ff5c7a' },
+  { label: 'clap', code: 's("~ cp ~ cp").bank("RolandTR909")', mode: 'toggle', color: '#ff5c7a' },
+  { label: 'hats', code: 's("hh*8").bank("RolandTR909").velocity("0.5 1").gain(0.6)', mode: 'toggle', color: '#ff5c7a' },
+  { label: 'open hat', code: 's("~ oh ~ oh").bank("RolandTR909").gain(0.5)', mode: 'toggle', color: '#ff5c7a' },
+  { label: 'snare roll', code: 's("sd*16").bank("RolandTR909").gain(saw.range(0.2, 1))', mode: 'once', color: '#ffd166' },
+  { label: 'rim', code: 's("rim(3,8)").bank("RolandTR909").gain(0.7)', mode: 'toggle', color: '#ffd166' },
+  { label: 'shaker', code: 's("hh*16").bank("RolandTR808").gain(0.3).pan(sine)', mode: 'toggle', color: '#ffd166' },
+  { label: 'crash', code: 's("cr").bank("RolandTR909").gain(0.6)', mode: 'once', color: '#ffd166' },
+  { label: 'sub bass', code: 'note("<c1 c1 ab0 bb0>*4").s("sine").gain(0.8)', mode: 'toggle', color: '#20d3a6' },
+  { label: 'acid', code: 'note("c2 c3 c2 eb2").s("sawtooth").lpf(sine.range(300, 2000).slow(4)).lpq(10).decay(0.1).sustain(0).gain(0.6)', mode: 'toggle', color: '#20d3a6' },
+  { label: 'stabs', code: 'chord("<Cm7 Fm7>").voicing().struct("~ x ~ x").s("square").decay(0.1).sustain(0).gain(0.35)', mode: 'toggle', color: '#20d3a6' },
+  { label: 'arp', code: 'n("0 2 4 7 4 2").scale("C:minor").fast(2).s("triangle").gain(0.5)', mode: 'toggle', color: '#20d3a6' },
+  { label: 'pad', code: 'chord("<Cm9 Ab^7>").voicing().s("gm_pad_warm").gain(0.5)', mode: 'toggle', color: '#7c5cff' },
+  { label: 'riser', code: 's("white").lpf(saw.range(200, 8000)).gain(0.25)', mode: 'hold', color: '#7c5cff' },
+  { label: 'filter all', code: 'all(x => x.lpf(500))', mode: 'hold', color: '#7c5cff' },
+  { label: 'echo all', code: 'all(x => x.delay(0.5).delaytime(0.1875).delayfeedback(0.6))', mode: 'hold', color: '#7c5cff' },
+];
+let pads = (load().pads || DEFAULT_PADS).map((p, i) => ({ ...DEFAULT_PADS[i], ...p }));
+const padsState = { edit: false, sel: null, pending: new Map(), rec: null };
+const savePads = () => save({ pads });
+
+const padN = (i) => i + 1;
+const isStatement = (code) => /^\s*(all|each|setcp[ms]|samples)\s*\(/.test(code);
+const oneLine = (code) => code.replace(/\s*\n\s*/g, ' ').trim();
+const padLineRe = (i) => new RegExp(`^(?:[_S]?pad${padN(i)}:.*|.*// pad${padN(i)}\\s*)$`);
+const padIsOn = (i, code = getCode()) => code.split('\n').some((l) => padLineRe(i).test(l) && !/^_/.test(l));
+function padLine(i, codeOverride) {
+  const c = oneLine(codeOverride ?? pads[i].code);
+  return isStatement(c) ? `${c} // pad${padN(i)}` : `pad${padN(i)}: ${c}`;
+}
+function codeWithPad(code, i, on, lineText) {
+  const lines = code.split('\n').filter((l) => !padLineRe(i).test(l));
+  let out = lines.join('\n').replace(/\n+$/, '');
+  if (on) out += '\n' + (lineText || padLine(i));
+  return out + '\n';
+}
+
+/** Switch pad i on/off on the next sync boundary (or now when nothing plays). Returns the switch cycle. */
+async function setPad(i, on, { at = null, lineText = null } = {}) {
+  const p = pads[i];
+  if (!p?.code.trim()) return null;
+  const next = codeWithPad(getCode(), i, on, lineText);
+  if (!isPlaying() && !on) { mirror().setCode(next); return null; }
+  const when = isPlaying() ? at ?? nextBoundary(Number($('padsSync').value)) : null;
+  const err = await evaluateCode(next, { at: when, label: `pad “${p.label}” ${on ? 'on' : 'off'}`, undo: false });
+  if (err) { addMsg('error', `Pad “${p.label}”: ${err.message}`); return null; }
+  const c = when ?? 0;
+  if (when != null) padsState.pending.set(i, when);
+  padsState.rec?.log.push({ i, on, at: c });
+  return c;
+}
+
+function renderPads() {
+  const code = getCode();
+  const now = nowCycle();
+  for (const [i, at] of padsState.pending) if (!isPlaying() || now >= at) padsState.pending.delete(i);
+  const key = JSON.stringify([pads, padsState.edit, padsState.sel, [...padsState.pending.keys()], pads.map((_, i) => padIsOn(i, code))]);
+  if (key === renderPads.key) return;
+  renderPads.key = key;
+  $('padsGrid').innerHTML = pads.map((p, i) => {
+    const on = padIsOn(i, code);
+    return `<button class="pad${on ? ' on' : ''}${padsState.pending.has(i) ? ' pending' : ''}${padsState.sel === i && padsState.edit ? ' selected' : ''}" data-i="${i}"
+      style="--pc:${esc(p.color || '#7c5cff')}" title="${esc(`${p.label} · ${p.mode}\n${p.code}`)}">
+      <span class="pad-label">${esc(p.label || `pad ${i + 1}`)}</span><span class="pad-mode">${p.mode === 'toggle' ? '' : p.mode}</span></button>`;
+  }).join('');
+}
+setInterval(() => { if (docks.pads?.on) renderPads(); }, 150);
+
+$('padsGrid').addEventListener('pointerdown', (e) => {
+  const b = e.target.closest('.pad');
+  if (!b) return;
+  e.preventDefault();
+  const i = Number(b.dataset.i);
+  if (padsState.edit) { selectPad(i); return; }
+  const p = pads[i];
+  if (p.mode === 'toggle') setPad(i, !padIsOn(i));
+  else if (p.mode === 'once') padOnce(i);
+  else { // hold
+    $('padsGrid').setPointerCapture(e.pointerId);
+    padsState.holding = { i, at: setPad(i, true) };
+  }
+});
+for (const ev of ['pointerup', 'pointercancel']) {
+  $('padsGrid').addEventListener(ev, async () => {
+    const h = padsState.holding;
+    if (!h) return;
+    padsState.holding = null;
+    const onAt = await h.at;
+    const sync = Number($('padsSync').value);
+    // play at least one sync step
+    setPad(h.i, false, { at: isPlaying() ? Math.max(nextBoundary(sync), (onAt ?? 0) + sync) : null });
+  });
+}
+/** "once": on at the next boundary, off one bar later. */
+async function padOnce(i, lineText = null) {
+  const at = await setPad(i, true, { lineText });
+  if (at == null || !isPlaying()) return;
+  await setPad(i, false, { at: at + 1 });
+}
+
+// programming
+function selectPad(i) {
+  padsState.sel = i;
+  const p = pads[i];
+  $('padEditor').hidden = false;
+  $('padLabel').value = p.label;
+  $('padCode').value = p.code;
+  $('padMode').value = p.mode;
+  $('padColor').value = /^#[0-9a-f]{6}$/i.test(p.color) ? p.color : '#7c5cff';
+  renderPads.key = '';
+  renderPads();
+}
+for (const id of ['padLabel', 'padCode', 'padMode', 'padColor']) {
+  $(id).addEventListener('input', () => {
+    const p = pads[padsState.sel];
+    if (!p) return;
+    Object.assign(p, { label: $('padLabel').value, code: $('padCode').value, mode: $('padMode').value, color: $('padColor').value });
+    savePads();
+    renderPads.key = '';
+  });
+}
+$('padsEdit').onclick = () => {
+  padsState.edit = !padsState.edit;
+  $('padsEdit').classList.toggle('on', padsState.edit);
+  $('padsEdit').textContent = padsState.edit ? '✓ done programming' : '✎ program';
+  if (padsState.edit) selectPad(padsState.sel ?? 0);
+  else $('padEditor').hidden = true;
+  renderPads.key = '';
+};
+$('padDone').onclick = () => { if (padsState.edit) $('padsEdit').onclick(); };
+$('padTest').onclick = () => { const i = padsState.sel; if (i != null) padOnce(i, padLine(i, $('padCode').value)); };
+if (load().padsSync) $('padsSync').value = load().padsSync;
+$('padsSync').onchange = () => save({ padsSync: $('padsSync').value });
+
+// ⏺ Rec: bake the pad performance into the code as masks over the recorded bars
+function padsRecToggle() {
+  if (!padsState.rec) {
+    if (!isPlaying()) { addMsg('info', '🔲 start the music first, then record the pads'); return; }
+    const start = Math.ceil(nowCycle() - 1e-9);
+    padsState.rec = { start, log: [], initial: pads.map((_, i) => padIsOn(i)) };
+    $('padsRec').classList.add('on');
+    $('padsInfo').textContent = `⏺ recording from bar ${start + 1}…`;
+    return;
+  }
+  const r = padsState.rec;
+  padsState.rec = null;
+  $('padsRec').classList.remove('on');
+  $('padsInfo').textContent = '';
+  const end = Math.max(r.start + 1, Math.ceil(switchCycle() - 1e-9));
+  const nBars = Math.min(16, end - r.start);
+  let code = getCode();
+  const baked = [];
+  pads.forEach((p, i) => {
+    if (isStatement(p.code)) return; // statements can't be masked
+    const evs = r.log.filter((e) => e.i === i).sort((a, b) => a.at - b.at);
+    if (!evs.length) return;
+    const onAt = (t) => { let v = r.initial[i]; for (const e of evs) if (e.at <= t + 1e-6) v = e.on; return v; };
+    const bars = [];
+    for (let b = 0; b < nBars; b++) {
+      const beats = [0, 1, 2, 3].map((q) => (onAt(r.start + b + q / 4) ? 1 : 0));
+      bars.push(beats.every((x) => x === beats[0]) ? String(beats[0]) : `[${beats.join(' ')}]`);
+    }
+    if (bars.every((x) => x === '0')) { code = codeWithPad(code, i, false); return; }
+    const ordered = Array.from({ length: nBars }, (_, k) => bars[((k - r.start) % nBars + nBars) % nBars]);
+    const mask = nBars === 1 ? ordered[0].replace(/^\[|\]$/g, '') : `<${ordered.join(' ')}>`;
+    code = codeWithPad(code, i, true, `pad${padN(i)}: (${oneLine(p.code)}).mask("${mask}")`);
+    baked.push(p.label);
+  });
+  if (!baked.length) { addMsg('info', '🔲 nothing to record — no pads changed while recording'); return; }
+  evaluateCode(code, { at: nextBoundary(1), label: 'recorded pads' }).then((err) => {
+    if (err) addMsg('error', `Couldn't write the pad recording: ${err.message}`);
+    else addMsg('info', `🔲 pad performance written into the code (${baked.join(', ')}) — it loops every ${nBars} bar${nBars > 1 ? 's' : ''}`);
+  });
+}
+$('padsRec').onclick = padsRecToggle;
+setupDock('pads', { onShow: () => { renderPads.key = ''; renderPads(); } });
+
 // handy for debugging from the browser console
-window.strudelAI = { rec, replay, startReplay, recordingForShare, viz, checkScales, checkSounds, prepareCode, evaluateCode, dryRun, hum, transcribe, ensureSliders, setlist, setl };
+window.strudelAI = { pads, padsState, keysState, noteOn, noteOff, setPad, docks, rec, replay, startReplay, recordingForShare, viz, checkScales, checkSounds, prepareCode, evaluateCode, dryRun, hum, transcribe, ensureSliders, setlist, setl };

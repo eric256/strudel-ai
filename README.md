@@ -69,18 +69,23 @@ Browser ── Strudel REPL (web component, WebAudio) ◄── setCode() + eval
 
 - The new code is evaluated straight away, so errors show up at once. The scheduler then gets a *spliced* pattern: notes before the boundary come from the old code, and notes from the boundary on come from the new code. The switch lands exactly on the downbeat, and no notes are cut or doubled.
 - Tempo changes (`setcpm`) in the new code are held back until the boundary too.
-- A yellow **⏱ … at bar N** pill counts down to a pending switch. Click it to cancel the switch.
-- **fade** (in the header) crossfades into the new code instead of cutting: *cut*, *1 beat*, *2 beats* (default), *1 bar* or *2 bars*.
+- A yellow **⏱ … at bar N** pill in the status bar counts down to a pending switch. Click it to cancel the switch.
+- **fade** (⚙ Settings → General) crossfades into the new code instead of cutting: *cut*, *1 beat*, *2 beats* (default), *1 bar* or *2 bars*.
   - During the fade both versions play. The old one's notes get quieter and the new one's louder (equal-power curves, applied to each note's velocity). The new code lands on the bar line at full level.
   - Notes that both versions play at the same moment, such as a kick that doesn't change, are played once at full level, so the shared groove doesn't dip.
   - It applies to AI changes, songs and stations. Mute/solo, live edits and *immediately* switches stay instant.
   - Strudel has one audio engine, so the crossfade happens in the pattern itself rather than by running a second Strudel and fading between them. That keeps both versions on exactly the same clock.
-- The header shows `bar.beat` and the current BPM.
+- The **status bar** at the bottom of the window shows:
+  - `bar.beat` and the current BPM;
+  - the song and section that's playing (and whether it's held);
+  - the pending change;
+  - how much has been recorded for sharing;
+  - replay and update notices.
 - Each chat reply also has **▶ Apply now** and **⏱ Apply on bar** buttons.
 
 ## Autocomplete ⌨
 
-The code editor completes as you type. Ctrl+Space opens the list any time, and **⌨** in the header turns it off.
+The code editor completes as you type. Ctrl+Space opens the list any time, and **⚙ Settings → General → ⌨ autocomplete** turns it off.
 - **Functions:** after `.` or anywhere in the code, every Strudel function, e.g. `.lpf`. A side panel shows its description, synonyms, parameters and examples.
 - **Sounds** inside `s("…")` / `sound("…")`: the synths, samples and soundfonts that are actually loaded, plus the drum names to use with `.bank`.
 - **Drum machines** inside `.bank("…")`.
@@ -89,7 +94,7 @@ The code editor completes as you type. Ctrl+Space opens the list any time, and *
 
 ## Live update ⚡
 
-Tick **⚡ live** in the header and your edits in the code window take effect about half a second after you stop typing, with no Ctrl+Enter needed.
+Tick **⚡ live** (⚙ Settings → General) and your edits in the code window take effect about half a second after you stop typing, with no Ctrl+Enter needed.
 
 - Code with a syntax error isn't applied. The checkbox turns red and the last good version keeps playing.
 - Fader moves are live anyway, so they don't cause a re-evaluation.
@@ -173,6 +178,57 @@ Rain on Glass | lo-fi hip hop, 80 bpm, jazzy Rhodes chords, vinyl crackle; laid 
 - the version and build id;
 - the most recent changes, read from `CHANGELOG.md`;
 - links to the GitHub project, issues, releases, the full changelog and the Strudel docs.
+
+## ⚙ Settings
+
+**⚙** in the header opens the settings:
+- **General:** ⚡ live edit, fade and ⌨ autocomplete.
+- **🎼 Song forms:** edit, add and delete forms (see *Song forms* above).
+- **📻 Stations:** each station's name and theme. The Station tab just picks one and plays it.
+- **💾 Backup:** export everything this browser has saved to a file, import such a file, or reset.
+
+Settings, forms, stations, pads, layout, docks and your last code are saved in the browser's local storage. They survive reloads and updates.
+
+Each address keeps its own storage, so `https://192.168.1.50` and `https://myhost` don't share settings. Use Backup to copy them from one to the other.
+
+## 🎹 Keys (keyboard)
+
+**🎹 Keys** opens a dockable keyboard, two octaves plus one key, that plays a sound live through Strudel's audio engine.
+
+**Playing it:**
+- **Mouse / touch:** press a key, or slide across keys.
+- **Computer keyboard:** `A W S E D F T G Y H U J K O L P ;` play the notes, and `Z` / `X` shift the octave. This only works while the keyboard is shown and you're not typing in a text field or the editor.
+- **MIDI keyboards** connect through Web MIDI. The browser asks for permission, and connected devices are listed in the bar.
+- Pick the sound from the list (piano, synths, soundfonts) and the octave with − / +.
+- Live notes play for a fixed length. Recorded parts keep the lengths you actually held.
+
+**⏺ Rec:**
+- While the music plays, what you play is captured against the bar you hear, on a 1/8 or 1/16 grid, for up to 8 bars. Chords are kept, written as `[c4,e4,g4]`.
+- Press **⏺ Rec** again and you get the part as `note("…").s("…")`. Each recorded bar plays on the same bar you played it on. Then:
+  - **＋ Insert as a part** adds it as a `keys:` group on the next switch boundary;
+  - **✨ Send to AI** asks the AI to arrange it. Anything typed in the chat box is used as the instruction.
+
+## 🔲 Pads
+
+**🔲 Pads** opens a dockable 4×4 pad. Each pad holds one line of Strudel code.
+
+**What a pad does:** pressing a pad adds its line to the running code as its own group, `padN: …`, on the next beat or bar (**sync**). So pads layer with the music and get mute / solo buttons.
+
+**Effect pads:** lines like `all(x => x.lpf(500))` or `setcpm(140/4)` affect everything.
+
+**Modes:**
+- **toggle:** on / off.
+- **hold:** on while pressed, at least one sync step.
+- **once:** plays for one bar.
+
+**Defaults:** kick, clap, hats, open hat, snare roll, rim, shaker, crash, sub bass, acid, stabs, arp, pad, riser, filter all, echo all.
+
+**✎ program:** click a pad to change its label, code, mode and colour. **▶ test** plays it once. Pads are saved in the browser.
+
+**⏺ Rec:**
+- Records from the next bar while you play the pads.
+- When you stop, the performance is written into the code. Each pad that changed gets a `.mask("…")` with its on/off pattern per beat over the recorded bars, up to 16, so it keeps looping exactly as you played it.
+- Effect pads (`all(…)`, `setcpm(…)`) aren't masked.
 
 ## Master volume
 The 🔊 fader in the header sets the overall output level (0–150%), and double-clicking it resets it to 100%. It's remembered, and "duck music" while humming lowers it relative to this level.
