@@ -6,7 +6,7 @@ import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
-import { SYSTEM_PROMPT, SETLIST_PROMPT, SONGS_PROMPT } from './prompt.js';
+import { SYSTEM_PROMPT, SETLIST_PROMPT, SONGS_PROMPT, SHEET_PROMPT, LIBRARY_PROMPT } from './prompt.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const env = process.env;
@@ -216,8 +216,8 @@ app.post('/api/chat', async (req, res) => {
 
   const history = messages.slice(-12).map((m) => ({ role: m.role, content: String(m.content) }));
   // Inject the live editor contents into the latest user turn so the model always edits the real code.
-  if (mode === 'songs') {
-    // song planning: plain request, no code
+  if (mode === 'songs' || mode === 'sheet' || mode === 'library') {
+    // song planning / song sheet / part library: the client sends the full request, no editor code
   } else if (mode === 'setlist' && history.length) {
     const last = history[history.length - 1];
     last.content = `CURRENT CODE (starting point):\n\`\`\`javascript\n${code}\n\`\`\`\n\nSET DESCRIPTION: ${last.content}`;
@@ -239,8 +239,8 @@ app.post('/api/chat', async (req, res) => {
       {
         role: 'system',
         content:
-          (mode === 'setlist' ? SETLIST_PROMPT : mode === 'songs' ? SONGS_PROMPT : SYSTEM_PROMPT) +
-          (sounds && mode === 'code'
+          ({ setlist: SETLIST_PROMPT, songs: SONGS_PROMPT, sheet: SHEET_PROMPT, library: LIBRARY_PROMPT }[mode] || SYSTEM_PROMPT) +
+          (sounds && ['code', 'sheet', 'library'].includes(mode)
             ? '\n\n## AVAILABLE SOUNDS (the complete list loaded right now — use these exact names, never invent, renumber or zero-pad names)\n' +
               String(sounds).slice(0, 16000)
             : ''),
@@ -249,7 +249,8 @@ app.post('/api/chat', async (req, res) => {
     ],
     stream: true,
     temperature: Number.isFinite(temperature) ? temperature : TEMPERATURE,
-    max_tokens: MAX_TOKENS,
+    // a whole song sheet / part library is longer than one code edit
+    max_tokens: mode === 'sheet' || mode === 'library' ? Math.max(MAX_TOKENS, 4096) : MAX_TOKENS,
   };
 
   const ac = new AbortController();

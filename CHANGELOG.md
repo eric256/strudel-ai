@@ -2,6 +2,16 @@
 
 The version is in `package.json`. Bump it when you release. Open pages also notice *any* redeploy through the build id, which is a hash of the app files, even if the version wasn't bumped.
 
+## 1.16.0
+- **Songs are planned as song sheets.** For the Songs tab and the Station, the AI first writes a sheet: tempo, key, 2–3 chord progressions, a hook, the parts and their sounds, and a standard form (verse/chorus, build/drop, A/B …) whose length decides the song's length. Then it writes every part once, and the app arranges the sections from those parts:
+  - choruses repeat exactly, and the key and sounds stay consistent;
+  - parts that continue between sections are identical, so changes are smooth;
+  - drum fills play before choruses and drops;
+  - fader positions and mutes carry over from section to section.
+
+  The parts are test-played silently before use and sent back to the AI with any error. If no usable sheet comes back, the song is written block by block as before.
+- **Tabs are now Chat, 🎵 Songs and 📻 Station.** Click a song to see its sheet (chords, hook, parts) and its sections with live status, jump buttons and **⏸ hold this section**. The separate Blocks tab and **+ Block** button are gone.
+
 ## 1.15.0
 - **Smoother block changes:** new **fade** setting in the header (cut, 1 beat, 2 beats, 1 bar, 2 bars; default 2 beats). The old block fades out while the new one fades in, and the new block lands on the bar line at full level. Notes both blocks share, like a steady kick, keep playing at full level. Applies to song blocks, set lists, stations and AI changes, and recordings replay with the same fades.
 - **More visualizer views:** a dashboard (oscilloscope, spectrum, vectorscope and meters together), stereo L/R oscilloscope, vectorscope, spectrogram waterfall, radial spectrum, L/R level meters, and piano roll + oscilloscope.

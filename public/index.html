@@ -48,7 +48,7 @@
       <button id="shareBtn" title="Create a link others can open">🔗 Share</button>
       <div id="sharePop" class="share-pop" hidden>
         <label>Title <input id="shareTitle" placeholder="untitled jam" maxlength="120" /></label>
-        <label><input type="checkbox" id="shareSetlist" /> include song blocks &amp; set list</label>
+        <label><input type="checkbox" id="shareSetlist" /> include the set list</label>
         <label id="shareRecWrap" title="Every code change (AI blocks, edits, mutes, fader moves) with the bar it happened on, so the link replays the song exactly" hidden>
           <input type="checkbox" id="shareRec" /> include recording <small id="shareRecInfo" class="muted"></small></label>
         <button id="shareCreate">Create link</button>
@@ -135,29 +135,14 @@
     <aside id="chat-pane">
       <nav class="tabs">
         <button class="active" data-tab="chatTab">Chat</button>
-        <button data-tab="setlistTab">Blocks</button>
-        <button data-tab="setTab">Set list</button>
+        <button data-tab="setTab">🎵 Songs</button>
         <button data-tab="stationTab">📻 Station</button>
       </nav>
-      <div id="setlistTab" class="tab" hidden>
-        <p class="hint"><b>Song blocks</b> — the sections of one song, one per line: <code>bars | instruction</code>. Code for every block is generated ahead of time
-          (each builds on the previous one) and switched in exactly on the bar line. Click <b>⏭ go</b> (or press Alt+1…9) to jump to any block.</p>
-        <div id="blocksDriver" class="driver" hidden></div>
-        <textarea id="setlist" spellcheck="false"></textarea>
-        <div class="sl-buttons">
-          <button id="slStart">▶ Play blocks</button>
-          <button id="slStop" disabled>■ Stop</button>
-          <label><input type="checkbox" id="loopSetlist" /> loop</label>
-          <label title="Off = stay on a section until you pick another one"><input type="checkbox" id="autoAdvance" checked /> auto-advance</label>
-          <span class="spacer"></span>
-          <button id="slWrite">✨ Write with AI</button>
-          <button id="slExample" class="link">example</button>
-        </div>
-        <div id="slStatus"></div>
-      </div>
       <div id="setTab" class="tab" hidden>
-        <p class="hint"><b>Set list</b> — one song per line: <code>title | description</code> (style, tempo, key, mood…).
-          While a song plays, the AI writes the next song's blocks and code, and switches to it on the bar line when the current song ends.</p>
+        <p class="hint"><b>Songs</b> — one song per line: <code>title | description</code> (style, tempo, key, mood…).
+          For each song the AI writes a <b>song sheet</b> (chords, hook, parts, form) and the parts once; the app then arranges the
+          sections from them, so choruses repeat and the song stays in key. The next song is written while the current one plays.
+          Click a song to see its sheet and sections.</p>
         <textarea id="setText" spellcheck="false" placeholder="Night Drive | synthwave, 100 bpm, A minor, pulsing bass, neon pads&#10;Rain on Glass | lo-fi hip hop, 80 bpm, jazzy Rhodes chords, vinyl crackle"></textarea>
         <div class="sl-buttons">
           <button id="setStart">▶ Start set</button>
@@ -167,6 +152,7 @@
           <button id="setWrite">✨ Write with AI</button>
         </div>
         <div id="setStatus" class="songs"></div>
+        <div id="setSongView" class="song-view" hidden></div>
       </div>
       <div id="stationTab" class="tab" hidden>
         <p class="hint"><b>Station</b> — give it a theme and it runs on its own: an AI agent keeps inventing new songs for the theme,
@@ -186,6 +172,7 @@
         </div>
         <div id="stationNow" class="on-air" hidden></div>
         <div id="stationStatus" class="songs"></div>
+        <div id="stationSongView" class="song-view" hidden></div>
       </div>
       <div id="chatTab" class="tab">
       <div id="messages">
@@ -206,7 +193,6 @@
         <textarea id="input" rows="2" placeholder="Make it groovier… (Enter to send, Shift+Enter for newline)"></textarea>
         <div class="send-col">
           <button id="send" type="submit">Send</button>
-          <button id="queueBtn" type="button" title="Add this instruction as an 8-bar song block instead of sending it now">+ Block</button>
         </div>
       </form>
       </div>
