@@ -73,6 +73,22 @@ Browser ── Strudel REPL (web component, WebAudio) ◄── setCode() + eval
 - The header shows `bar.beat` and the current BPM.
 - Each chat reply also has **▶ Apply now** and **⏱ Apply on bar** buttons.
 
+## Live update ⚡
+
+Tick **⚡ live** in the header and your edits in the code window take effect about half a second after you stop typing, with no Ctrl+Enter needed.
+
+- Code with a syntax error isn't applied. The checkbox turns red and the last good version keeps playing.
+- Fader moves are live anyway, so they don't cause a re-evaluation.
+- Live edits wait for a pending bar-line switch to happen first, and they don't go into the ↶ Undo history.
+
+## Visualizer 📊
+
+**📊 Viz** opens a docked panel:
+
+- **Piano roll:** the notes of the pattern that's playing, read straight from the scheduler, so you see one bar back and two bars ahead. The yellow line is the playhead. Pitched parts are drawn by pitch, drums get one lane per sound, and colours are per instrument.
+- **Spectrum / oscilloscope** of the master output.
+- **Dock** it under the code, above it, or at the top of the side panel, and drag its edge to resize. All of this is remembered.
+
 ## Song blocks, Set list & 📻 Station
 
 There are three layers, each built on the one below:
@@ -92,6 +108,8 @@ There are three layers, each built on the one below:
 ```
 - **▶ Play blocks** writes code for every block ahead of time, each building on the previous one. The first block switches in on the next boundary, and each later one exactly when the previous block's bars are over.
 - **Jump:** click **⏭ go** on any block, or press **Alt+1 … Alt+9**. **auto-advance** off holds the current block until you pick another.
+- **Skipping ahead** stops writing the blocks above the one you picked that have no code yet, including a request that's in progress. Generation continues from the picked block, building on the code that's playing. Skipped blocks show ↷. With **loop** on they're written when the blocks come round again.
+- **Sections change, not just grow:** the AI is told that blocks may remove parts as well as add them (it deletes what an instruction drops), to keep about 5 groups, and to switch up the beat (new kick patterns, half-time, broken beats, swing). **✨ Write with AI** plans sections that take things away and change the groove.
 - **loop** repeats the blocks. **✨ Write with AI** turns a description into blocks. **+ Block** (under Send in the chat) adds what you typed as an 8-bar block.
 - If a block fails, it's regenerated with the error, or skipped, and the set keeps going.
 
@@ -164,6 +182,11 @@ Hold **🎤 Hold to hum** (or hold the **`** key while the editor isn't focused)
   - The person's previous code stays one ↶ Undo away, and the address bar goes back to `/` so a refresh doesn't overwrite their later edits.
   - Shared songs are stored in the `songs` Docker volume, so they survive rebuilds.
   - Anyone who can reach your server can open a link. There are no accounts, so don't share anything private.
+- **Recordings — share a generated song exactly as it played:**
+  - **What's recorded:** from the moment playback starts until you stop it, every code change that actually plays is recorded with the cycle (bar) it took effect on. That covers AI song blocks, set lists and stations, chat changes, your own Ctrl+Enter / live edits, mutes and solos, and fader moves.
+  - **Sharing:** tick *include recording* in the share pop-up. It shows how many changes and roughly how long. The current take is shared while it's still playing, otherwise the last one.
+  - **Replaying:** the link offers **⏺ Play the recording**. Playback restarts from bar 1 and every change is switched in on exactly the same cycle as the original, so tempo changes, bar-line switches and Strudel's cycle-based randomness all come out the same. The replay stops at the point where the original was stopped. The pulsing **⏺ replaying · stop** pill stops following the recording and leaves the music playing.
+  - **Re-sharing:** a link opened from a recording keeps it, so sharing it again includes the recording.
 
 ## Guardrails for AI-written code
 

@@ -21,7 +21,7 @@ const EXAMPLE_SETLIST = `# bars | what to do   (lines starting with # are ignore
 8  | add a deep sub bass following C minor
 16 | add a clap on 2 and 4 and an airy pad with Cm9 and Abmaj7
 8  | breakdown: drop kick and bass, keep pad, add a filtered arpeggio
-16 | drop: bring everything back, open the filter on the bass, add open hats
+16 | drop: everything back with a broken beat, open the filter on the bass, add open hats
 8  | outro: remove bass and pad, fade hats`;
 
 const MAX_FIX_ATTEMPTS = 2;
@@ -55,8 +55,17 @@ const state = {
   busy: false,
   abort: null,
   config: null,
-  pending: null, // { at, label, old, oldCode } — a switch armed for a future cycle
+  pending: null, // { at, label, old, oldCode, recEv } — a switch armed for a future cycle
 };
+
+// Recorder: every code switch that actually plays, with the cycle it takes effect on.
+// A "take" starts when playback starts and ends when it stops. Shared links can carry
+// the take so the whole song (AI-generated blocks, edits, mutes, fader moves) replays exactly.
+const rec = { take: null, last: null };
+// Live mode: hand edits in the editor are evaluated as you type
+const live = { seen: null, changedAt: 0, applied: null, failed: false };
+// True while the visualizer queries the playing pattern (must not trigger switch side effects)
+let vizQuerying = false;
 
 // ---------------------------------------------------------------------------
 // Strudel editor
@@ -99,7 +108,7 @@ function splice(oldPat, newPat, at, onCross) {
     const b = st.span.begin.valueOf();
     const e = st.span.end.valueOf();
     if (e <= at) return oldPat.query(st);
-    if (!crossed) { crossed = true; onCross?.(); }
+    if (!crossed && !vizQuerying) { crossed = true; onCross?.(); }
     if (b >= at) return newPat.query(st);
     return [
       ...oldPat.query(st).filter((h) => start(h) < at),
@@ -169,10 +178,14 @@ async function evaluateCode(code, { at = null, label = '', undo = true } = {}) {
     $('undo').disabled = false;
   }
   m.setCode(code);
+  live.applied = code;
 
   const immediate = at === null || !sch.started || !sch.pattern;
   const old = sch.pattern;
   const proto = Object.getPrototypeOf(sch);
+  const wasStarted = sch.started;
+  const hadOwnSet = Object.prototype.hasOwnProperty.call(sch, 'setPattern');
+  const ownSet = sch.setPattern; // the recorder's hook (restored afterwards)
   let captured = null, autostart = true, deferredCps = null;
   sch.setCps = (c) => { deferredCps = c; };
   sch.setPattern = async (pat, auto) => {
@@ -185,7 +198,7 @@ async function evaluateCode(code, { at = null, label = '', undo = true } = {}) {
     await m.evaluate();
   } finally {
     delete sch.setCps;
-    delete sch.setPattern;
+    if (hadOwnSet) sch.setPattern = ownSet; else delete sch.setPattern;
   }
   const evalErr = m.repl.state.evalError;
   if (evalErr) return evalErr;
@@ -201,8 +214,10 @@ async function evaluateCode(code, { at = null, label = '', undo = true } = {}) {
 
   if (immediate) {
     cancelPending(false);
+    const c = wasStarted ? switchCycle(sch) : 0;
     if (deferredCps != null) proto.setCps.call(sch, deferredCps);
     await proto.setPattern.call(sch, captured, autostart);
+    recordSwitch(code, c, label);
     return null;
   }
   await proto.setPattern.call(
@@ -213,7 +228,7 @@ async function evaluateCode(code, { at = null, label = '', undo = true } = {}) {
     }),
     autostart,
   );
-  state.pending = { at, label, old, oldCode: prevCode };
+  state.pending = { at, label, old, oldCode: prevCode, recEv: recordSwitch(code, at, label) };
   return null;
 }
 
@@ -221,8 +236,12 @@ async function evaluateCode(code, { at = null, label = '', undo = true } = {}) {
 function cancelPending(restore = true) {
   const p = state.pending;
   state.pending = null;
-  if (!p || !restore) return;
+  if (!p) return;
   const sch = scheduler();
+  const notYet = sch && Math.max(sch.lastEnd ?? 0, nowCycle()) < p.at;
+  // the armed code never plays → it isn't part of the recording
+  if (notYet && p.recEv && rec.take) rec.take.events = rec.take.events.filter((ev) => ev !== p.recEv);
+  if (!restore) return;
   if (sch && nowCycle() < p.at) {
     Object.getPrototypeOf(sch).setPattern.call(sch, p.old);
     mirror().setCode(p.oldCode);
@@ -245,7 +264,7 @@ $('play').onclick = async () => {
   const err = await evaluateCode(getCode());
   if (err) addMsg('error', `Not applied: ${err.message}`);
 };
-$('stop').onclick = () => { cancelPending(false); stopSet?.(); stopSetlist(); mirror()?.stop(); if (upd.available) setTimeout(reloadForUpdate, 300); };
+$('stop').onclick = () => { stopReplay(); cancelPending(false); stopSet?.(); stopSetlist(); mirror()?.stop(); if (upd.available) setTimeout(reloadForUpdate, 300); };
 $('undo').onclick = async () => {
   cancelPending(false);
   const prev = state.versions.pop();
@@ -282,6 +301,184 @@ setInterval(() => {
   renderSetlistStatus();
 }, 100);
 $('pending').onclick = () => { cancelPending(true); addMsg('info', 'pending change cancelled'); };
+
+// ---------------------------------------------------------------------------
+// Recorder: each take is the list of code switches with the cycle each one took
+// effect on. Replaying a take (e.g. from a share link) re-applies every switch on
+// exactly the same cycle, starting from cycle 0 like the original, so Strudel's
+// cycle-based randomness comes out the same too.
+// ---------------------------------------------------------------------------
+/** Cycle from which a pattern set right now is heard (haps up to lastEnd are already scheduled). */
+function switchCycle(sch = scheduler()) {
+  return Math.max(sch?.lastEnd ?? 0, nowCycle());
+}
+
+const MAX_TAKE_EVENTS = 3000;
+function recordSwitch(code, cycle, label = '') {
+  if (!isPlaying() || !code?.trim()) return null;
+  if (!rec.take) rec.take = { events: [], started: Date.now(), end: 0 };
+  const evs = rec.take.events;
+  if (evs.length >= MAX_TAKE_EVENTS) return null;
+  const ev = { c: Math.round(cycle * 1e6) / 1e6, code, label: String(label || '').slice(0, 80) };
+  // keep time order: an armed switch can be recorded before an earlier immediate one
+  let k = evs.length;
+  while (k > 0 && evs[k - 1].c > ev.c) k--;
+  if (k > 0 && evs[k - 1].code === code) return null; // re-evaluating the same code changes nothing
+  evs.splice(k, 0, ev);
+  return ev;
+}
+
+/** Ctrl+Enter, ↶ Undo and Strudel's own buttons set the pattern directly — record those too. */
+function installRecorderHook() {
+  const sch = scheduler();
+  if (!sch || sch.__recHook) return;
+  sch.__recHook = true;
+  const proto = Object.getPrototypeOf(sch);
+  sch.setPattern = async function (pat, auto) {
+    const c = this.started ? switchCycle(this) : 0;
+    const r = await proto.setPattern.call(this, pat, auto);
+    live.applied = getCode();
+    recordSwitch(getCode(), c, 'edit');
+    return r;
+  };
+}
+
+/** Fader moves: compare code with the slider values blanked out. */
+const sliderless = (c) => (c || '').replace(/slider\(\s*[\d.]+/g, 'slider(');
+
+function pollEditor() {
+  installRecorderHook();
+  const code = getCode();
+  const t = performance.now();
+  if (code !== live.seen) { live.seen = code; live.changedAt = t; }
+  if (!isPlaying()) {
+    if (rec.take) { if (rec.take.events.length) rec.last = rec.take; rec.take = null; }
+    return;
+  }
+  if (rec.take) rec.take.end = Math.max(rec.take.end, nowCycle());
+
+  // dragging a fader rewrites its number in the code without re-evaluating → record as a tweak
+  const lastEv = rec.take?.events[rec.take.events.length - 1];
+  if (lastEv && !state.pending && code !== lastEv.code && sliderless(code) === sliderless(lastEv.code)) {
+    const c = nowCycle();
+    if (lastEv.label === 'fader' && c - lastEv.c < 0.25) lastEv.code = code; // coalesce a drag
+    else recordSwitch(code, c, 'fader');
+    live.applied = code;
+  }
+
+  // live mode: evaluate hand edits shortly after you stop typing
+  if (!$('liveMode').checked || state.pending || t - live.changedAt < 400) return;
+  if (live.applied === null) { live.applied = code; return; }
+  if (code === live.applied) return;
+  if (sliderless(code) === sliderless(live.applied)) { live.applied = code; return; } // faders are live already
+  live.applied = code;
+  const bad = syntaxError(code);
+  if (bad) { setLiveState(`syntax error — keeps playing the last good version: ${bad}`); return; }
+  live.evalAt = t;
+  evaluateCode(code, { label: 'live edit', undo: false }).then((err) => setLiveState(err ? err.message : null));
+}
+setInterval(pollEditor, 150);
+
+function setLiveState(err) {
+  const l = $('liveLabel');
+  l.classList.toggle('bad', !!err);
+  l.title = err ? `Live update: ${err}` : 'Live update: edits in the code window take effect as soon as you stop typing';
+}
+if (saved.liveMode !== undefined) $('liveMode').checked = saved.liveMode;
+$('liveMode').onchange = () => {
+  save({ liveMode: $('liveMode').checked });
+  live.applied = getCode(); // only edits made from now on
+  setLiveState(null);
+};
+
+/** The current (or last) take in the compact share format: unique codes + timed events. */
+function recordingForShare() {
+  const take = rec.take?.events.length ? rec.take : rec.last;
+  if (!take?.events.length) return null;
+  const c0 = take.events[0].c;
+  const codes = [], index = new Map();
+  const events = take.events.map((ev) => {
+    let i = index.get(ev.code);
+    if (i === undefined) { i = codes.push(ev.code) - 1; index.set(ev.code, i); }
+    return { c: Math.round((ev.c - c0) * 1e6) / 1e6, i, label: ev.label };
+  });
+  return { v: 1, codes, events, end: Math.max(0, Math.round((take.end - c0) * 1e3) / 1e3) };
+}
+/** Expand a shared recording back into { events: [{c, code, label}], end }, or null if malformed. */
+function decodeRecording(r) {
+  if (!r || !Array.isArray(r.codes) || !Array.isArray(r.events) || !r.events.length) return null;
+  const events = r.events
+    .filter((ev) => Number.isFinite(ev.c) && typeof r.codes[ev.i] === 'string')
+    .map((ev) => ({ c: ev.c, code: r.codes[ev.i], label: String(ev.label || '') }))
+    .sort((a, b) => a.c - b.c);
+  return events.length ? { events, end: Number(r.end) || events[events.length - 1].c } : null;
+}
+const fmtTime = (secs) => `${Math.floor(secs / 60)}:${String(Math.round(secs % 60)).padStart(2, '0')}`;
+/** Rough length of a take in seconds (uses each switch's tempo). */
+function takeSeconds(take) {
+  let secs = 0;
+  const evs = take.events;
+  for (let k = 0; k < evs.length; k++) {
+    const from = evs[k].c, to = k + 1 < evs.length ? evs[k + 1].c : Math.max(take.end, from);
+    secs += (to - from) / codeCps(evs[k].code);
+  }
+  return secs;
+}
+function codeCps(code) {
+  const m = code.match(/setcp([ms])\(\s*([\d.]+)\s*(?:\/\s*([\d.]+))?\s*\)/);
+  if (!m) return cps() || 0.5;
+  const v = Number(m[2]) / (m[3] ? Number(m[3]) : 1);
+  return (m[1] === 'm' ? v / 60 : v) || 0.5;
+}
+
+// --- replay
+const replay = { running: false, events: [], i: 0, end: 0, timer: null, title: '' };
+
+async function startReplay(take, title = '') {
+  if (!take?.events.length) return;
+  stopReplay();
+  stopSet?.();
+  stopSetlist();
+  cancelPending(false);
+  // start from cycle 0 like the original take, so every switch lands on the same cycle
+  if (isPlaying()) { mirror()?.stop(); await new Promise((r) => setTimeout(r, 200)); }
+  addMsg('info', `⏺ replaying ${title ? `“${title}” ` : ''}— ${take.events.length} change${take.events.length > 1 ? 's' : ''}, ${fmtTime(takeSeconds(take))}`);
+  await preloadSoundfonts(take.events.map((ev) => ev.code).join('\n')).catch(() => {});
+  Object.assign(replay, { running: true, events: take.events, i: 1, end: take.end, title });
+  const err = await evaluateCode(take.events[0].code, { label: 'replay' });
+  if (err) { addMsg('error', `Replay failed: ${err.message}`); replay.running = false; return; }
+  replay.timer = setInterval(tickReplay, 50);
+  $('replayBtn').hidden = false;
+}
+
+function tickReplay() {
+  if (!replay.running || replay.busy) return;
+  if (!isPlaying()) { stopReplay(); addMsg('info', '■ replay stopped'); return; }
+  const now = nowCycle();
+  const ev = replay.events[replay.i];
+  if (!ev) {
+    if (now >= replay.end) {
+      stopReplay();
+      mirror()?.stop();
+      addMsg('info', `■ replay finished${replay.title ? ` — “${replay.title}”` : ''}`);
+    }
+    return;
+  }
+  if ((ev.c - now) / cps() > 1) return; // arm about a second ahead
+  replay.busy = true;
+  const at = Math.max(ev.c, switchCycle() + 0.06 * cps());
+  evaluateCode(ev.code, { at, label: `replay ${replay.i + 1}/${replay.events.length}`, undo: false })
+    .then((err) => { if (err) addMsg('error', `Replay: change ${replay.i + 1} failed: ${err.message}`); })
+    .finally(() => { replay.i++; replay.busy = false; });
+}
+
+function stopReplay() {
+  if (!replay.running) return;
+  replay.running = false;
+  clearInterval(replay.timer);
+  $('replayBtn').hidden = true;
+}
+$('replayBtn').onclick = () => { stopReplay(); addMsg('info', '■ replay stopped — the music keeps playing'); };
 
 // ---------------------------------------------------------------------------
 // Provider / model selection
@@ -521,7 +718,7 @@ async function soundCatalog() {
   catalogCache =
     `Synths: ${synths.join(' ')}\n` +
     `Soundfont instruments (play pitches with note() or n().scale()): ${fonts.join(' ')}\n` +
-    `Samples: ${plain.join(' ')}\n` +
+    `Samples: ${plain.join(' ')}${plain.includes('space') ? ' (use "space" rarely)' : ''}\n` +
     `Drum machine banks (use as s("bd sd hh").bank("name"), bank names are case-insensitive): ${banks.map(pretty).join(' ')}\n` +
     `Drum names available inside banks: ${[...drumSuffixes].join(' ')}`;
   return catalogCache;
@@ -887,6 +1084,7 @@ document.addEventListener('strudel.log', (e) => {
   bar.textContent = '⚠ ' + msg;
   clearTimeout(bar._t);
   bar._t = setTimeout(() => { if (!lastReplState.error) bar.hidden = true; }, 6000);
+  if (live.evalAt && t - live.evalAt < 4000) return; // half-typed live edits: error bar only
   addMsg('error', msg);
 });
 
@@ -1030,7 +1228,16 @@ const setlist = {
   generating: false,
   jumpTarget: null, // step index the user picked manually (switches on next boundary)
   feeder: null,     // Set list / Station driving the blocks: { active(), onStepStart(step), onStop(), label }
+  pumpToken: 0,     // bumped to restart generation from another block
 };
+
+// Added to every block after a song's first one, so sections don't only pile up layers
+const SECTION_GUIDE =
+  'Follow the section instruction literally. When it says to drop, remove, strip back or take out something, DELETE that ' +
+  'group or line from the code (do not just turn it down). A section may remove parts as well as add them: keep about ' +
+  '5 groups or fewer, and when you add a part consider taking another one out. When the section calls for a change of ' +
+  'energy or feel, switch up the beat: rewrite the drum patterns (kick placement, hat rhythm, swing, half-time, broken ' +
+  'beat, fills) instead of only stacking new layers on the same groove.';
 const autoAdvance = () => $('autoAdvance').checked;
 
 function parseSetlist(text) {
@@ -1068,9 +1275,10 @@ async function generateStep(i) {
         'This block STARTS a new song. Write a fresh arrangement for it — its own tempo (setcpm), key, groups and sounds. ' +
         'Do not keep the previous song\'s parts (a smooth transition is fine). Use named groups and slider() faders as usual.\n' +
         `First section (${step.bars} bars): ${step.prompt}`
-      : `Song "${sg.title}" (${sg.desc})\nNext section, ${step.bars} bars (section ${step.songPos + 1} of ${step.songLen}): ${step.prompt}`;
+      : `Song "${sg.title}" (${sg.desc})\nNext section, ${step.bars} bars (section ${step.songPos + 1} of ${step.songLen}): ${step.prompt}\n\n${SECTION_GUIDE}`;
   } else {
-    prompt = `${step.prompt}\n(This section lasts ${step.bars} bars. It is step ${i + 1} of ${setlist.steps.length} in a planned set.)`;
+    prompt = `${step.prompt}\n(This section lasts ${step.bars} bars. It is step ${i + 1} of ${setlist.steps.length} in a planned set.)` +
+      (i > 0 ? `\n\n${SECTION_GUIDE}` : '');
   }
   if (step.fixHint) {
     prompt += `\n\nIMPORTANT: a previous version failed when played: ${step.fixHint}` +
@@ -1081,7 +1289,7 @@ async function generateStep(i) {
     const text = await requestLLM({
       messages: [{ role: 'user', content: prompt }],
       code: base,
-      signal: setlist.abort.signal,
+      signal: step.abort.signal,
     });
     let code = extractCode(text);
     let err = code ? syntaxError(code) : 'no code block in reply';
@@ -1107,6 +1315,11 @@ function ensureGenerated(i) {
   if (!step) return Promise.resolve();
   if (step.code) return Promise.resolve();
   if (!step.genPromise) {
+    // own abort controller, so skipping past this block can cancel just this request
+    step.abort = new AbortController();
+    const all = setlist.abort?.signal;
+    if (all?.aborted) step.abort.abort();
+    else all?.addEventListener('abort', () => step.abort.abort(), { once: true });
     step.genPromise = generateStep(i)
       .catch((e) => {
         if (e.name === 'AbortError') throw e;
@@ -1127,18 +1340,40 @@ function ensureGenerated(i) {
 async function pumpGeneration() {
   if (setlist.generating) return;
   setlist.generating = true;
+  const token = setlist.pumpToken;
   try {
-    while (setlist.running && setlist.genIndex < setlist.steps.length) {
+    while (setlist.running && token === setlist.pumpToken && setlist.genIndex < setlist.steps.length) {
       try {
         await ensureGenerated(setlist.genIndex);
       } catch (e) {
         if (e.name === 'AbortError') return;
       }
+      if (token !== setlist.pumpToken) return; // restarted from another block meanwhile
       setlist.genIndex++;
     }
   } finally {
-    setlist.generating = false;
+    if (token === setlist.pumpToken) setlist.generating = false;
   }
+}
+
+/** Generate blocks in order starting at block `from` (a running loop elsewhere stops). */
+function restartGeneration(from) {
+  setlist.pumpToken++;
+  setlist.generating = false;
+  setlist.genIndex = Math.max(0, from);
+  pumpGeneration();
+}
+
+/** Skipping ahead to block i: blocks above it that have no code yet are not written any more. */
+function skipBlocksBefore(i) {
+  let n = 0;
+  setlist.steps.forEach((s, j) => {
+    if (j >= i || s.code || !['waiting', 'generating'].includes(s.status)) return;
+    s.abort?.abort();
+    s.status = 'skipped';
+    n++;
+  });
+  return n;
 }
 
 /** Manually switch to step i (on the next "switch on" boundary). */
@@ -1156,13 +1391,16 @@ function jumpTo(i) {
   }
   const target = setlist.steps[i];
   if (target.status === 'done' || target.status === 'playing') target.status = 'ready';
+  if (target.status === 'skipped') target.status = 'waiting';
   delete target.startedAt;
   setlist.jumpTarget = i;
   setlist.playIndex = i;
   setlist.nextAt = null; // → next quantize boundary
+  // stop writing the blocks above this one and generate from here on
+  const skipped = skipBlocksBefore(i);
+  restartGeneration(i);
   if (!target.code) {
-    addMsg('info', `⏭ section ${i + 1} is being generated — it will switch in as soon as it's ready`);
-    ensureGenerated(i).catch(() => {});
+    addMsg('info', `⏭ section ${i + 1} is being generated${skipped ? ` (skipping ${skipped} unwritten block${skipped > 1 ? 's' : ''} before it)` : ''} — it will switch in as soon as it's ready`);
   }
   lastStatusKey = '';
   renderSetlistStatus();
@@ -1175,9 +1413,10 @@ async function tickSetlist() {
   const i = setlist.playIndex;
   if (i >= setlist.steps.length && setlist.feeder?.active()) return; // more blocks are on their way
   if (i >= setlist.steps.length) {
-    if ($('loopSetlist').checked && setlist.steps.length && setlist.steps.every((s) => s.code)) {
+    if ($('loopSetlist').checked && setlist.steps.length && setlist.steps.every((s) => s.code || s.status === 'skipped')) {
       setlist.playIndex = 0;
-      setlist.steps.forEach((s) => { if (s.status !== 'playing' && s.status !== 'failed') { s.status = 'ready'; delete s.startedAt; } });
+      setlist.steps.forEach((s) => { if (s.status !== 'playing' && s.status !== 'failed') { s.status = s.code ? 'ready' : 'waiting'; delete s.startedAt; } });
+      if (setlist.steps.some((s) => !s.code)) restartGeneration(0); // write the blocks that were skipped
     } else if (!autoAdvance()) {
       setlist.jumpTarget = null; // manual mode: keep holding the last section
       return;
@@ -1252,18 +1491,19 @@ function startSetlist({ at = 0, steps = null, feeder = null } = {}) {
   steps = steps || parseSetlist($('setlist').value);
   if (!steps.length && !feeder) return;
   stopSetlist();
+  stopReplay();
   Object.assign(setlist, {
-    running: true, steps, genIndex: 0, playIndex: at, nextAt: null, jumpTarget: at,
+    running: true, steps, genIndex: at, playIndex: at, nextAt: null, jumpTarget: at,
     abort: new AbortController(), feeder,
   });
-  if (at > 0) ensureGenerated(at).catch(() => {});
+  steps.forEach((s, j) => { if (j < at && !s.code) s.status = 'skipped'; }); // started further down: don't write the blocks above
   setlist.timer = setInterval(() => tickSetlist().catch((e) => addMsg('error', e.message)), 100);
   $('slStart').disabled = true;
   $('slStop').disabled = false;
   $('blocksDriver').hidden = !feeder;
   $('blocksDriver').textContent = feeder ? `Driven by the ${feeder.label} — blocks are added automatically.` : '';
   if (!feeder) addMsg('info', `▶ song blocks started (${steps.length} blocks) — generating ahead…`);
-  pumpGeneration();
+  restartGeneration(at);
 }
 
 /** Add blocks to a running engine (used by Set list / Station). Old finished blocks are trimmed. */
@@ -1349,7 +1589,7 @@ $('slWrite').onclick = async () => {
   }
 };
 
-const STATUS_ICON = { waiting: '·', generating: '…', ready: '✓', armed: '⏱', playing: '▶', failed: '✗', done: '✔' };
+const STATUS_ICON = { waiting: '·', generating: '…', ready: '✓', armed: '⏱', playing: '▶', failed: '✗', done: '✔', skipped: '↷' };
 let lastStatusKey = '';
 function renderSetlistStatus() {
   const el = $('slStatus');
@@ -1888,6 +2128,13 @@ $('shareBtn').onclick = (e) => {
   if (!pop.hidden) {
     $('shareResult').hidden = true;
     $('shareSetlist').checked = !!($('setlist').value.trim() || $('setText').value.trim()) && load().shareSetlist !== false;
+    const take = rec.take?.events.length ? rec.take : rec.last;
+    $('shareRecWrap').hidden = !take;
+    $('shareRec').checked = !!take && load().shareRec !== false;
+    if (take) {
+      const n = take.events.length;
+      $('shareRecInfo').textContent = `${n} change${n > 1 ? 's' : ''} · ${fmtTime(takeSeconds(take))}${rec.take === take ? ' so far' : ''}`;
+    }
     $('shareTitle').focus();
   }
 };
@@ -1895,6 +2142,7 @@ document.addEventListener('click', (e) => {
   if (!$('sharePop').hidden && !e.target.closest('.share-wrap')) $('sharePop').hidden = true;
 });
 $('shareSetlist').onchange = () => save({ shareSetlist: $('shareSetlist').checked });
+$('shareRec').onchange = () => save({ shareRec: $('shareRec').checked });
 $('shareCreate').onclick = async () => {
   const btn = $('shareCreate');
   btn.disabled = true;
@@ -1908,6 +2156,7 @@ $('shareCreate').onclick = async () => {
         title: $('shareTitle').value.trim(),
         setlist: $('shareSetlist').checked ? $('setlist').value : null,
         setText: $('shareSetlist').checked ? $('setText').value : null,
+        recording: $('shareRec').checked && !$('shareRecWrap').hidden ? recordingForShare() : null,
       }),
     });
     const j = await r.json();
@@ -1951,8 +2200,20 @@ async function openSharedSong() {
     }
     if (song.setText) { $('setText').value = song.setText; save({ setText: song.setText }); }
     state.lastAICode = song.code;
+    live.applied = song.code;
     const title = song.title ? `“${song.title}”` : 'a shared song';
-    addMsg('info', `🔗 Opened ${title}${song.setlist || song.setText ? ' (with song blocks / set list)' : ''} — press ▶ Play. Your previous code is one ↶ Undo away.`);
+    const take = decodeRecording(song.recording);
+    if (take) {
+      rec.last = take; // sharing again keeps the recording
+      mirror().setCode(take.events[0].code);
+      const div = addMsg('info', `🔗 Opened ${title} — a recording of ${take.events.length} timed change${take.events.length > 1 ? 's' : ''} (${fmtTime(takeSeconds(take))}). Your previous code is one ↶ Undo away. `);
+      const b = document.createElement('button');
+      b.textContent = '⏺ Play the recording';
+      b.onclick = () => startReplay(take, song.title);
+      div.appendChild(b);
+    } else {
+      addMsg('info', `🔗 Opened ${title}${song.setlist || song.setText ? ' (with song blocks / set list)' : ''} — press ▶ Play. Your previous code is one ↶ Undo away.`);
+    }
     document.title = song.title ? `${song.title} · Strudel AI` : document.title;
   } catch (e) {
     addMsg('error', `Couldn't open shared song: ${e.message}`);
@@ -2026,7 +2287,8 @@ async function appendSong(k) {
     const lines = await writeBlocks(
       `Song "${song.title}": ${song.desc}\n` +
         'Write the blocks for this whole song: roughly 48–96 bars in total, starting with an intro and ending with an outro ' +
-        'that can hand over to the next song. First line states tempo and key.',
+        'that can hand over to the next song. First line states tempo and key. Include sections that take parts away ' +
+        'and sections that switch up the beat, not only ones that add layers.',
       prev,
       setl.abort.signal,
     );
@@ -2285,5 +2547,245 @@ $('stationAhead').onchange = () => save({ stationAhead: $('stationAhead').value 
 $('stationStart').onclick = () => startSet('station');
 $('stationStop').onclick = () => { stopSet(); cancelPending(true); addMsg('info', '■ station stopped'); };
 
+// ---------------------------------------------------------------------------
+// Docked visualizer: a piano roll of the pattern that is playing (read straight
+// from the scheduler, so it also shows what's coming up) plus a spectrum or
+// oscilloscope of the master output.
+// ---------------------------------------------------------------------------
+const viz = { on: false, analyser: null, src: null, haps: [], pat: null, from: null, colors: new Map(), raf: 0, freq: null, wave: null };
+
+function vizColor(name) {
+  let c = viz.colors.get(name);
+  if (!c) {
+    let h = 0;
+    for (const ch of name) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+    c = `hsl(${h % 360}, 72%, 62%)`;
+    viz.colors.set(name, c);
+  }
+  return c;
+}
+
+/** Note events from 1 cycle back to 3 cycles ahead, re-queried once per cycle or when the pattern changes. */
+function vizHaps() {
+  const pat = scheduler()?.pattern;
+  if (!pat || !isPlaying()) return [];
+  const from = Math.floor(nowCycle()) - 1;
+  if (viz.pat === pat && viz.from === from) return viz.haps;
+  viz.pat = pat;
+  viz.from = from;
+  const prevDry = inDryRun;
+  vizQuerying = true;
+  inDryRun = true; // errors from this query are the playing code's, already reported
+  try {
+    viz.haps = pat.queryArc(from, from + 5, { _cps: cps() })
+      .filter((h) => h.whole && (!h.hasOnset || h.hasOnset()))
+      .map((h) => {
+        const v = h.value && typeof h.value === 'object' ? h.value : { note: h.value };
+        const pitched = v.note !== undefined || v.freq !== undefined;
+        const midi = pitched ? toMidi(v) : NaN;
+        return {
+          b: h.whole.begin.valueOf(),
+          e: h.whole.end.valueOf(),
+          midi,
+          name: String(v.s ?? (pitched ? 'synth' : '?')) + (v.bank && !Number.isFinite(midi) ? `·${v.bank}` : ''),
+          s: String(v.s ?? 'synth'),
+        };
+      });
+  } catch {
+    viz.haps = [];
+  } finally {
+    vizQuerying = false;
+    inDryRun = prevDry;
+  }
+  return viz.haps;
+}
+
+function vizAnalyser() {
+  let node = null;
+  try { node = globalThis.getSuperdoughAudioController?.().output.destinationGain; } catch {}
+  if (!node) return null;
+  if (viz.src !== node) {
+    viz.analyser = node.context.createAnalyser();
+    viz.analyser.fftSize = 2048;
+    viz.analyser.smoothingTimeConstant = 0.78;
+    node.connect(viz.analyser);
+    viz.src = node;
+    viz.freq = new Uint8Array(viz.analyser.frequencyBinCount);
+    viz.wave = new Float32Array(viz.analyser.fftSize);
+  }
+  return viz.analyser;
+}
+
+function drawRoll(g, x0, y0, w, h) {
+  const now = nowCycle();
+  const span = 3, back = 1; // cycles visible, playhead at 1/3
+  const t0 = now - back;
+  const X = (t) => x0 + ((t - t0) / span) * w;
+  // bar + beat grid
+  for (let b = Math.floor(t0 * 4) / 4; b <= t0 + span; b += 0.25) {
+    const bar = Math.abs(b - Math.round(b)) < 1e-6;
+    g.strokeStyle = bar ? '#2f3443' : '#181b23';
+    g.beginPath(); g.moveTo(X(b) + 0.5, y0); g.lineTo(X(b) + 0.5, y0 + h); g.stroke();
+    if (bar && isPlaying()) { g.fillStyle = '#4a5063'; g.font = '10px ui-monospace, monospace'; g.fillText(String(Math.round(b) + 1), X(b) + 3, y0 + 11); }
+  }
+  const haps = vizHaps().filter((n) => n.e > t0 && n.b < t0 + span);
+  if (!haps.length) {
+    g.fillStyle = '#4a5063';
+    g.font = '12px system-ui, sans-serif';
+    g.fillText(isPlaying() ? 'nothing playing in this pattern' : 'press ▶ Play to see the music', x0 + 12, y0 + h / 2);
+    return;
+  }
+  const pitched = haps.filter((n) => Number.isFinite(n.midi));
+  const lanes = [...new Set(haps.filter((n) => !Number.isFinite(n.midi)).map((n) => n.name))].sort();
+  const laneH = lanes.length ? Math.max(6, Math.min(14, (h * (pitched.length ? 0.4 : 0.92)) / lanes.length)) : 0;
+  const drumsH = laneH * lanes.length;
+  const pitchH = h - drumsH - (lanes.length && pitched.length ? 6 : 0) - 14;
+  const lo = pitched.length ? Math.min(...pitched.map((n) => n.midi)) - 2 : 0;
+  const hi = pitched.length ? Math.max(...pitched.map((n) => n.midi)) + 2 : 1;
+  const rowH = pitched.length ? Math.max(2, Math.min(10, pitchH / (hi - lo + 1))) : 0;
+  const Y = (m) => y0 + 14 + (pitchH - rowH) * (1 - (m - lo) / Math.max(1, hi - lo));
+  const alpha = (n) => (n.b <= now && now < n.e ? 1 : n.e <= now ? 0.35 : 0.6);
+  for (const n of pitched) {
+    g.globalAlpha = alpha(n);
+    g.fillStyle = vizColor(n.s);
+    g.fillRect(X(n.b) + 1, Y(n.midi), Math.max(2, X(n.e) - X(n.b) - 2), rowH);
+  }
+  const dy = y0 + h - drumsH;
+  lanes.forEach((name, k) => {
+    const y = dy + k * laneH;
+    g.globalAlpha = 1;
+    g.fillStyle = k % 2 ? '#101218' : '#0d0f14';
+    g.fillRect(x0, y, w, laneH);
+    for (const n of haps) {
+      if (n.name !== name) continue;
+      g.globalAlpha = alpha(n);
+      g.fillStyle = vizColor(n.s);
+      g.fillRect(X(n.b) + 1, y + 1, Math.max(3, Math.min(X(n.e) - X(n.b) - 2, 10)), laneH - 2);
+    }
+    g.globalAlpha = 0.85;
+    g.fillStyle = '#8b90a0';
+    g.font = `${Math.min(10, laneH)}px ui-monospace, monospace`;
+    g.fillText(name, x0 + 3, y + laneH - 2);
+  });
+  g.globalAlpha = 1;
+  g.strokeStyle = '#ffd166';
+  g.beginPath(); g.moveTo(X(now) + 0.5, y0); g.lineTo(X(now) + 0.5, y0 + h); g.stroke();
+}
+
+function drawSpectrum(g, x0, y0, w, h) {
+  const an = vizAnalyser();
+  if (!an) return;
+  an.getByteFrequencyData(viz.freq);
+  const bins = viz.freq.length, nyq = an.context.sampleRate / 2;
+  const bars = Math.max(16, Math.floor(w / 5));
+  const fLo = Math.log(30), fHi = Math.log(Math.min(16000, nyq));
+  for (let k = 0; k < bars; k++) {
+    const fa = Math.exp(fLo + ((fHi - fLo) * k) / bars), fb = Math.exp(fLo + ((fHi - fLo) * (k + 1)) / bars);
+    const ia = Math.floor((fa / nyq) * bins), ib = Math.max(ia + 1, Math.floor((fb / nyq) * bins));
+    let v = 0;
+    for (let i = ia; i < ib && i < bins; i++) v = Math.max(v, viz.freq[i]);
+    const bh = (v / 255) * h;
+    g.fillStyle = `hsl(${250 - (k / bars) * 90}, 80%, ${45 + (v / 255) * 25}%)`;
+    g.fillRect(x0 + (k * w) / bars, y0 + h - bh, w / bars - 1, bh);
+  }
+}
+
+function drawScope(g, x0, y0, w, h) {
+  const an = vizAnalyser();
+  if (!an) return;
+  an.getFloatTimeDomainData(viz.wave);
+  // start at a rising zero crossing so the wave stands still
+  let s0 = 0;
+  for (let i = 1; i < viz.wave.length / 2; i++) if (viz.wave[i - 1] < 0 && viz.wave[i] >= 0) { s0 = i; break; }
+  const n = viz.wave.length / 2;
+  g.strokeStyle = '#20d3a6';
+  g.lineWidth = 1.5;
+  g.beginPath();
+  for (let i = 0; i < n; i++) {
+    const x = x0 + (i / n) * w, y = y0 + h / 2 - viz.wave[s0 + i] * (h / 2) * 0.9;
+    i ? g.lineTo(x, y) : g.moveTo(x, y);
+  }
+  g.stroke();
+  g.lineWidth = 1;
+}
+
+function drawViz() {
+  if (!viz.on) return;
+  viz.raf = requestAnimationFrame(drawViz);
+  const c = $('vizCanvas');
+  const w = c.clientWidth, h = c.clientHeight;
+  if (!w || !h) return;
+  const dpr = devicePixelRatio || 1;
+  if (c.width !== Math.round(w * dpr) || c.height !== Math.round(h * dpr)) { c.width = Math.round(w * dpr); c.height = Math.round(h * dpr); }
+  const g = c.getContext('2d');
+  g.setTransform(dpr, 0, 0, dpr, 0, 0);
+  g.clearRect(0, 0, w, h);
+  const mode = $('vizMode').value;
+  if (mode === 'roll') drawRoll(g, 0, 0, w, h);
+  else if (mode === 'spectrum') drawSpectrum(g, 0, 0, w, h);
+  else if (mode === 'scope') drawScope(g, 0, 0, w, h);
+  else {
+    const sh = Math.max(30, Math.round(h * 0.28));
+    drawRoll(g, 0, 0, w, h - sh - 2);
+    drawSpectrum(g, 0, h - sh, w, sh);
+  }
+}
+
+function setVizDock(where) {
+  const dock = $('viz-dock');
+  if (where === 'side') $('chat-pane').insertBefore(dock, $('chat-pane').firstChild);
+  else if (where === 'top') $('editor-pane').insertBefore(dock, $('editor-wrap'));
+  else { where = 'bottom'; $('editor-pane').insertBefore(dock, $('editor-wrap').nextSibling); }
+  dock.className = `dock-${where}`;
+  $('vizDock').value = where;
+  lastMixerKey = '';
+  window.dispatchEvent(new Event('resize'));
+}
+
+function showViz(on) {
+  viz.on = on;
+  $('viz-dock').hidden = !on;
+  $('vizBtn').classList.toggle('on', on);
+  cancelAnimationFrame(viz.raf);
+  if (on) drawViz();
+  lastMixerKey = '';
+  window.dispatchEvent(new Event('resize'));
+}
+
+(() => {
+  const st = load();
+  if (st.vizMode) $('vizMode').value = st.vizMode;
+  if (st.vizH) $('viz-dock').style.setProperty('--viz-h', st.vizH + 'px');
+  setVizDock(st.vizDock || 'bottom');
+  showViz(!!st.vizOn);
+  $('vizBtn').onclick = () => { showViz(!viz.on); save({ vizOn: viz.on }); };
+  $('vizClose').onclick = () => { showViz(false); save({ vizOn: false }); };
+  $('vizMode').onchange = () => save({ vizMode: $('vizMode').value });
+  $('vizDock').onchange = () => { setVizDock($('vizDock').value); save({ vizDock: $('vizDock').value }); };
+  const handle = $('vizHandle');
+  let drag = null;
+  handle.addEventListener('pointerdown', (e) => {
+    drag = { y: e.clientY, h: $('viz-dock').getBoundingClientRect().height, down: $('vizDock').value !== 'bottom' };
+    handle.setPointerCapture(e.pointerId);
+    document.body.classList.add('viz-resizing');
+  });
+  handle.addEventListener('pointermove', (e) => {
+    if (!drag) return;
+    const dy = e.clientY - drag.y;
+    const hgt = Math.max(90, Math.min(window.innerHeight * 0.7, drag.h + (drag.down ? dy : -dy)));
+    $('viz-dock').style.setProperty('--viz-h', Math.round(hgt) + 'px');
+    lastMixerKey = '';
+  });
+  const end = () => {
+    if (!drag) return;
+    drag = null;
+    document.body.classList.remove('viz-resizing');
+    save({ vizH: Math.round($('viz-dock').getBoundingClientRect().height) });
+    window.dispatchEvent(new Event('resize'));
+  };
+  handle.addEventListener('pointerup', end);
+  handle.addEventListener('pointercancel', end);
+})();
+
 // handy for debugging from the browser console
-window.strudelAI = { checkScales, checkSounds, prepareCode, evaluateCode, dryRun, hum, transcribe, ensureSliders, setlist, setl };
+window.strudelAI = { rec, replay, startReplay, recordingForShare, viz, checkScales, checkSounds, prepareCode, evaluateCode, dryRun, hum, transcribe, ensureSliders, setlist, setl };
