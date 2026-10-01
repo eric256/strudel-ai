@@ -4456,7 +4456,21 @@ const padN = (i) => i + 1;
 const isStatement = (code) => /^\s*(all|each|setcp[ms]|samples)\s*\(/.test(code);
 const oneLine = (code) => code.replace(/\s*\n\s*/g, ' ').trim();
 const padLineRe = (i) => new RegExp(`^(?:[_S]?pad${padN(i)}:.*|.*// pad${padN(i)}\\s*)$`);
-const padIsOn = (i, code = getCode()) => code.split('\n').some((l) => padLineRe(i).test(l) && !/^_/.test(l));
+/**
+ * A song-part pad (pad.part) is tied to that part's own line in the section that's playing ("bass: …", "_bass: …" when
+ * muted). Returns that line, or null when the section doesn't play the part (or plays another variant of it).
+ */
+function padPartLine(p, code) {
+  if (!p?.part) return null;
+  const re = new RegExp(`^_?${p.part}:`);
+  const line = code.split('\n').find((l) => re.test(l));
+  if (!line || (p.variant && p.variant !== 'main' && !line.includes(`${p.part}_${p.variant}`))) return null;
+  return line;
+}
+const padIsOn = (i, code = getCode()) => {
+  const pl = padPartLine(pads[i], code);
+  return (pl != null && !pl.startsWith('_')) || code.split('\n').some((l) => padLineRe(i).test(l) && !/^_/.test(l));
+};
 function padLine(i, codeOverride) {
   const c = oneLine(codeOverride ?? pads[i].code);
   return isStatement(c) ? `${c} // pad${padN(i)}` : `pad${padN(i)}: ${c}`;
@@ -4472,7 +4486,12 @@ function codeWithPad(code, i, on, lineText) {
 async function setPad(i, on, { at = null, lineText = null } = {}) {
   const p = pads[i];
   if (!p?.code.trim()) return null;
-  const next = codeWithPad(getCode(), i, on, lineText);
+  const code = getCode();
+  const pl = lineText ? null : padPartLine(p, code);
+  // a part the section already plays: the pad mutes / unmutes the section's own line (no extra copy of it)
+  const next = pl != null
+    ? codeWithPad(code.split('\n').map((l) => (l === pl ? (on ? l.replace(/^_/, '') : l.startsWith('_') ? l : `_${l}`) : l)).join('\n'), i, false)
+    : codeWithPad(code, i, on, lineText);
   if (!isPlaying() && !on) { mirror().setCode(next); return null; }
   const when = isPlaying() ? at ?? nextBoundary(Number($('padsSync').value)) : null;
   const err = await evaluateCode(next, { at: when, label: `pad “${p.label}” ${on ? 'on' : 'off'}`, undo: false });
@@ -4547,6 +4566,7 @@ for (const id of ['padLabel', 'padCode', 'padMode', 'padColor']) {
   $(id).addEventListener('input', () => {
     const p = pads[padsState.sel];
     if (!p) return;
+    if ($('padCode').value !== p.code) { delete p.part; delete p.variant; } // new code: no longer the song's part
     Object.assign(p, { label: $('padLabel').value, code: $('padCode').value, mode: $('padMode').value, color: $('padColor').value });
     savePads();
     renderPads.key = '';
@@ -4658,9 +4678,9 @@ function songFromJSON(j) {
   const libRef = (c) => !/typeof sectionChords/.test(c) && (/^\s*\(?[A-Za-z]\w*_\w+\)?(\(sectionChords\))?\s*$/.test(c) || /\bsectionChords\b/.test(c));
   song.pads = song.pads && fresh
     ? song.pads.map((p) => {
-      if (!libRef(p.code || '')) return p;
       const f = fresh.find((q) => q.label === p.label);
-      return { ...p, code: f ? f.code : p.code.replace(/\bsectionChords\b/g, padProg(song.sheet)) };
+      if (!libRef(p.code || '')) return f?.part && !p.part && p.code === f.code ? { ...p, part: f.part, variant: f.variant } : p;
+      return f ? { ...p, code: f.code, part: f.part, variant: f.variant } : { ...p, code: p.code.replace(/\bsectionChords\b/g, padProg(song.sheet)) };
     })
     : song.pads || fresh;
   return song;
@@ -4934,35 +4954,37 @@ function songPads(sg) {
   const sh = sg.sheet, lib = sg.library;
   if (!sh || !lib) return null;
   const pads = [];
-  const FIXED = 12; // the jam / drum / effect / tempo pads below
-  const add = (label, code, mode = 'toggle', color = '#7c5cff') => { if (pads.length < 16) pads.push({ label, code, mode, color }); };
+  const add = (label, code, mode = 'toggle', color = '#7c5cff', extra = {}) => { if (pads.length < 16) pads.push({ label, code, mode, color, ...extra }); };
   // pads must work whatever is playing (see padProg)
   const prog = padProg(sh);
   const drums = sh.parts.find((p) => /drum|perc|beat/i.test(p.role + p.id));
   const bank = drums && /^[A-Z]/.test(drums.sound) ? `.bank("${drums.sound}")` : '';
   const scale = sh.scale;
-  // the song's own extra variants (half-time drums, fills, …) and the hook
-  for (const p of sh.parts) for (const v of p.variants) {
-    if (v === 'main' && !/hook|lead|melody/i.test(p.role + p.id)) continue;
+  // the song's own parts, one pad each: lit while the section plays the part, pressing mutes / unmutes it
+  // (or plays it on top when the section doesn't have it); then their extra variants (half-time drums, fills …)
+  const partPad = (p, v) => {
     const id = `${p.id}_${v}`, expr = libExpr(lib, id);
-    if (!expr || pads.length >= 16 - FIXED) continue;
+    if (!expr) return;
     // the part's own code, inlined (the library consts only exist while one of this song's sections plays)
     const code = isFnPart(lib, id) ? `(${expr})(${prog})` : `(${expr})`;
-    add(v === 'main' ? p.id : `${p.id} ${v}`, code, v === 'fill' ? 'once' : 'toggle', v === 'fill' ? '#ffd166' : '#20d3a6');
-  }
-  // jam parts in the song's key, following the section's chords
-  add('arp', `n("0 2 4 7 4 2").scale("${scale}").fast(2).s("triangle").gain(0.4)`, 'toggle', '#20d3a6');
-  add('stabs', `chord(${prog}).voicing().struct("~ x ~ x").s("square").decay(0.1).sustain(0).gain(0.3)`, 'toggle', '#20d3a6');
-  add('jam lead', `n("<0 [2 4] 7 [4 2]>").scale("${scale}").add(note(12)).s("sawtooth").lpf(2000).decay(0.2).sustain(0.3).gain(0.3)`, 'toggle', '#20d3a6');
-  add('pad', `chord(${prog}).voicing().s("supersaw").attack(0.4).release(1).lpf(1800).gain(0.25)`, 'toggle', '#7c5cff');
+    add(v === 'main' ? p.id : `${p.id} ${v}`, code, v === 'fill' ? 'once' : 'toggle', v === 'fill' ? '#ffd166' : '#4cc9f0', { part: p.id, variant: v });
+  };
+  for (const p of sh.parts) partPad(p, 'main');
+  for (const p of sh.parts) for (const v of p.variants) if (v !== 'main' && pads.length < 10) partPad(p, v);
+  // jam pads, most useful first (the song's parts may leave room for only some of them)
+  add('tempo −¼', 'all(x => x.slow(4/3))', 'hold', '#ff8fa3'); // everything at ¾ speed while held
+  add('tempo +¼', 'all(x => x.fast(5/4))', 'hold', '#ff8fa3'); // everything at 1¼ speed while held
+  add('filter all', 'all(x => x.lpf(500))', 'hold', '#7c5cff');
   add('snare roll', `s("sd*16")${bank}.gain(saw.range(0.2, 0.9))`, 'once', '#ffd166');
   add('crash', `s("cr")${bank}.gain(0.6)`, 'once', '#ffd166');
   add('riser', 's("white").lpf(saw.range(200, 8000)).gain(0.25)', 'hold', '#7c5cff');
-  add('filter all', 'all(x => x.lpf(500))', 'hold', '#7c5cff');
   add('echo all', 'all(x => x.delay(0.5).delaytime(0.1875).delayfeedback(0.6))', 'hold', '#7c5cff');
-  add('tempo −¼', 'all(x => x.slow(4/3))', 'hold', '#ff8fa3'); // everything at ¾ speed while held
-  add('tempo +¼', 'all(x => x.fast(5/4))', 'hold', '#ff8fa3'); // everything at 1¼ speed while held
   add('half time', 'all(x => x.slow(2))', 'hold', '#7c5cff');
+  // jam parts in the song's key, following the section's chords
+  add('arp', `n("0 2 4 7 4 2").scale("${scale}").fast(2).s("triangle").gain(0.4)`, 'toggle', '#20d3a6');
+  add('jam lead', `n("<0 [2 4] 7 [4 2]>").scale("${scale}").add(note(12)).s("sawtooth").lpf(2000).decay(0.2).sustain(0.3).gain(0.3)`, 'toggle', '#20d3a6');
+  add('stabs', `chord(${prog}).voicing().struct("~ x ~ x").s("square").decay(0.1).sustain(0).gain(0.3)`, 'toggle', '#20d3a6');
+  add('jam pad', `chord(${prog}).voicing().s("supersaw").attack(0.4).release(1).lpf(1800).gain(0.25)`, 'toggle', '#7c5cff');
   return pads;
 }
 
@@ -5029,6 +5051,7 @@ function applyPadsReply(block) {
   for (const p of Array.isArray(j.program) ? j.program : []) {
     const i = Number(p.pad) - 1;
     if (!(i >= 0 && i < 16)) continue;
+    if (p.code != null && String(p.code) !== pads[i].code) { delete pads[i].part; delete pads[i].variant; }
     pads[i] = { ...pads[i], ...(p.label != null ? { label: String(p.label).slice(0, 24) } : {}), ...(p.code != null ? { code: String(p.code) } : {}), ...(['toggle', 'hold', 'once'].includes(p.mode) ? { mode: p.mode } : {}), ...(p.color ? { color: String(p.color) } : {}) };
     done.push(`programmed pad ${i + 1} (${pads[i].label})`);
   }

@@ -224,10 +224,9 @@ Every finished song has a toolbar:
 **Key and tempo can move:** where the genre does it, a section may lift the key (e.g. a pop or gospel last chorus +1 or +2 semitones) or push the tempo a little (up to ±8%). Chords and melodies move with the key and drums never do. Dance genres like techno and house keep one key and tempo. The song view marks those sections (`key +2`, `108 bpm`), and the song editor takes them as an optional last column: `chorus | 4 | chorus | drums, bass | key +2, 108 bpm`.
 
 **Song pads** are made from the song itself, with no AI:
-- the song's extra variants (half-time drums, fills, the hook), with the part's code built in, so they play even when that song isn't playing;
-- jam parts in the song's key that follow the current section's chords (arp, stabs, jam lead, pad);
-- drum one-shots and effects (snare roll, crash, riser, filter, echo, half time);
-- **tempo −¼ / tempo +¼**: hold to play everything at ¾ or 1¼ speed.
+- **one pad per song part** (drums, bass, keys, hook …), then its extra variants (half-time drums, fills). A part pad is lit while the playing section has that part. Pressing it mutes or unmutes the section's own line (the mute carries into the next sections). If the section doesn't have the part, pressing it plays the part on top. Part pads carry their code, so they work even when another song is playing;
+- **tempo −¼ / tempo +¼**: hold to play everything at ¾ or 1¼ speed;
+- effects and drum one-shots (filter, snare roll, crash, riser, echo, half time), then jam parts in the song's key (arp, jam lead, stabs, jam pad) as space allows.
 
 Edit them like any pads; they're saved with the song. **↩ my pads** goes back to your own set.
 
