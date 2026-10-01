@@ -2,6 +2,20 @@
 
 The version is in `package.json`. Bump it when you release. Open pages also notice *any* redeploy through the build id, which is a hash of the app files, even if the version wasn't bumped.
 
+## 1.18.0
+- **⚙ Settings:** ⚡ live edit, fade and ⌨ autocomplete now live in one dialog. The song forms editor and the station definitions moved there too, from the Station tab and the forms dialog.
+  - **💾 Backup** exports or imports everything saved in the browser, or resets it.
+  - All settings are kept in local storage.
+- **Status bar** at the bottom: bar, beat and BPM; the song and section playing; the pending change; the recording; and the replay and update notices. These moved out of the header.
+- **🎹 Keys:** a dockable keyboard for mouse, touch, the computer keyboard (A W S E D F…) or MIDI keyboards via Web MIDI. It plays any loaded sound live.
+  - **⏺ Rec** captures what you play on the bar grid, including chords.
+  - The result can be inserted as a `keys:` part or sent to the AI to arrange.
+- **🔲 Pads:** a dockable 4×4 pad. Each pad is a line of Strudel code that's added or removed on the next beat or bar.
+  - Modes: toggle, hold and once. Effect pads like `all(x => x.lpf(500))` work too.
+  - Pads are programmable and saved.
+  - **⏺ Rec** writes your pad performance into the code as `.mask()` patterns, so it loops.
+- The visualizer, keyboard and pads share the same docking: under or above the code, or in the side panel, resizable and remembered.
+
 ## 1.17.0
 - **🎼 Song forms you can edit:** the forms songs follow (pop, edm, drum & bass, hip hop, lo-fi, ambient, short) are now editable data.
   - Change their sections and bar counts, what genres they're used for, or add your own.

@@ -24,29 +24,16 @@
           <option value="16">16 bars</option>
         </select>
       </label>
-      <label class="live" title="Autocomplete in the code editor: Strudel functions (with docs and examples), sounds, drum banks, scales and chords. Ctrl+Space shows it any time."><input type="checkbox" id="autoComplete" checked /> ⌨</label>
-      <label id="liveLabel" class="live" title="Live update: edits in the code window take effect as soon as you stop typing"><input type="checkbox" id="liveMode" /> ⚡ live</label>
-      <label class="quant" title="Crossfade into each new block / AI change: the old part fades out while the new one fades in, landing on the bar line">fade
-        <select id="fade">
-          <option value="0">cut</option>
-          <option value="0.25">1 beat</option>
-          <option value="0.5">2 beats</option>
-          <option value="1">1 bar</option>
-          <option value="2">2 bars</option>
-        </select>
-      </label>
       <label class="master" title="Master volume">🔊
         <input type="range" id="masterGain" min="0" max="1.5" step="0.01" value="1" />
         <span id="masterVal">100%</span></label>
-      <span id="status" class="status">stopped</span>
-      <button id="pending" class="pending" title="Click to cancel this pending change" hidden></button>
-      <button id="updatePill" class="update-pill" hidden></button>
-      <button id="replayBtn" class="replay-pill" title="Stop following the recording (the music keeps playing)" hidden>⏺ replaying · stop</button>
-      <button id="vizBtn" title="Show / hide the visualizer">📊 Viz</button>
+      <button id="vizBtn" title="Show / hide the visualizer">📊<span class="lbl"> Viz</span></button>
+      <button id="keysBtn" title="Show / hide the keyboard (play live, record a part)">🎹<span class="lbl"> Keys</span></button>
+      <button id="padsBtn" title="Show / hide the 4×4 sound pad">🔲<span class="lbl"> Pads</span></button>
       <button id="humBtn" class="hum-btn" title="Hold to hum a melody (or hold the ` key); tap to open the hum panel">🎤 Hum</button>
     </div>
     <div class="share-wrap">
-      <button id="shareBtn" title="Create a link others can open">🔗 Share</button>
+      <button id="shareBtn" title="Create a link others can open">🔗<span class="lbl"> Share</span></button>
       <div id="sharePop" class="share-pop" hidden>
         <label>Title <input id="shareTitle" placeholder="untitled jam" maxlength="120" /></label>
         <label><input type="checkbox" id="shareSetlist" /> include the set list</label>
@@ -63,6 +50,7 @@
         <small class="muted">Anyone who can reach this server can open the link.</small>
       </div>
     </div>
+    <button id="settingsBtn" class="icon-btn" title="Settings: live edit, fade, autocomplete, song forms, stations, backup" aria-label="Settings">⚙</button>
     <button id="aboutBtn" class="icon-btn" title="About Strudel AI: version, recent changes, links" aria-label="About">ⓘ</button>
     <div class="llm">
       <select id="provider" title="LLM provider"></select>
@@ -74,7 +62,7 @@
   <main>
     <section id="editor-pane">
       <div id="editor-wrap"></div>
-      <section id="viz-dock" class="dock-bottom" hidden>
+      <section id="viz-dock" class="dock dock-bottom" hidden>
         <div id="vizHandle" class="viz-handle" title="Drag to resize"></div>
         <div class="viz-bar">
           <b>📊 Visualizer</b>
@@ -104,6 +92,61 @@
           <button id="vizClose" class="link" title="Hide">✕</button>
         </div>
         <canvas id="vizCanvas"></canvas>
+      </section>
+      <section id="keys-dock" class="dock dock-bottom" hidden>
+        <div id="keysHandle" class="viz-handle" title="Drag to resize"></div>
+        <div class="viz-bar">
+          <b>🎹 Keys</b>
+          <select id="keysSound" title="Sound the keyboard plays"></select>
+          <label title="Octave">oct <button id="keysDown" class="mini">−</button><span id="keysOct">4</span><button id="keysUp" class="mini">+</button></label>
+          <button id="keysRec" class="rec-btn" title="Record: notes you play while the music runs are captured on the bar grid">⏺ Rec</button>
+          <select id="keysGrid" title="Recording grid"><option value="8">1/8</option><option value="16" selected>1/16</option></select>
+          <span id="keysInfo" class="muted small"></span>
+          <span class="spacer"></span>
+          <select id="keysDock" title="Where the keyboard is docked">
+            <option value="bottom">dock: under the code</option><option value="top">dock: above the code</option><option value="side">dock: side panel</option>
+          </select>
+          <button id="keysClose" class="link" title="Hide">✕</button>
+        </div>
+        <div id="keysBoard" class="keyboard"></div>
+        <div id="keysResult" class="keys-result" hidden>
+          <code id="keysMini"></code><span class="spacer"></span>
+          <button id="keysInsert">＋ Insert as a part</button><button id="keysAI">✨ Send to AI</button><button id="keysDiscard" class="link">discard</button>
+        </div>
+      </section>
+      <section id="pads-dock" class="dock dock-bottom" hidden>
+        <div id="padsHandle" class="viz-handle" title="Drag to resize"></div>
+        <div class="viz-bar">
+          <b>🔲 Pads</b>
+          <label title="When a pad switches in">sync <select id="padsSync"><option value="0.25">next beat</option><option value="1">next bar</option></select></label>
+          <button id="padsEdit" title="Program the pads: click a pad to edit its label, code and mode">✎ program</button>
+          <button id="padsRec" class="rec-btn" title="Record: pad changes while the music runs are written into the code as masks, so the performance loops">⏺ Rec</button>
+          <span id="padsInfo" class="muted small"></span>
+          <span class="spacer"></span>
+          <select id="padsDock" title="Where the pads are docked">
+            <option value="bottom">dock: under the code</option><option value="top">dock: above the code</option><option value="side">dock: side panel</option>
+          </select>
+          <button id="padsClose" class="link" title="Hide">✕</button>
+        </div>
+        <div class="pads-body">
+          <div id="padsGrid" class="pads-grid"></div>
+          <div id="padEditor" class="pad-editor" hidden>
+            <label class="field">Label <input id="padLabel" maxlength="24" /></label>
+            <label class="field">Strudel code <textarea id="padCode" rows="3" spellcheck="false" placeholder='s("bd*4").bank("RolandTR909")'></textarea></label>
+            <div class="sl-buttons">
+              <label>mode <select id="padMode">
+                <option value="toggle">toggle (on / off)</option>
+                <option value="hold">hold (while pressed)</option>
+                <option value="once">once (one bar)</option>
+              </select></label>
+              <label>color <input type="color" id="padColor" /></label>
+              <span class="spacer"></span>
+              <button id="padTest" title="Play this pad once">▶ test</button>
+              <button id="padDone">done</button>
+            </div>
+            <small class="muted">A pattern (e.g. <code>s("hh*8").gain(0.5)</code>) is added to the music as its own labelled line while the pad is on. <code>all(x =&gt; x.lpf(400))</code> or <code>setcpm(140/4)</code> lines work too.</small>
+          </div>
+        </div>
       </section>
       <div id="error-bar" hidden></div>
       <div id="hum-panel" hidden>
@@ -165,11 +208,9 @@
           writes their blocks and code ahead of time, and plays them one after another.</p>
         <div class="station-row">
           <select id="stationSelect" title="Saved stations"></select>
-          <button id="stationNew" title="New station">＋ New</button>
-          <button id="stationDelete" class="link" title="Delete this station">delete</button>
+          <button class="link stations-edit" title="Add, rename or edit stations">✎ edit stations</button>
         </div>
-        <label class="field">Name <input id="stationName" maxlength="60" placeholder="Late Night Lo-fi" /></label>
-        <label class="field">Theme <textarea id="stationTheme" rows="3" placeholder="late-night lo-fi with jazzy chords, 70–90 bpm, rainy city mood, occasional upbeat tracks"></textarea></label>
+        <div id="stationThemeView" class="station-theme"></div>
         <div class="sl-buttons">
           <button id="stationStart">📻 Start station</button>
           <button id="stationStop" disabled>■ Stop</button>
@@ -210,11 +251,43 @@
     </aside>
   </main>
 
-  <dialog id="formsDlg" class="about forms">
+
+  <footer id="statusbar">
+    <span id="status" class="status">stopped</span>
+    <span id="sbSong" class="sb-item" hidden></span>
+    <button id="pending" class="pending" title="Click to cancel this pending change" hidden></button>
+    <span class="sb-spacer"></span>
+    <span id="sbRec" class="sb-item" title="Recording: every change that plays is kept, so 🔗 Share can include it"></span>
+    <button id="replayBtn" class="replay-pill" title="Stop following the recording (the music keeps playing)" hidden>⏺ replaying · stop</button>
+    <button id="updatePill" class="update-pill" hidden></button>
+  </footer>
+
+  <dialog id="settingsDlg" class="about settings">
     <div class="about-head">
-      <b>🎼 Song forms</b>
-      <button id="formsClose" class="link" title="Close">✕</button>
+      <b>⚙ Settings</b>
+      <button id="settingsClose" class="link" title="Close">✕</button>
     </div>
+    <nav class="settings-tabs">
+      <button data-sec="setGeneral" class="active">General</button>
+      <button data-sec="setForms">🎼 Song forms</button>
+      <button data-sec="setStations">📻 Stations</button>
+      <button data-sec="setBackup">💾 Backup</button>
+    </nav>
+    <section id="setGeneral" class="settings-sec">
+      <div class="set-row"><label id="liveLabel" class="live" title="Live update: edits in the code window take effect as soon as you stop typing"><input type="checkbox" id="liveMode" /> ⚡ live</label><span class="muted small">edits in the code window take effect about half a second after you stop typing</span></div>
+      <div class="set-row"><label class="quant set-fade" title="Crossfade into each new block / AI change: the old part fades out while the new one fades in, landing on the bar line">fade
+        <select id="fade">
+          <option value="0">cut</option>
+          <option value="0.25">1 beat</option>
+          <option value="0.5">2 beats</option>
+          <option value="1">1 bar</option>
+          <option value="2">2 bars</option>
+        </select>
+      </label><span class="muted small">crossfade into new blocks and AI changes</span></div>
+      <div class="set-row"><label class="live" title="Autocomplete in the code editor: Strudel functions (with docs and examples), sounds, drum banks, scales and chords. Ctrl+Space shows it any time."><input type="checkbox" id="autoComplete" checked /> ⌨ autocomplete</label><span class="muted small">Strudel functions with docs, sounds, banks, scales, chords · Ctrl+Space</span></div>
+      <p class="muted small">Settings, song forms, stations, pads, layout and your last code are saved in this browser (per address: <code>https://192.168.1.50</code> and <code>https://myhost</code> keep separate settings). Use 💾 Backup to move them.</p>
+    </section>
+    <section id="setForms" class="settings-sec" hidden>
     <p class="muted small">A form is the order and length of a song's sections. The AI picks the form that fits each song's genre
       (or the one you choose in the Songs / Station tab) and copies its sections and bar counts exactly. Saved in this browser.</p>
     <div class="station-row">
@@ -228,6 +301,27 @@
       <textarea id="formSections" rows="5" placeholder="intro 4, verse 8, chorus 8, verse 8, chorus 8, outro 4"></textarea></label>
     <div id="formPreview" class="form-preview"></div>
     <div class="sl-buttons"><span class="spacer"></span><button id="formReset" class="link" title="Bring back the built-in forms (your own forms are kept)">restore built-in forms</button></div>
+    </section>
+    <section id="setStations" class="settings-sec" hidden>
+      <p class="muted small">A station is a name and a theme; the 📻 Station tab plays it.</p>
+        <div class="station-row">
+          <select id="stationEditSelect" title="Saved stations"></select>
+          <button id="stationNew" title="New station">＋ New</button>
+          <button id="stationDelete" class="link" title="Delete this station">delete</button>
+        </div>
+        <label class="field">Name <input id="stationName" maxlength="60" placeholder="Late Night Lo-fi" /></label>
+        <label class="field">Theme <textarea id="stationTheme" rows="3" placeholder="late-night lo-fi with jazzy chords, 70–90 bpm, rainy city mood, occasional upbeat tracks"></textarea></label>
+    </section>
+    <section id="setBackup" class="settings-sec" hidden>
+      <p class="muted small">Download everything this browser has saved (settings, song forms, stations, pads, layout, last code) as a file, or load such a file — e.g. on another device or another address of this server.</p>
+      <div class="sl-buttons">
+        <button id="settingsExport">⬇ Export settings</button>
+        <label class="button-like">⬆ Import settings <input type="file" id="settingsImport" accept="application/json,.json" hidden /></label>
+        <span class="spacer"></span>
+        <button id="settingsReset" class="link">reset everything</button>
+      </div>
+      <div id="settingsMsg" class="muted small"></div>
+    </section>
   </dialog>
 
   <dialog id="aboutDlg" class="about">

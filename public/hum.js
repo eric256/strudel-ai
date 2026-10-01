@@ -253,6 +253,48 @@ export function barsToMini(bars, grid) {
   return '<' + parts.map((p) => (p === '~' ? '~' : `[${p}]`)).join(' ') + '>';
 }
 
+/**
+ * Polyphonic bar → mini-notation: notes starting together become a chord "[c4,e4,g4]".
+ * notes: [{ s, e, midi }] in grid steps within the bar (0 … grid). Each onset lasts until the
+ * chord's longest note ends or the next onset, whichever comes first.
+ */
+export function polyBarToMini(notes, grid) {
+  const groups = new Map();
+  for (const n of notes) {
+    const s = Math.max(0, Math.min(grid - 1, Math.round(n.s)));
+    if (!groups.has(s)) groups.set(s, []);
+    groups.get(s).push({ ...n, s });
+  }
+  const starts = [...groups.keys()].sort((a, b) => a - b);
+  const items = [];
+  let t = 0;
+  starts.forEach((s, k) => {
+    const chord = groups.get(s);
+    const next = k + 1 < starts.length ? starts[k + 1] : grid;
+    const end = Math.max(s + 1, Math.min(next, Math.max(...chord.map((n) => Math.round(n.e)))));
+    if (s > t) items.push({ tok: '~', w: s - t });
+    const names = [...new Set(chord.sort((a, b) => a.midi - b.midi).map((n) => midiToName(n.midi)))];
+    items.push({ tok: names.length > 1 ? `[${names.join(',')}]` : names[0], w: end - s });
+    t = end;
+  });
+  if (t < grid) items.push({ tok: '~', w: grid - t });
+  if (!items.some((it) => it.tok !== '~')) return '~';
+  const merged = [];
+  for (const it of items) {
+    const last = merged[merged.length - 1];
+    if (last && last.tok === '~' && it.tok === '~') last.w += it.w;
+    else merged.push({ ...it });
+  }
+  const g = merged.reduce((a, it) => gcd(a, it.w), 0) || 1;
+  return merged.map((it) => (it.w / g === 1 ? it.tok : `${it.tok}@${it.w / g}`)).join(' ');
+}
+
+export function polyBarsToMini(bars, grid) {
+  const parts = bars.map((b) => polyBarToMini(b || [], grid));
+  if (parts.length === 1) return parts[0];
+  return '<' + parts.map((p) => (p === '~' ? '~' : `[${p}]`)).join(' ') + '>';
+}
+
 // ---------------------------------------------------------------------------
 // Microphone recorder (browser only)
 // ---------------------------------------------------------------------------
