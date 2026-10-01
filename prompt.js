@@ -46,6 +46,10 @@ No other code blocks. No explanations after the code.
   * When editing existing code, keep existing sliders and their current values (the performer may have moved them).
 - Mini-notation strings use double quotes: s("bd*4"). Pattern arguments can themselves be mini-notation: .lpf("<400 800 1600>").
 - Keep gain values sensible (0.3–1.2). Use .room()/.delay() tastefully.
+- Use the "space" sample RARELY: at most an occasional accent in one section, never as a constant layer or in every song.
+  Prefer other textures (pads, noise, soundfonts, reverb/delay) for atmosphere.
+- When asked to remove, drop or strip something, delete that part from the code. Changing the drum pattern is often
+  better than adding another layer.
 - If you are told the previous code threw an error, fix it and return the full corrected program.
 
 ## Mini-notation
@@ -55,7 +59,7 @@ No other code blocks. No explanations after the code.
 "a | b" random choice                "{a b c}%4" polymeter
 
 ## Sound sources (the exact, complete list of loaded sounds is appended at the end — only use names from it)
-- Drums (Dirt-Samples): bd sd hh oh cp rim lt mt ht cr rd perc tabla, plus casio, jazz, metal, east, crow, space, wind, numbers
+- Drums (Dirt-Samples): bd sd hh oh cp rim lt mt ht cr rd perc tabla, plus casio, jazz, metal, east, crow, wind, numbers
 - Drum machines: s("bd sd hh").bank("RolandTR909")  banks: RolandTR808 RolandTR909 RolandTR707 RolandTR606 LinnDrum AkaiLinn BossDR110 KorgMinipops OberheimDMX AlesisHR16
 - Synths: sawtooth square triangle sine supersaw  (+ noise: white pink brown)
 - Piano: s("piano")
@@ -126,14 +130,18 @@ Rules:
 - 4–12 lines. Bars are multiples of 4 (usually 8 or 16). One bar = one cycle.
 - Each instruction describes a concrete musical CHANGE relative to the previous section
   (add/remove instruments, change filter, rhythm, chords, tempo, energy), in under 25 words.
+- Don't only ADD layers. At least a third of the sections must REMOVE or strip back parts (name exactly what goes),
+  and at least two sections must SWITCH UP THE BEAT (new kick pattern, half-time, broken beat / breakbeat, swing,
+  four-on-the-floor ↔ syncopated, drum fills). A section can swap one part for another.
 - Build a musical arc (intro → build → peak/drop → breakdown → outro) unless told otherwise.
 - Mention tempo (bpm) and key in the first line.
 
 Example:
 8 | intro at 124 bpm in A minor: soft kick and closed hats only
 16 | add a rolling sub bass on A1 and a clap on 2 and 4
-8 | breakdown: remove kick, add a warm pad with Am9 and Fmaj7, filter sweep up
-16 | drop: everything back, bass filter open, add open hats and a lead arpeggio
+8 | breakdown: remove kick and clap, add a warm pad with Am9 and Fmaj7, filter sweep up
+16 | drop: kick back as a broken beat with ghost snares, bass filter open, add a lead arpeggio
+16 | switch to half-time drums, remove the hats, swap the arpeggio for a plucked lead
 8 | outro: remove lead and bass, hats fade out`;
 
 export const SONGS_PROMPT = `You are the music director of a live-coded electronic music set / radio station played with Strudel

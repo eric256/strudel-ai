@@ -2,6 +2,14 @@
 
 The version is in `package.json`. Bump it when you release. Open pages also notice *any* redeploy through the build id, which is a hash of the app files, even if the version wasn't bumped.
 
+## 1.14.0
+- **📊 Visualizer** in a docked panel: a piano roll of what's playing and coming up (drums get their own lanes), plus a spectrum or oscilloscope of the output. Dock it under the code, above it, or in the side panel, and drag to resize.
+- **Shared songs replay exactly:** every code change that plays (AI blocks, chat changes, your edits, mutes, fader moves) is recorded with the cycle it took effect on. Share links can include the recording, and **⏺ Play the recording** replays every change on the same bar.
+- **⚡ live** (header): edits in the code window take effect as soon as you stop typing. Code with a syntax error isn't applied, and the last good version keeps playing.
+- **Skipping ahead in song blocks:** jumping to a later block stops writing the unwritten blocks above it and generates from that block on. Skipped blocks are marked ↷ and are written if the blocks loop.
+- Song blocks now take parts away and switch up the beat, instead of only adding layers.
+- The AI uses the `space` sample much less often.
+
 ## 1.13.0
 - "Setlist" renamed to **Song blocks** (the sections of one song).
 - New **Set list**: a list of songs, one prompt each. While a song plays, the AI writes the next song's blocks and code. Songs hand over on the bar line, and you can jump to any song.

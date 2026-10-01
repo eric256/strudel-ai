@@ -83,7 +83,7 @@ const newShareId = () => {
 };
 
 const app = express();
-app.use(express.json({ limit: '2mb' }));
+app.use(express.json({ limit: '8mb' }));
 
 // index.html carries the build id it was served with, so the page knows its own version
 const INDEX_HTML = fs
@@ -110,9 +110,12 @@ app.get('/api/version', (_req, res) => {
 });
 
 app.post('/api/share', (req, res) => {
-  const { code, title = '', setlist = null, setText = null } = req.body || {};
+  const { code, title = '', setlist = null, setText = null, recording = null } = req.body || {};
   if (typeof code !== 'string' || !code.trim()) return res.status(400).json({ error: 'no code to share' });
   if (code.length > 200_000 || String(setlist || '').length > 50_000 || String(setText || '').length > 50_000) return res.status(413).json({ error: 'song too large' });
+  const rec = cleanRecording(recording);
+  if (rec === false) return res.status(400).json({ error: 'invalid recording' });
+  if (rec && JSON.stringify(rec).length > 6_000_000) return res.status(413).json({ error: 'recording too large' });
   const id = newShareId();
   const song = {
     id,
@@ -120,6 +123,7 @@ app.post('/api/share', (req, res) => {
     code,
     setlist: setlist ? String(setlist) : null,
     setText: setText ? String(setText) : null,
+    recording: rec,
     created: new Date().toISOString(),
     appVersion: VERSION,
   };
@@ -130,6 +134,24 @@ app.post('/api/share', (req, res) => {
   }
   res.json({ id, path: `/s/${id}` });
 });
+
+/**
+ * A recording: { v, codes: [string], events: [{ c: cycle, i: index into codes, label }], end }.
+ * Returns the cleaned recording, null when there is none, or false when it is malformed.
+ */
+function cleanRecording(r) {
+  if (r == null) return null;
+  if (typeof r !== 'object' || !Array.isArray(r.codes) || !Array.isArray(r.events)) return false;
+  if (!r.events.length) return null;
+  if (r.codes.length > 5000 || r.events.length > 5000) return false;
+  if (!r.codes.every((c) => typeof c === 'string' && c.length <= 200_000)) return false;
+  const events = [];
+  for (const ev of r.events) {
+    if (!ev || !Number.isFinite(ev.c) || ev.c < 0 || !Number.isInteger(ev.i) || ev.i < 0 || ev.i >= r.codes.length) return false;
+    events.push({ c: ev.c, i: ev.i, label: String(ev.label || '').slice(0, 80) });
+  }
+  return { v: 1, codes: r.codes, events, end: Number.isFinite(r.end) ? r.end : events[events.length - 1].c };
+}
 
 app.get('/api/share/:id', (req, res) => {
   if (!SHARE_ID.test(req.params.id)) return res.status(404).json({ error: 'not found' });
