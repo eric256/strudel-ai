@@ -2,6 +2,12 @@
 
 The version is in `package.json`. Bump it when you release. Open pages also notice *any* redeploy through the build id, which is a hash of the app files, even if the version wasn't bumped.
 
+## 1.15.0
+- **Smoother block changes:** new **fade** setting in the header (cut, 1 beat, 2 beats, 1 bar, 2 bars; default 2 beats). The old block fades out while the new one fades in, and the new block lands on the bar line at full level. Notes both blocks share, like a steady kick, keep playing at full level. Applies to song blocks, set lists, stations and AI changes, and recordings replay with the same fades.
+- **More visualizer views:** a dashboard (oscilloscope, spectrum, vectorscope and meters together), stereo L/R oscilloscope, vectorscope, spectrogram waterfall, radial spectrum, L/R level meters, and piano roll + oscilloscope.
+- **ⓘ About** (or click the version): version and build, recent changes, and links to the GitHub project, issues, releases and the Strudel docs.
+- The code window's horizontal scrollbar now sits at the bottom of the window instead of under the last line of code.
+
 ## 1.14.0
 - **📊 Visualizer** in a docked panel: a piano roll of what's playing and coming up (drums get their own lanes), plus a spectrum or oscilloscope of the output. Dock it under the code, above it, or in the side panel, and drag to resize.
 - **Shared songs replay exactly:** every code change that plays (AI blocks, chat changes, your edits, mutes, fader moves) is recorded with the cycle it took effect on. Share links can include the recording, and **⏺ Play the recording** replays every change on the same bar.
