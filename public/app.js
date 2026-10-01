@@ -243,6 +243,8 @@ function dryRun(pat) {
   try { globalThis.logger?.('[strudel-ai] test-playing new code…'); } catch {}
   document.addEventListener('strudel.log', onLog);
   inDryRun = true;
+  const reg = globalThis.soundMap?.get?.();
+  const missing = new Map(); // what isn't loaded → hint
   try {
     for (const [a, b] of [[c, c + 8], [0, 2]]) {
       for (const h of pat.queryArc(a, b)) {
@@ -250,9 +252,15 @@ function dryRun(pat) {
         if (v && typeof v === 'object') {
           if (typeof v.note === 'number' && !Number.isFinite(v.note)) throw new Error(`invalid note value (NaN) in "${v.s ?? ''}" part`);
           if (typeof v.note === 'string' && /undefined|NaN/.test(v.note)) throw new Error(`invalid note "${v.note}"`);
+          // the exact sound the engine will look up — a drum name must exist in the chosen drum machine
+          if (reg && typeof v.s === 'string' && v.s) {
+            const key = (v.bank ? `${v.bank}_${v.s}` : v.s).toLowerCase();
+            if (!reg[key] && !missing.has(key)) missing.set(key, soundHint(reg, v.s, v.bank));
+          }
         }
       }
     }
+    if (missing.size) logged.push(`these sounds don't exist: ${[...missing.values()].join('; ')}`);
     if (logged.length) for (const m of logged) recentDryRunErrors.set(m, performance.now());
     return logged.length ? new Error([...new Set(logged)].join('; ')) : null;
   } catch (e) {
@@ -261,6 +269,18 @@ function dryRun(pat) {
     inDryRun = false;
     document.removeEventListener('strudel.log', onLog);
   }
+}
+
+/** Explain a missing sound: for a drum machine, list the drums it does have. */
+function soundHint(reg, s, bank) {
+  if (bank) {
+    const pre = String(bank).toLowerCase() + '_';
+    const drums = Object.keys(reg).filter((k) => k.startsWith(pre)).map((k) => k.slice(pre.length));
+    return drums.length
+      ? `"${s}" is not in the drum machine "${bank}" (it has: ${drums.slice(0, 24).join(' ')})`
+      : `the drum machine "${bank}" doesn't exist`;
+  }
+  return `"${s}"`;
 }
 
 /**
@@ -615,7 +635,7 @@ async function loadModels() {
   } catch (e) {
     sel.innerHTML = '';
     sel.add(new Option(pcfg.defaultModel || '(default)', pcfg.defaultModel || ''));
-    addMsg('error', `Model list unavailable: ${e.message}`);
+    addMsg('error', `Model list unavailable (⚙ Settings → AI): ${e.message}`);
   }
 }
 
@@ -663,6 +683,43 @@ function addMsg(role, html, { raw = false } = {}) {
 }
 const scrollChat = () => { const m = $('messages'); m.scrollTop = m.scrollHeight; };
 
+// ---------------------------------------------------------------------------
+// 🖥 Console: a running log of what happens behind the scenes — every AI request
+// (with its text streaming in), the checks and automatic fixes, retries and errors.
+// Intermediate problems go here; the chat only gets the final outcome.
+// ---------------------------------------------------------------------------
+const CONSOLE_MAX = 400;
+/** Add a console line. kind: ai | ok | fix | warn | error | info. Returns { set(text), done(text, kind) }. */
+function clog(kind, text) {
+  const log = $('consoleLog');
+  const row = document.createElement('div');
+  row.className = `con-row ${kind}`;
+  const time = document.createElement('span');
+  time.className = 'con-time';
+  time.textContent = new Date().toTimeString().slice(0, 8);
+  const body = document.createElement('span');
+  body.className = 'con-text';
+  body.textContent = text;
+  row.append(time, body);
+  const atBottom = log.scrollHeight - log.scrollTop - log.clientHeight < 40;
+  log.appendChild(row);
+  while (log.childElementCount > CONSOLE_MAX) log.firstElementChild.remove();
+  if (atBottom) log.scrollTop = log.scrollHeight;
+  let stream = null;
+  return {
+    stream(t) {
+      if (!$('consoleStream').checked) return;
+      if (!stream) { stream = document.createElement('pre'); stream.className = 'con-stream'; row.appendChild(stream); }
+      stream.textContent = t.length > 4000 ? '…' + t.slice(-4000) : t;
+      if (log.scrollHeight - log.scrollTop - log.clientHeight < 200) log.scrollTop = log.scrollHeight;
+    },
+    done(t, k) { if (t) body.textContent = t; if (k) row.className = `con-row ${k}`; },
+  };
+}
+$('consoleClear').onclick = () => { $('consoleLog').innerHTML = ''; };
+if (load().consoleStream !== undefined) $('consoleStream').checked = load().consoleStream;
+$('consoleStream').onchange = () => save({ consoleStream: $('consoleStream').checked });
+
 $('clearChat').onclick = () => {
   state.history = [];
   $('messages').querySelectorAll('.msg:not(.system)').forEach((n) => n.remove());
@@ -701,8 +758,24 @@ function syntaxError(code) {
  * Stream a completion. onUpdate({content, thinking}) is called as tokens arrive.
  * mode: 'code' (edit the given code) | 'setlist' (write a setlist)
  */
-async function requestLLM({ messages, code = '', mode = 'code', onUpdate, signal, edited = false }) {
+async function requestLLM({ messages, code = '', mode = 'code', onUpdate, signal, edited = false, label = '' }) {
   const sounds = await soundCatalog().catch(() => '');
+  const lastUser = String(messages[messages.length - 1]?.content || '').split('\n')[0].slice(0, 140);
+  const t0 = performance.now();
+  const entry = clog('ai', `→ AI · ${mode}${label ? ` · ${label}` : ''} · ${$('model').value || 'default model'}: ${lastUser}`);
+  const update = onUpdate;
+  onUpdate = (u) => { entry.stream((u.thinking ? `[thinking] ${u.thinking.slice(-600)}\n\n` : '') + u.content); update?.(u); };
+  try {
+    const text = await requestLLMRaw({ messages, code, mode, onUpdate, signal, edited, sounds });
+    entry.done(`✓ AI · ${mode}${label ? ` · ${label}` : ''}: ${text.length} chars in ${((performance.now() - t0) / 1000).toFixed(1)}s`, 'ok');
+    return text;
+  } catch (e) {
+    entry.done(`✗ AI · ${mode}${label ? ` · ${label}` : ''}: ${e.name === 'AbortError' ? 'stopped' : e.message}`, e.name === 'AbortError' ? 'info' : 'error');
+    throw e;
+  }
+}
+
+async function requestLLMRaw({ messages, code, mode, onUpdate, signal, edited, sounds }) {
   const res = await fetch('/api/chat', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -714,6 +787,7 @@ async function requestLLM({ messages, code = '', mode = 'code', onUpdate, signal
       mode,
       edited,
       sounds,
+      systemPrompt: promptOverride(mode),
       temperature: Number($('temp').value),
     }),
     signal,
@@ -1146,21 +1220,21 @@ function ensureSliders(code) {
 /** Validate + correct + preload. Reports to chat. Returns { code, error } */
 async function prepareCode(code, { quiet = false } = {}) {
   const sl = ensureSliders(code);
-  if ((sl.added || sl.fixed) && !quiet) {
-    addMsg('info', `🎚 ${[sl.added && `added ${sl.added} gain slider${sl.added > 1 ? 's' : ''}`, sl.fixed && `fixed ${sl.fixed} slider range${sl.fixed > 1 ? 's' : ''}`].filter(Boolean).join(', ')}`);
+  if (sl.added || sl.fixed) {
+    clog('fix', `🎚 ${[sl.added && `added ${sl.added} gain slider${sl.added > 1 ? 's' : ''}`, sl.fixed && `fixed ${sl.fixed} slider range${sl.fixed > 1 ? 's' : ''}`].filter(Boolean).join(', ')}`);
   }
   code = sl.code;
   const sc = await checkScales(code);
-  if (sc.corrections.length && !quiet) {
-    addMsg('info', '🔧 fixed scale names: ' + sc.corrections.map(([a, b]) => `${a} → ${b}`).join(', '));
+  if (sc.corrections.length) {
+    clog('fix', '🔧 fixed scale names: ' + sc.corrections.map(([a, b]) => `${a} → ${b}`).join(', '));
   }
   if (sc.unknown.length) {
     return { code: sc.code, error: `Unknown scale name(s): ${sc.unknown.join(', ')}. ${scaleHelp()}`, corrections: sc.corrections };
   }
   code = sc.code;
   const chk = await checkSounds(code);
-  if (chk.corrections.length && !quiet) {
-    addMsg('info', '🔧 fixed sound names: ' + chk.corrections.map(([a, b]) => `${a} → ${b}`).join(', '));
+  if (chk.corrections.length) {
+    clog('fix', '🔧 fixed sound names: ' + chk.corrections.map(([a, b]) => `${a} → ${b}`).join(', '));
   }
   const allCorrections = [...sc.corrections, ...chk.corrections];
   if (chk.unknown.length) return { code: chk.code, error: unknownMessage(chk.unknown), corrections: allCorrections };
@@ -1190,40 +1264,52 @@ document.addEventListener('strudel.log', (e) => {
   bar.textContent = '⚠ ' + msg;
   clearTimeout(bar._t);
   bar._t = setTimeout(() => { if (!lastReplState.error) bar.hidden = true; }, 6000);
-  if (live.evalAt && t - live.evalAt < 4000) return; // half-typed live edits: error bar only
-  addMsg('error', msg);
+  // the chat only hears about problems with code the app has finished checking; details go to the console
+  clog('error', `engine: ${msg}`);
 });
 
 // ---------------------------------------------------------------------------
 // Chat turn
 // ---------------------------------------------------------------------------
-async function runTurn(userText, attempt = 0) {
+/**
+ * One chat request. The first reply streams into a chat bubble; if its code needs
+ * fixing (no code, unknown names, errors when test-played), the retries run quietly
+ * — they stream into the 🖥 Console — and the bubble is updated with the final, working
+ * reply. Only when every attempt fails does an error reach the chat.
+ */
+async function runTurn(userText, attempt = 0, bubble = null) {
   state.history.push({ role: 'user', content: userText });
-  const bubble = addMsg('assistant', '', { raw: true });
-  const r = bubbleRenderer(bubble);
+  let r = null;
+  if (!bubble) {
+    bubble = addMsg('assistant', '', { raw: true });
+    r = bubbleRenderer(bubble);
+  } else {
+    setBubbleNote(bubble, `🔧 checking and fixing (attempt ${attempt + 1}/${MAX_FIX_ATTEMPTS + 1}) — see 🖥 Console`);
+  }
   const text = await requestLLM({
     messages: historyForModel(),
     code: getCode(),
     edited: state.lastAICode != null && normCode(getCode()) !== normCode(state.lastAICode),
-    onUpdate: r.update,
+    onUpdate: r?.update,
     signal: state.abort.signal,
+    label: attempt ? `fix ${attempt}` : 'chat',
   });
-  r.done();
+  r?.done();
   let code = extractCode(text);
+  const retry = (why, msg) => {
+    clog('warn', `✗ ${why} — asking the AI again (${attempt + 1}/${MAX_FIX_ATTEMPTS})`);
+    return runTurn(msg, attempt + 1, bubble);
+  };
+  const giveUp = (msg) => { setBubbleNote(bubble, ''); clog('error', msg); addMsg('error', msg); };
 
   if (!code) {
     state.history.pop(); // don't let the model imitate a code-less reply
     if (attempt < MAX_FIX_ATTEMPTS) {
-      addMsg('info', 'no code in reply — asking the model again…');
       const base = userText.replace(/\n\nIMPORTANT: your previous reply[\s\S]*$/, '');
-      return runTurn(
-        base + '\n\nIMPORTANT: your previous reply had no code. Answer with ONE short sentence, then the COMPLETE ' +
-          'updated program in a single ```javascript code block.',
-        attempt + 1,
-      );
+      return retry('no code in the reply', base + '\n\nIMPORTANT: your previous reply had no code. Answer with ONE short sentence, then the COMPLETE ' +
+        'updated program in a single ```javascript code block.');
     }
-    addMsg('error', 'The model did not return any code. Try rephrasing, clearing the chat, or a different model.');
-    return;
+    return giveUp('The model did not return any code. Try rephrasing, clearing the chat, or a different model.');
   }
   const prep = await prepareCode(code);
   code = prep.code;
@@ -1231,44 +1317,55 @@ async function runTurn(userText, attempt = 0) {
   for (const [a, b] of prep.corrections) reply = reply.split(a).join(b); // don't let the model learn wrong names
   state.history.push({ role: 'assistant', content: reply });
   state.lastAICode = code;
+  // show the corrected code, not the misspelled one
+  if (prep.corrections.length && attempt === 0) { const d = bubble.querySelector(':scope > .typing, :scope > div:not(.note):not(.actions)'); if (d) d.innerHTML = renderMarkdownLite(reply); }
 
   if (prep.error) {
-    addMsg('error', prep.error);
-    if (attempt < MAX_FIX_ATTEMPTS) {
-      addMsg('info', `asking the model to fix the names (attempt ${attempt + 1}/${MAX_FIX_ATTEMPTS})…`);
-      return runTurn(prep.error + ' Return the full corrected program.', attempt + 1);
-    }
-    return;
+    if (attempt < MAX_FIX_ATTEMPTS) return retry(prep.error, prep.error + ' Return the full corrected program.');
+    return giveUp(`Couldn't get working code: ${prep.error}`);
   }
 
-  const actions = document.createElement('div');
-  actions.className = 'actions';
-  const now = document.createElement('button');
-  now.textContent = '▶ Apply now';
-  now.onclick = () => evaluateCode(code);
-  const q = document.createElement('button');
-  q.textContent = '⏱ Apply on bar';
-  q.onclick = () => applyQuantized(code, 'chat change');
-  actions.append(now, q);
-  bubble.appendChild(actions);
+  const finish = () => {
+    // the bubble shows the reply that actually worked
+    if (attempt > 0) { bubble.innerHTML = ''; const d = document.createElement('div'); d.innerHTML = renderMarkdownLite(reply); bubble.appendChild(d); }
+    setBubbleNote(bubble, attempt > 0 ? `🔧 fixed automatically (${attempt} retr${attempt > 1 ? 'ies' : 'y'})` : '');
+    const actions = document.createElement('div');
+    actions.className = 'actions';
+    const now = document.createElement('button');
+    now.textContent = '▶ Apply now';
+    now.onclick = () => evaluateCode(code);
+    const q = document.createElement('button');
+    q.textContent = '⏱ Apply on bar';
+    q.onclick = () => applyQuantized(code, 'chat change');
+    actions.append(now, q);
+    bubble.appendChild(actions);
+  };
 
-  if (!$('autoApply').checked) return;
+  if (!$('autoApply').checked) { finish(); return; }
 
   const err = await applyQuantized(code, 'chat change');
   if (!err) {
+    finish();
+    clog('ok', state.pending ? `✓ chat change armed for bar ${state.pending.at + 1}` : '✓ chat change applied');
     addMsg('info', state.pending ? `✓ armed — switching at bar ${state.pending.at + 1}` : '✓ applied & playing');
     return;
   }
-  addMsg('error', `Eval error: ${err.message}`);
   if ($('autoFix').checked && attempt < MAX_FIX_ATTEMPTS) {
-    addMsg('info', `auto-fixing (attempt ${attempt + 1}/${MAX_FIX_ATTEMPTS})…`);
-    await runTurn(
+    return retry(`error when test-played: ${err.message}`,
       `The code you returned threw this error when it played:\n${err.message}\n` +
         (/scale/i.test(err.message) ? scaleHelp() + '\n' : '') +
-        'Fix it and return the full corrected program. Only use functions from the reference.',
-      attempt + 1,
-    );
+        'Fix it and return the full corrected program. Only use functions from the reference.');
   }
+  finish();
+  giveUp(`Not applied (the old music keeps playing): ${err.message}`);
+}
+
+/** A small status line under a chat reply. */
+function setBubbleNote(bubble, text) {
+  let n = bubble.querySelector(':scope > .note');
+  if (!text) { n?.remove(); return; }
+  if (!n) { n = document.createElement('div'); n.className = 'note'; bubble.appendChild(n); }
+  n.textContent = text;
 }
 
 function setBusy(b) {
@@ -1557,7 +1654,7 @@ async function tickSetlist() {
     const idx = setlist.playIndex;
     step.fixAttempts = (step.fixAttempts || 0) + 1;
     if (step.fixAttempts <= MAX_FIX_ATTEMPTS) {
-      addMsg('info', `Block ${idx + 1} failed (${err.message}) — regenerating, will switch in when fixed`);
+      clog('warn', `Block ${idx + 1} failed when test-played (${err.message}) — regenerating; the music keeps playing meanwhile`);
       step.status = 'waiting';
       step.code = null;
       step.fixHint = err.message;
@@ -1569,7 +1666,7 @@ async function tickSetlist() {
     }
     step.status = 'failed';
     step.error = err.message;
-    addMsg('error', `Block ${idx + 1} failed: ${err.message} — skipped`);
+    clog('error', `Block ${idx + 1} still fails (${err.message}) — skipped`);
   } else {
     step.startedAt = at; // stays 'armed' until the switch happens
   }
@@ -2304,15 +2401,35 @@ function parseSongs(text) {
 // the chosen form's bar counts are enforced on the sheet that comes back.
 // ---------------------------------------------------------------------------
 const DEFAULT_FORMS = [
-  { name: 'pop', use: 'pop, synthwave, funk, disco, house, indie dance', sections: 'intro 4, verse 8, pre-chorus 4, chorus 8, verse 8, pre-chorus 4, chorus 8, bridge 8, chorus 8, outro 4' },
-  { name: 'edm', use: 'EDM, techno, trance, big room, future bass, dubstep', sections: 'intro 8, build 8, drop 8, breakdown 8, build 4, drop 8, outro 4' },
+  { name: 'pop', use: 'pop, synthwave, funk, disco, indie dance', sections: 'intro 4, verse 8, pre-chorus 4, chorus 8, verse 8, pre-chorus 4, chorus 8, bridge 8, chorus 8, outro 4' },
+  { name: 'verse-chorus', use: 'short pop songs, city pop, synth pop, rock', sections: 'intro 4, verse 8, chorus 8, verse 8, chorus 8, outro 4' },
+  { name: 'edm', use: 'EDM, big room, future bass, dubstep, electro', sections: 'intro 8, build 8, drop 8, breakdown 8, build 4, drop 8, outro 4' },
+  { name: 'house', use: 'house, deep house, tech house, afro house, nu-disco', sections: 'intro 8, groove 8, build 4, drop 8, break 8, build 4, drop 8, outro 8' },
+  { name: 'techno', use: 'techno, minimal, industrial, acid', sections: 'intro 8, groove 8, build 8, peak 8, break 8, peak 8, outro 8' },
+  { name: 'trance', use: 'trance, progressive, psytrance, uplifting', sections: 'intro 8, build 8, breakdown 8, build 4, drop 8, breakdown 4, drop 8, outro 8' },
   { name: 'drum & bass', use: 'drum & bass, jungle, breakbeat, liquid', sections: 'intro 8, build 4, drop 8, breakdown 8, build 4, drop 8, outro 4' },
   { name: 'hip hop', use: 'hip hop, trap, boom bap, r&b', sections: 'intro 4, verse 8, hook 8, verse 8, hook 8, bridge 4, hook 8, outro 4' },
   { name: 'lo-fi', use: 'lo-fi, chillhop, jazz-hop, downtempo, chill', sections: 'intro 4, A 8, A 8, B 8, A 8, outro 4' },
+  { name: 'jazz AABA', use: 'jazz, neo-soul, bossa nova, swing, lounge', sections: 'intro 4, A 8, A 8, B 8, A 8, solo 8, A 8, outro 4' },
+  { name: 'dub', use: 'dub, reggae, dub techno, ska', sections: 'intro 8, riddim 8, dub 8, riddim 8, dub 8, outro 8' },
+  { name: 'chiptune', use: 'chiptune, video game, 8-bit, arcade', sections: 'intro 4, A 8, B 8, A 8, C 8, A 8, outro 4' },
+  { name: 'build & release', use: 'post-rock, cinematic builds, epic, anthems', sections: 'intro 4, build 8, build 8, peak 8, release 8, outro 4' },
   { name: 'ambient', use: 'ambient, drone, cinematic, meditation, soundscape', sections: 'intro 8, A 8, B 8, A 8, outro 8' },
   { name: 'short', use: 'quick sketches, jingles, short pieces', sections: 'intro 4, A 8, B 8, A 8, outro 4' },
 ];
-let songForms = load().songForms || DEFAULT_FORMS.map((f) => ({ ...f }));
+// built-ins before v1.19 — anything else new is added for people who already have their own list
+const OLD_DEFAULT_FORMS = ['pop', 'edm', 'drum & bass', 'hip hop', 'lo-fi', 'ambient', 'short'];
+/** Add built-in items the user hasn't seen yet (deleted built-ins stay deleted). */
+function addNewDefaults(list, defaults, kind, oldNames) {
+  const st = load();
+  save({ defaultsSeen: { ...(st.defaultsSeen || {}), [kind]: defaults.map((d) => d.name) } });
+  if (!list) return defaults.map((d) => ({ ...d }));
+  const seen = new Set(st.defaultsSeen?.[kind] || oldNames);
+  const out = [...list];
+  for (const d of defaults) if (!seen.has(d.name) && !out.some((x) => x.name === d.name)) out.push({ ...d });
+  return out;
+}
+let songForms = addNewDefaults(load().songForms, DEFAULT_FORMS, 'forms', OLD_DEFAULT_FORMS);
 let formIdx = 0;
 
 /** "intro 4, verse 8 …" → [{ name, bars }] */
@@ -2586,10 +2703,14 @@ async function writeSongSheet(song, signal) {
   let lastErr;
   for (let attempt = 0; attempt < 3; attempt++) {
     song.phase = 'writing the song sheet';
-    const text = await requestLLM({ mode: 'sheet', messages: [{ role: 'user', content: msg }], signal });
-    try { return normalizeSheet(parseJSONLoose(text), choice); }
-    catch (e) {
+    const text = await requestLLM({ mode: 'sheet', messages: [{ role: 'user', content: msg }], signal, label: `“${song.title}” sheet` });
+    try {
+      const sh = normalizeSheet(parseJSONLoose(text), choice);
+      clog('ok', `✓ “${song.title}” sheet: ${sh.form || 'form ?'} · ${sh.bpm} bpm · ${sh.key} · ${sh.sections.length} sections · parts ${sh.parts.map((p) => p.id).join(', ')}`);
+      return sh;
+    } catch (e) {
       lastErr = e;
+      clog('warn', `✗ “${song.title}” sheet unusable: ${e.message}`);
       msg = msg.replace(/\n\nYOUR PREVIOUS REPLY[\s\S]*$/, '') +
         `\n\nYOUR PREVIOUS REPLY could not be used (${e.message}). Reply with ONLY the JSON object, exactly in the example's format.`;
     }
@@ -2621,7 +2742,7 @@ async function writeSongLibrary(song, signal, { fix = null, prev = null } = {}) 
   let lastErr;
   for (let attempt = 0; attempt < 3; attempt++) {
     song.phase = fix ? 'fixing the parts' : 'writing the parts';
-    const text = await requestLLM({ mode: 'library', messages: [{ role: 'user', content }], signal });
+    const text = await requestLLM({ mode: 'library', messages: [{ role: 'user', content }], signal, label: `“${song.title}” parts${fix ? ' fix' : ''}` });
     let lib = extractCode(text);
     let err = null;
     if (!lib) err = 'no ```javascript code block in the reply';
@@ -2638,8 +2759,9 @@ async function writeSongLibrary(song, signal, { fix = null, prev = null } = {}) 
         err = prep.error || testLibrary(lib, sh)?.message || null;
       }
     }
-    if (!err) return lib;
+    if (!err) { clog('ok', `✓ “${song.title}” parts checked and test-played`); return lib; }
     lastErr = err;
+    clog('warn', `✗ “${song.title}” parts: ${err}`);
     content = `${base}\n\nYOUR PREVIOUS LIBRARY:\n\`\`\`javascript\n${lib || ''}\n\`\`\`\nIt can't be used: ${err}${/scale/i.test(err) ? '\n' + scaleHelp() : ''}\nReturn the corrected COMPLETE library.`;
   }
   throw new Error(`no usable part library (${lastErr})`);
@@ -2690,7 +2812,7 @@ function arrangeSong(song) {
 /** A section failed when it was about to play: fix the library and re-arrange the song's unplayed sections. */
 function repairSong(song, err) {
   song.repairing ||= (async () => {
-    addMsg('info', `🔧 “${song.title}”: a section failed (${err}) — fixing the parts…`);
+    clog('warn', `🔧 “${song.title}”: a section failed when test-played (${err}) — fixing the parts…`);
     song.library = await writeSongLibrary(song, setl.abort?.signal, { fix: err, prev: song.library });
     for (const st of song.blocks || []) {
       if (['playing', 'done', 'armed'].includes(st.status)) continue;
@@ -2738,7 +2860,7 @@ async function sheetSteps(song) {
     if (e.name === 'AbortError') throw e;
     song.sheet = song.sheet || null;
     song.library = null;
-    addMsg('info', `“${song.title}”: ${e.message} — writing it block by block instead`);
+    clog('warn', `“${song.title}”: ${e.message} — writing it block by block instead`);
     return null;
   }
 }
@@ -2827,9 +2949,9 @@ async function feedLoop() {
       if (e.name === 'AbortError' || !setl.running) return;
       const sg = setl.songs[setl.nextSong - 1];
       if (sg && sg.status === 'writing') { sg.status = 'failed'; sg.error = e.message; }
-      addMsg('error', `${setl.mode === 'station' ? 'Station' : 'Set list'}: ${e.message}`);
+      clog('error', `${setl.mode === 'station' ? 'Station' : 'Set list'}: ${e.message} (try ${failures + 1}/5)`);
       failures++;
-      if (failures >= 5) { addMsg('error', 'Too many failures in a row — stopping.'); stopSet(); return; }
+      if (failures >= 5) { addMsg('error', `${setl.mode === 'station' ? 'Station' : 'Set list'} stopped: the AI failed 5 times in a row (last: ${e.message}). Details in 🖥 Console.`); stopSet(); return; }
       await sleep(3000 * failures);
     }
     await sleep(400);
@@ -3132,8 +3254,18 @@ const DEFAULT_STATIONS = [
   { name: 'Late Night Lo-fi', theme: 'late-night lo-fi hip hop with jazzy Rhodes chords, dusty drums and soft bass, 70–90 bpm, rainy city mood' },
   { name: 'Neon Highway', theme: 'synthwave and outrun: driving basslines, gated pads, arpeggios, 95–118 bpm, minor keys, nostalgic 80s night drive' },
   { name: 'Deep Focus', theme: 'minimal ambient techno for concentration: steady soft kick, evolving pads, subtle percussion, 110–122 bpm, no harsh sounds' },
+  { name: 'Sunrise House', theme: 'warm deep house at sunrise: soulful chords, rolling basslines, shuffled hats, 118–124 bpm, uplifting major and dorian keys' },
+  { name: 'Warehouse Techno', theme: 'dark driving techno: pounding kick, rumbling sub, hypnotic synth loops, acid lines, 128–136 bpm, minor keys, little melody' },
+  { name: 'Liquid Drum & Bass', theme: 'liquid drum & bass: fast breakbeats, deep reese and sub bass, lush pads and soft keys, 170–174 bpm, emotional minor-key chords' },
+  { name: 'Ambient Drift', theme: 'slow ambient soundscapes: long evolving pads, soft bells and drones, gentle textures, almost no drums, 60–80 bpm' },
+  { name: 'Boom Bap Café', theme: 'jazzy boom bap instrumentals: swung drums, upright-style bass, vibraphone and piano samples feel, 84–94 bpm' },
+  { name: 'Trance Horizons', theme: 'uplifting trance: rolling offbeat bass, supersaw leads, big breakdowns and builds, 136–140 bpm, euphoric minor keys' },
+  { name: 'Arcade Chiptune', theme: 'retro video-game chiptune: square and triangle leads, fast arpeggios, punchy 8-bit drums, 120–150 bpm, catchy hooks' },
+  { name: 'Space Disco', theme: 'cosmic nu-disco: four-on-the-floor, octave basslines, funky guitars and strings, sparkling synths, 110–122 bpm' },
+  { name: 'Dub Station', theme: 'deep dub and dub techno: skanking chords with long echoes, heavy sub bass, one-drop and steppers rhythms, 70–85 bpm (or 120 dub techno)' },
 ];
-let stations = load().stations || DEFAULT_STATIONS;
+let stations = addNewDefaults(load().stations, DEFAULT_STATIONS, 'stations', ['Late Night Lo-fi', 'Neon Highway', 'Deep Focus']);
+save({ stations });
 let stationIdx = Math.min(load().stationIdx ?? 0, stations.length - 1);
 const currentStation = () => ({ name: stations[stationIdx]?.name || '', theme: stations[stationIdx]?.theme || '' });
 function renderStations() {
@@ -3638,6 +3770,7 @@ function openSettings(sec = 'setGeneral') {
   for (const el of document.querySelectorAll('.settings-sec')) el.hidden = el.id !== sec;
   if (sec === 'setForms') renderFormsEditor();
   if (sec === 'setStations') renderStations();
+  if (sec === 'setPrompts') renderPromptEditor();
   $('settingsMsg').textContent = '';
   if (!$('settingsDlg').open) $('settingsDlg').showModal();
 }
@@ -3676,6 +3809,54 @@ $('settingsReset').onclick = () => {
   location.reload();
 };
 
+// --- 📝 Prompts: the built-in system prompts, and the user's own versions (sent with each request)
+let builtinPrompts = null;
+const loadBuiltinPrompts = async () => (builtinPrompts ||= await fetch('/api/prompts').then((r) => r.json()).catch(() => ({})));
+/** The user's version of the system prompt for this kind of request, or null for the built-in one. */
+function promptOverride(mode) {
+  const own = load().prompts?.[mode];
+  return typeof own === 'string' && own.trim() ? own : null;
+}
+async function renderPromptEditor() {
+  const mode = $('promptSelect').value;
+  const builtin = (await loadBuiltinPrompts())[mode] ?? '';
+  const own = promptOverride(mode);
+  $('promptText').value = own ?? builtin;
+  $('promptState').textContent = own ? '✎ your version (used instead of the built-in one)' : 'built-in';
+  $('promptReset').hidden = !own;
+}
+$('promptSelect').onchange = renderPromptEditor;
+$('promptText').oninput = async () => {
+  const mode = $('promptSelect').value;
+  const builtin = (await loadBuiltinPrompts())[mode] ?? '';
+  const prompts = { ...(load().prompts || {}) };
+  const v = $('promptText').value;
+  if (!v.trim() || v === builtin) delete prompts[mode]; else prompts[mode] = v;
+  save({ prompts });
+  $('promptState').textContent = prompts[mode] ? '✎ your version (used instead of the built-in one)' : 'built-in';
+  $('promptReset').hidden = !prompts[mode];
+};
+$('promptReset').onclick = () => {
+  const prompts = { ...(load().prompts || {}) };
+  delete prompts[$('promptSelect').value];
+  save({ prompts });
+  renderPromptEditor();
+};
+
+// --- the AI settings summary under the chat
+function renderAISummary() {
+  const model = $('model').selectedOptions[0]?.textContent || 'default model';
+  const own = Object.keys(load().prompts || {}).length;
+  $('aiSummary').textContent = `🤖 ${model} · temp ${$('temp').value}${$('autoApply').checked ? '' : ' · manual apply'}${own ? ` · ${own} custom prompt${own > 1 ? 's' : ''}` : ''}`;
+}
+for (const id of ['model', 'provider', 'temp', 'autoApply']) $(id).addEventListener('change', renderAISummary);
+$('temp').addEventListener('input', renderAISummary);
+$('aiSummary').onclick = () => openSettings('setAI');
+setInterval(renderAISummary, 2000);
+renderAISummary();
+
+setupDock('console');
+
 // ---------------------------------------------------------------------------
 // Status bar (bottom): bar.beat + tempo, the song / section playing, the pending
 // change, the recording, replay and update notices.
@@ -3711,12 +3892,35 @@ function keysSounds() {
 function renderKeysSounds() {
   const list = keysSounds();
   const sel = $('keysSound');
-  if (sel.options.length === list.length) return;
+  if (sel.options.length === list.length + 1) return;
   const want = sel.value || load().keysSound || (list.includes('piano') ? 'piano' : 'triangle');
-  sel.innerHTML = list.map((k) => `<option>${esc(k)}</option>`).join('') || '<option>triangle</option>';
-  sel.value = list.includes(want) ? want : sel.options[0].value;
+  sel.innerHTML = '<option value="__custom">✎ custom Strudel line…</option>' + (list.map((k) => `<option>${esc(k)}</option>`).join('') || '<option>triangle</option>');
+  sel.value = want === '__custom' || list.includes(want) ? want : sel.options[1].value;
+  showKeysTemplate();
 }
-$('keysSound').onchange = () => save({ keysSound: $('keysSound').value });
+function showKeysTemplate() {
+  const custom = $('keysSound').value === '__custom';
+  $('keysTemplate').hidden = !custom;
+  if (custom && !$('keysTemplate').value) $('keysTemplate').value = load().keysTemplate || 'note({note}).s("sawtooth").lpf(1600).decay(0.25).sustain(0.3).room(0.2)';
+}
+$('keysSound').onchange = () => { save({ keysSound: $('keysSound').value }); showKeysTemplate(); keysCompiled = null; };
+$('keysTemplate').oninput = () => { save({ keysTemplate: $('keysTemplate').value }); keysCompiled = null; };
+
+/** The sound as a Strudel line with a {note} placeholder: the chosen instrument, or the user's own line. */
+const keysTemplate = () => ($('keysSound').value === '__custom' ? $('keysTemplate').value.trim() : `note({note}).s("${$('keysSound').value || 'triangle'}")`) || 'note({note})';
+let keysCompiled = null; // { tpl, fn }
+/** Compile the template once into (note) → Pattern, the same way the editor reads code ("…" = mini-notation). */
+function keysPattern(noteName) {
+  const tpl = keysTemplate();
+  if (keysCompiled?.tpl !== tpl) {
+    if (!tpl.includes('{note}')) throw new Error('the line needs {note} where the played note goes');
+    const body = miniStrings(tpl.replace(/\{note\}/g, '__note')).replace(/\bslider\(/g, '__slider(');
+    keysCompiled = { tpl, fn: new Function('__slider', '__note', `"use strict"; return (${body});`) };
+  }
+  const pat = keysCompiled.fn((v) => v, globalThis.mini ? globalThis.mini(noteName) : noteName);
+  if (!pat?.queryArc) throw new Error('the line is not a Strudel pattern');
+  return pat;
+}
 
 function renderKeyboard() {
   const lo = keysState.oct * 12 + 12; // c<oct>
@@ -3739,13 +3943,40 @@ function keysCycle() {
   const c = audibleCycle(0);
   return c ?? (performance.now() - (keysState.rec?.t0 ?? performance.now())) / 1000 * cps();
 }
+/**
+ * Strudel starts its audio engine on the first mouse-down; the keys use pointer events
+ * (and the computer / MIDI keyboard send none), so start it ourselves before the first note.
+ */
+function ensureAudio() {
+  keysState.audio ||= (async () => {
+    try { await globalThis.initAudio?.(); } catch {}
+    const ctx = audioCtx();
+    if (ctx.state !== 'running') await ctx.resume().catch(() => {});
+  })();
+  return keysState.audio;
+}
 async function keysPlay(midi, vel = 0.8) {
   try {
+    await ensureAudio();
     const ctx = audioCtx();
     if (ctx.state !== 'running') await ctx.resume();
-    const s = $('keysSound').value || 'triangle';
-    globalThis.superdough?.({ s, note: midi, velocity: vel, gain: 0.8 }, ctx.currentTime + 0.005, 0.6);
-  } catch (e) { console.warn('[strudel-ai] keys:', e); }
+    const c = cps() || 0.5;
+    const pat = keysPattern(midiToName(midi));
+    const haps = pat.queryArc(0, 1).filter((h) => h.whole && (!h.hasOnset || h.hasOnset())).slice(0, 16);
+    const t0 = ctx.currentTime + 0.03; // a little ahead: the engine drops notes "in the past"
+    const len = Number($('keysLen').value) / c; // live notes: the chosen length (you can't know the release yet)
+    for (const h of haps) {
+      const b = h.whole.begin.valueOf(), e = h.whole.end.valueOf();
+      const single = haps.length === 1 && b === 0 && e === 1;
+      const v = { ...h.value, velocity: (h.value.velocity ?? 1) * vel };
+      globalThis.superdough?.(v, t0 + b / c, single ? len : (e - b) / c, c);
+    }
+    $('keysInfo').classList.remove('bad');
+  } catch (e) {
+    $('keysInfo').textContent = `⚠ ${e.message}`;
+    $('keysInfo').classList.add('bad');
+    clog('error', `keys: ${e.message}`);
+  }
 }
 function noteOn(midi, vel = 0.8, src = 'ui') {
   if (keysState.held.has(midi)) return;
@@ -3831,6 +4062,7 @@ async function connectMidi() {
 }
 
 function renderKeysInfo() {
+  if ($('keysInfo').classList.contains('bad') && !keysState.rec) return; // keep the error visible until a note plays
   const r = keysState.rec;
   const midi = keysState.midiInputs.length ? `MIDI: ${keysState.midiInputs.map((i) => i.name).join(', ')}` : 'keys: A W S E D F … (Z / X octave)';
   $('keysInfo').textContent = r ? `⏺ recording · ${r.notes.length} note${r.notes.length === 1 ? '' : 's'}` : midi;
@@ -3864,9 +4096,11 @@ function keysRecToggle() {
   }
   // a bar plays at cycle c via "<…>" index c mod n: rotate so the recorded bars land where you played them
   const ordered = Array.from({ length: nBars }, (_, k) => bars[((k - startBar) % nBars + nBars) % nBars]);
-  keysState.result = { mini: polyBarsToMini(ordered, grid), bars: nBars, sound: $('keysSound').value };
-  $('keysMini').textContent = `note("${keysState.result.mini}").s("${keysState.result.sound}")`;
+  const mini = polyBarsToMini(ordered, grid);
+  keysState.result = { mini, bars: nBars, line: keysTemplate().replace(/\{note\}/g, JSON.stringify(mini)) };
+  $('keysMini').textContent = keysState.result.line;
   $('keysResult').hidden = false;
+  if ($('keysAuto').checked) $('keysInsert').onclick();
 }
 $('keysRec').onclick = keysRecToggle;
 $('keysDiscard').onclick = () => { keysState.result = null; $('keysResult').hidden = true; };
@@ -3876,10 +4110,13 @@ $('keysInsert').onclick = () => {
   const existing = new Set(patternLines(getCode()).map((p) => p.base));
   let name = 'keys';
   for (let i = 2; existing.has(name); i++) name = `keys${i}`;
-  const code = getCode().trimEnd() + `\n${name}: note("${r.mini}").s("${r.sound}")\n  .room(slider(0.2, 0, 1))\n  .gain(slider(0.8, 0, 1.2))\n`;
+  const fader = /\.gain\(/.test(r.line) ? '.postgain(slider(1, 0, 1.5))' : '.gain(slider(0.8, 0, 1.2))';
+  const code = getCode().trimEnd() + `\n${name}: ${r.line}\n  ${fader}\n`;
+  keysState.result = null;
+  $('keysResult').hidden = true;
   applyQuantized(code, 'recorded keys').then((err) => {
-    if (err) addMsg('error', `Couldn't insert the recording: ${err.message}`);
-    else { addMsg('info', state.pending ? `🎹 recording armed — starts at bar ${state.pending.at + 1}` : '🎹 recording inserted'); $('keysResult').hidden = true; }
+    if (err) { addMsg('error', `Couldn't add the recording: ${err.message}`); clog('error', `keys: ${err.message}`); }
+    else clog('ok', state.pending ? `🎹 ${name} armed — starts at bar ${state.pending.at + 1}` : `🎹 ${name} added`);
   });
 };
 $('keysAI').onclick = async () => {
@@ -3888,7 +4125,7 @@ $('keysAI').onclick = async () => {
   const typed = $('input').value.trim();
   $('input').value = '';
   const instruction = typed || 'Add this recorded part to the music as a new part with a fitting sound and effects.';
-  const msg = `${instruction}\n\nRECORDED PART (${r.bars} bar${r.bars > 1 ? 's' : ''}, one bar per cycle, played on "${r.sound}"):\nnote("${r.mini}")\n` +
+  const msg = `${instruction}\n\nRECORDED PART (${r.bars} bar${r.bars > 1 ? 's' : ''}, one bar per cycle, played as: ${r.line}):\nnote("${r.mini}")\n` +
     'Use this note pattern EXACTLY as written (same notes, chords and rhythm). You may choose the sound, octave (.transpose), effects and gain.';
   document.querySelector('.tabs button[data-tab="chatTab"]')?.click();
   addMsg('user', `🎹 ${instruction}\nnote("${r.mini}")`);
@@ -3901,6 +4138,10 @@ $('keysAI').onclick = async () => {
 if (load().keysGrid) $('keysGrid').value = load().keysGrid;
 $('keysGrid').onchange = () => save({ keysGrid: $('keysGrid').value });
 renderKeyboard();
+if (load().keysLen) $('keysLen').value = load().keysLen;
+$('keysLen').onchange = () => save({ keysLen: $('keysLen').value });
+if (load().keysAuto !== undefined) $('keysAuto').checked = load().keysAuto;
+$('keysAuto').onchange = () => save({ keysAuto: $('keysAuto').checked });
 setupDock('keys', { onShow: () => { renderKeysSounds(); renderKeysInfo(); connectMidi(); } });
 setInterval(() => { if (docks.keys?.on) renderKeysSounds(); }, 2000);
 

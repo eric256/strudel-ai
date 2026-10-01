@@ -437,3 +437,33 @@ dialog.settings { width: min(620px, calc(100vw - 32px)); }
 .set-row { flex-wrap: nowrap; }
 .set-row > label { flex: 0 0 170px; }
 .set-row > .muted { flex: 1; }
+
+/* header without the AI selects: push share / settings / about to the right */
+header .share-wrap { margin-left: auto; }
+
+/* console */
+.console-log { flex: 1; min-height: 0; overflow-y: auto; padding: 4px 10px 8px; font: 12px/1.45 var(--mono); background: #0b0c10; }
+.con-row { display: flex; flex-wrap: wrap; gap: 0 8px; padding: 1px 0; border-bottom: 1px solid #14161c; }
+.con-time { color: #4a5063; }
+.con-text { flex: 1; min-width: 0; white-space: pre-wrap; word-break: break-word; }
+.con-row.ai .con-text { color: #a99bff; }
+.con-row.ok .con-text { color: var(--accent-2); }
+.con-row.fix .con-text { color: #9fe8d4; }
+.con-row.warn .con-text { color: #ffd166; }
+.con-row.error .con-text { color: var(--danger); }
+.con-row.info .con-text { color: var(--muted); }
+.con-stream { width: 100%; margin: 2px 0 4px 64px; max-height: 180px; overflow: auto; white-space: pre-wrap; color: #8b90a0; font-size: 11px; border-left: 2px solid #2a2e3a; padding-left: 8px; }
+
+/* chat: quiet fix notes, AI summary */
+.msg .note { margin-top: 6px; font: 11px var(--mono); color: #9fe8d4; }
+#aiSummary { cursor: pointer; font-family: var(--mono); }
+.options .spacer { flex: 1; }
+
+/* settings: AI + prompts */
+.temp-range { width: 180px; accent-color: var(--accent); }
+#promptText { width: 100%; font: 12px/1.45 var(--mono); padding: 8px; resize: vertical; min-height: 240px; }
+.settings .set-row select { max-width: 320px; }
+
+/* keys: template line */
+.keys-template { flex: 1 1 260px; min-width: 200px; font: 12px var(--mono); padding: 3px 6px; }
+#keysInfo.bad { color: var(--danger); }

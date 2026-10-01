@@ -2,6 +2,23 @@
 
 The version is in `package.json`. Bump it when you release. Open pages also notice *any* redeploy through the build id, which is a hash of the app files, even if the version wasn't bumped.
 
+## 1.19.0
+- **⚙ Settings → 🤖 AI:** provider, model, **temperature** (how wild the AI gets), auto-apply and auto-fix moved out of the header and the chat. **switch on** (the bar timing) moved to Settings → General. The header is now just transport, volume and tools.
+- **⚙ Settings → 📝 Prompts:** read and edit the system prompts for chat, song sheets, song parts, songs and blocks. Your versions are saved in the browser and sent instead of the built-in ones (new `/api/prompts` endpoint, and `/api/chat` accepts a prompt override).
+- **🖥 Console:** a dockable log of AI requests (with live text), checks, automatic fixes, retries, repairs and engine errors.
+  - Intermediate problems now stay out of the chat. A reply that needed fixing shows the code that finally worked, with a "🔧 fixed automatically" note.
+  - The chat gets an error only when every attempt has failed.
+- **Fewer "instrument doesn't exist" errors:** the silent test run now checks every note's actual sound, including the drum-machine bank. Before, a drum that exists in general but not in the chosen machine slipped through, e.g. `s("oh").bank("RolandTR808")`. The error lists the drums the machine has, so the AI fixes it before anything plays.
+- **🎹 Keys fixed and extended:**
+  - The keys now start the audio engine themselves. Before, they could stay silent, because Strudel only starts audio on a mouse-down and the keys use pointer, keyboard and MIDI events. Notes are also scheduled a little further ahead so they aren't dropped.
+  - Choose an instrument, or write a **custom Strudel line** with `{note}`, e.g. `note({note}).s("sawtooth").lpf(1200)`. It's used live and for recordings.
+  - New **len** sets the live note length.
+  - New **auto-add** adds each recording as a part right away, for layering while you play along.
+- **More built-ins:**
+  - 15 song forms, with new verse-chorus, house, techno, trance, jazz AABA, dub, chiptune and build & release.
+  - 12 stations, with new Sunrise House, Warehouse Techno, Liquid Drum & Bass, Ambient Drift, Boom Bap Café, Trance Horizons, Arcade Chiptune, Space Disco and Dub Station.
+  - New built-ins are added to existing lists. Ones you deleted stay deleted.
+
 ## 1.18.0
 - **⚙ Settings:** ⚡ live edit, fade and ⌨ autocomplete now live in one dialog. The song forms editor and the station definitions moved there too, from the Station tab and the forms dialog.
   - **💾 Backup** exports or imports everything saved in the browser, or resets it.

@@ -13,7 +13,7 @@ Works with:
 - **llama.cpp** (`llama-server`, OpenAI-compatible `/v1/chat/completions`)
 - **OpenWebUI** (`/api/chat/completions` with an API key — so you can use any model OpenWebUI fronts: Ollama, llama.cpp, OpenAI, etc.)
 
-Switch between them (and pick a model) from the dropdowns in the header.
+Switch between them, pick a model and set the temperature in **⚙ Settings → AI**.
 
 ## Quick start
 
@@ -65,7 +65,7 @@ Browser ── Strudel REPL (web component, WebAudio) ◄── setCode() + eval
 
 ## Timing changes to the bar
 
-**switch on** (in the header) sets when AI changes take effect: immediately, or on the next 1 / 2 / 4 / 8 / 16-bar boundary (1 bar = 1 Strudel cycle, which is one 4/4 bar with `setcpm(bpm/4)`).
+**switch on** (⚙ Settings → General) sets when AI changes take effect: immediately, or on the next 1 / 2 / 4 / 8 / 16-bar boundary (1 bar = 1 Strudel cycle, which is one 4/4 bar with `setcpm(bpm/4)`).
 
 - The new code is evaluated straight away, so errors show up at once. The scheduler then gets a *spliced* pattern: notes before the boundary come from the old code, and notes from the boundary on come from the new code. The switch lands exactly on the downbeat, and no notes are cut or doubled.
 - Tempo changes (`setcpm`) in the new code are held back until the boundary too.
@@ -182,7 +182,16 @@ Rain on Glass | lo-fi hip hop, 80 bpm, jazzy Rhodes chords, vinyl crackle; laid 
 ## ⚙ Settings
 
 **⚙** in the header opens the settings:
-- **General:** ⚡ live edit, fade and ⌨ autocomplete.
+- **General:** switch on (bar timing), ⚡ live edit, fade and ⌨ autocomplete.
+- **🤖 AI:**
+  - provider and model;
+  - **temperature**: how wild the AI gets, from 0 (predictable) to 1.5 (adventurous, more mistakes);
+  - auto-apply and auto-fix.
+
+  The line under the chat shows the current model and temperature. Click it to jump here.
+- **📝 Prompts:** read the built-in system prompts the AI gets for each job: chat edits, song sheets, song parts, inventing songs, and fallback blocks.
+  - Edit any of them. Your version is saved in the browser and sent instead of the built-in one; the list of loaded sounds is still appended.
+  - **reset to built-in** undoes your changes.
 - **🎼 Song forms:** edit, add and delete forms (see *Song forms* above).
 - **📻 Stations:** each station's name and theme. The Station tab just picks one and plays it.
 - **💾 Backup:** export everything this browser has saved to a file, import such a file, or reset.
@@ -193,19 +202,27 @@ Each address keeps its own storage, so `https://192.168.1.50` and `https://myhos
 
 ## 🎹 Keys (keyboard)
 
-**🎹 Keys** opens a dockable keyboard, two octaves plus one key, that plays a sound live through Strudel's audio engine.
+**🎹 Keys** opens a dockable keyboard, two octaves plus one key, that plays a sound live through Strudel's audio engine. Play along with the music and add your own parts.
+
+**The sound** is either an instrument from the list (piano, synths, soundfonts) or **✎ custom Strudel line**, a line of Strudel with `{note}` where the note goes:
+- `note({note}).s("sawtooth").lpf(1200).decay(0.2)`: a plucky saw.
+- `note({note}).add(note("0,7")).s("square")`: plays a fifth on every key.
+- `note({note}).s("gm_epiano1").room(0.4).delay(0.25)`: an electric piano with reverb and echo.
+
+Live, `{note}` is the key you press. In a recording it becomes the recorded notes, so the part sounds exactly as you played it. **len** sets how long a live note lasts.
 
 **Playing it:**
 - **Mouse / touch:** press a key, or slide across keys.
 - **Computer keyboard:** `A W S E D F T G Y H U J K O L P ;` play the notes, and `Z` / `X` shift the octave. This only works while the keyboard is shown and you're not typing in a text field or the editor.
 - **MIDI keyboards** connect through Web MIDI. The browser asks for permission, and connected devices are listed in the bar.
-- Pick the sound from the list (piano, synths, soundfonts) and the octave with − / +.
-- Live notes play for a fixed length. Recorded parts keep the lengths you actually held.
+- The octave is set with − / +.
+- Live notes last the **len** you chose. Recorded parts keep the lengths you actually held.
+- The keys start the audio engine themselves, so they work even before you've pressed ▶.
 
 **⏺ Rec:**
 - While the music plays, what you play is captured against the bar you hear, on a 1/8 or 1/16 grid, for up to 8 bars. Chords are kept, written as `[c4,e4,g4]`.
 - Press **⏺ Rec** again and you get the part as `note("…").s("…")`. Each recorded bar plays on the same bar you played it on. Then:
-  - **＋ Insert as a part** adds it as a `keys:` group on the next switch boundary;
+  - **＋ Insert as a part** adds it as a `keys:` group on the next switch boundary. With **auto-add** on, every recording is added as soon as you stop, so you can layer part after part while the music plays;
   - **✨ Send to AI** asks the AI to arrange it. Anything typed in the chat box is used as the instruction.
 
 ## 🔲 Pads
@@ -229,6 +246,19 @@ Each address keeps its own storage, so `https://192.168.1.50` and `https://myhos
 - Records from the next bar while you play the pads.
 - When you stop, the performance is written into the code. Each pad that changed gets a `.mask("…")` with its on/off pattern per beat over the recorded bars, up to 16, so it keeps looping exactly as you played it.
 - Effect pads (`all(…)`, `setcpm(…)`) aren't masked.
+
+## 🖥 Console
+
+**🖥 Console** opens a dockable log of what happens behind the scenes:
+- every AI request, with its text streaming in live (turn off *live AI text* for just the summary lines);
+- the automatic fixes (sound and scale names, sliders);
+- song sheets and parts as they're written and checked;
+- retries and repairs;
+- errors from the audio engine.
+
+Problems the app is still fixing stay in the console. The chat only gets the final result:
+- If a reply needed fixing, its bubble shows the code that finally worked, with a note like *🔧 fixed automatically (1 retry)*.
+- An error reaches the chat only when every attempt has failed.
 
 ## Master volume
 The 🔊 fader in the header sets the overall output level (0–150%), and double-clicking it resets it to 100%. It's remembered, and "duck music" while humming lowers it relative to this level.
@@ -293,7 +323,7 @@ Hold **🎤 Hold to hum** (or hold the **`** key while the editor isn't focused)
 Before any AI-written code plays, the app checks it:
 
 1. **Syntax check.** If there's no code block at all, the app asks the model again.
-2. **Sound names** are checked against the sounds actually loaded. Close misspellings are fixed automatically (`gm_epiano01` → `gm_epiano1`). Made-up names go back to the model with real suggestions.
+2. **Sound names** are checked against the sounds actually loaded. During the test run (step 4), every note's actual sound is checked too, including drum-machine banks: `s("oh").bank("RolandTR808")` fails if that machine has no `oh`, and the error lists the drums it does have. Close misspellings are fixed automatically (`gm_epiano01` → `gm_epiano1`). Made-up names go back to the model with real suggestions.
 3. **Scale names** are converted to the format Strudel needs, `Tonic:name` with colons in place of spaces. For example, `C:minorpentatonic`, `C minor pentatonic` and `C:pentatonic:minor` all become `C:minor:pentatonic`, and `D:harmonicMinor` becomes `D:harmonic:minor`. Unknown scales go back to the model along with the full list of valid scale names (`public/scales.json`).
 4. **Test run.** The new pattern is played silently for 8 bars before it's applied. Strudel only *logs* many errors, such as bad scales or `scaleTranspose` without `.scale`, and silently drops those notes. The test run catches these, the old music keeps playing, and the model is asked to fix it. A song block that fails this way is rewritten and switched in once it works.
 5. **Out-of-range soundfont notes** are moved into the instrument's range instead of erroring.
