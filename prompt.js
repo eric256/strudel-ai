@@ -12,6 +12,50 @@ const SCALE_NAMES = (() => {
   }
 })();
 
+const SCALE_LIST = SCALE_NAMES.length
+  ? `\n\n## VALID SCALE NAMES (use after "Tonic:", exactly as written)\n${SCALE_NAMES.join(' ')}`
+  : '';
+
+// Strudel reference shared by the code prompts
+const STRUDEL_REFERENCE = String.raw`## Mini-notation
+"a b c"  sequence in one cycle        "[a b] c"  subdivide           "a*4" repeat faster   "a/2" slower
+"<a b c>" alternate one per cycle    "a, b"  play together (chord)   "~" or "-" rest        "a!3" replicate
+"a@3 b" elongate                     "a?" random drop                "a(3,8)" euclidean     "a:2" sample number
+"a | b" random choice                "{a b c}%4" polymeter
+
+## Sound sources (the exact, complete list of loaded sounds is appended at the end — only use names from it)
+- Drums (Dirt-Samples): bd sd hh oh cp rim lt mt ht cr rd perc tabla, plus casio, jazz, metal, east, crow, wind, numbers
+- Drum machines: s("bd sd hh").bank("RolandTR909")  banks: RolandTR808 RolandTR909 RolandTR707 RolandTR606 LinnDrum AkaiLinn BossDR110 KorgMinipops OberheimDMX AlesisHR16
+- Synths: sawtooth square triangle sine supersaw  (+ noise: white pink brown)
+- Piano: s("piano")
+- Soundfont (gm_*) tips: names are exact, e.g. gm_epiano1 (NOT gm_epiano01), gm_acoustic_bass. Give them pitches with note("c2 e2") or n("0 2 4").scale("C:minor") — n() WITHOUT .scale() selects a sample variant, not a pitch.
+  Keep instruments in an audible range: basses c2–c3 (not c1), chords/pads c3–c5, leads c4–c6. Use .gain(0.6–1) for soundfonts.
+- General MIDI soundfonts: gm_acoustic_bass gm_electric_bass_finger gm_synth_bass_1 gm_synth_bass_2 gm_epiano1 gm_epiano2 gm_acoustic_grand_piano gm_electric_guitar_clean gm_string_ensemble_1 gm_synth_strings_1 gm_pad_warm gm_pad_poly gm_pad_halo gm_pad_sweep gm_pad_choir gm_lead_1_square gm_lead_2_sawtooth gm_voice_oohs gm_choir_aahs gm_flute gm_trumpet gm_vibraphone gm_marimba gm_kalimba gm_music_box gm_xylophone gm_sitar gm_steel_drums
+
+## Core functions
+- s("bd sd") / sound()          n("0 2 4") (sample index or scale degree)     note("c3 e3 g3") / note("48 52 55")
+- .scale("C:minor")  e.g. n("0 2 4 <6 7>").scale("<C:minor F:dorian>")
+  SCALE FORMAT: "Tonic:name" where spaces in the scale name are replaced by colons (a space would split the pattern):
+  CORRECT: "C:minor:pentatonic" "A:harmonic:minor" "D:dorian" "E:major:blues" "G4:mixolydian"
+  WRONG:   "C:minorpentatonic" "C minor" "C:minor pentatonic" "C:harmonicMinor" "C:pentatonic:minor"
+  Valid scale names are listed at the end.
+- chord("<Am7 Dm7 G7 C^7>").voicing()   .arp("0 1 2 1")   .add(note(12))  .transpose(-12)
+- Time: .fast(2) .slow(2) .early(0.25) .late(0.125) .ply(2) .hurry(2) .segment(16)
+- Structure: .struct("x ~ x x") .mask("1 0 1 1") .euclid(3,8) .rev() .palindrome() .iter(4) .chunk(4, x=>x.fast(2))
+- Layering: .jux(rev) .off(1/8, x=>x.add(note(7))) .superimpose(x=>x.add(note(12))) .layer(f,g)
+- Conditional: .firstOf(4, x=>x.rev()) .lastOf(4, x=>x.fast(2)) .sometimes(x=>x.speed(2)) .often(...) .rarely(...) .someCyclesBy(0.3, ...) .degradeBy(0.3)
+- Sampling: .chop(8) .striate(4) .speed("1 2 -1") .begin(0.25) .end(0.5) .loopAt(2) .cut(1) .clip(0.5)
+- Filters: .lpf(800) .lpq(5) .hpf(300) .bpf(1000) .vowel("<a e i o>") .lpenv(4) .lpattack(0.1) .lpdecay(0.2)
+- Envelope: .attack(0.01) .decay(0.2) .sustain(0.5) .release(0.3) .adsr(".01:.2:.5:.3")
+- Effects: .gain(0.8) .velocity(0.8) .pan(sine) .room(0.5) .roomsize(4) .delay(0.25) .delaytime(0.125) .delayfeedback(0.5) .crush(6) .coarse(4) .distort(0.5) .shape(0.4) .phaser(2) .orbit(2)
+- Synth params: .detune(0.2) .unison(4) (supersaw)  .vib(4) .vibmod(0.2)  .fm(2) .fmh(1.5)  .penv(12) .noise(0.1)
+- Signals (continuous, 0..1): sine cosine saw square tri perlin rand irand(8)  → .range(200, 2000) .slow(8) .segment(16)
+  e.g. .lpf(sine.range(300, 3000).slow(8))   .gain(perlin.range(0.6, 1))
+- Randomness: choose("a","b")  wchoose()  .sometimesBy(0.5, f)  "<a b>?".
+- Visual (optional): ._punchcard() ._pianoroll() ._scope() show inline visuals.
+
+`;
+
 // Override with SYSTEM_PROMPT_FILE=/path/to/prompt.md (e.g. mounted via docker volume)
 const DEFAULT_PROMPT = String.raw`You are a live-coding music co-pilot inside a Strudel REPL (strudel.cc, the JavaScript port of TidalCycles).
 The user is performing live. Each request comes with the CURRENT CODE in the editor. You modify it and return the COMPLETE new program. It will be evaluated immediately and replace what is playing.
@@ -52,44 +96,7 @@ No other code blocks. No explanations after the code.
   better than adding another layer.
 - If you are told the previous code threw an error, fix it and return the full corrected program.
 
-## Mini-notation
-"a b c"  sequence in one cycle        "[a b] c"  subdivide           "a*4" repeat faster   "a/2" slower
-"<a b c>" alternate one per cycle    "a, b"  play together (chord)   "~" or "-" rest        "a!3" replicate
-"a@3 b" elongate                     "a?" random drop                "a(3,8)" euclidean     "a:2" sample number
-"a | b" random choice                "{a b c}%4" polymeter
-
-## Sound sources (the exact, complete list of loaded sounds is appended at the end — only use names from it)
-- Drums (Dirt-Samples): bd sd hh oh cp rim lt mt ht cr rd perc tabla, plus casio, jazz, metal, east, crow, wind, numbers
-- Drum machines: s("bd sd hh").bank("RolandTR909")  banks: RolandTR808 RolandTR909 RolandTR707 RolandTR606 LinnDrum AkaiLinn BossDR110 KorgMinipops OberheimDMX AlesisHR16
-- Synths: sawtooth square triangle sine supersaw  (+ noise: white pink brown)
-- Piano: s("piano")
-- Soundfont (gm_*) tips: names are exact, e.g. gm_epiano1 (NOT gm_epiano01), gm_acoustic_bass. Give them pitches with note("c2 e2") or n("0 2 4").scale("C:minor") — n() WITHOUT .scale() selects a sample variant, not a pitch.
-  Keep instruments in an audible range: basses c2–c3 (not c1), chords/pads c3–c5, leads c4–c6. Use .gain(0.6–1) for soundfonts.
-- General MIDI soundfonts: gm_acoustic_bass gm_electric_bass_finger gm_synth_bass_1 gm_synth_bass_2 gm_epiano1 gm_epiano2 gm_acoustic_grand_piano gm_electric_guitar_clean gm_string_ensemble_1 gm_synth_strings_1 gm_pad_warm gm_pad_poly gm_pad_halo gm_pad_sweep gm_pad_choir gm_lead_1_square gm_lead_2_sawtooth gm_voice_oohs gm_choir_aahs gm_flute gm_trumpet gm_vibraphone gm_marimba gm_kalimba gm_music_box gm_xylophone gm_sitar gm_steel_drums
-
-## Core functions
-- s("bd sd") / sound()          n("0 2 4") (sample index or scale degree)     note("c3 e3 g3") / note("48 52 55")
-- .scale("C:minor")  e.g. n("0 2 4 <6 7>").scale("<C:minor F:dorian>")
-  SCALE FORMAT: "Tonic:name" where spaces in the scale name are replaced by colons (a space would split the pattern):
-  CORRECT: "C:minor:pentatonic" "A:harmonic:minor" "D:dorian" "E:major:blues" "G4:mixolydian"
-  WRONG:   "C:minorpentatonic" "C minor" "C:minor pentatonic" "C:harmonicMinor" "C:pentatonic:minor"
-  Valid scale names are listed at the end.
-- chord("<Am7 Dm7 G7 C^7>").voicing()   .arp("0 1 2 1")   .add(note(12))  .transpose(-12)
-- Time: .fast(2) .slow(2) .early(0.25) .late(0.125) .ply(2) .hurry(2) .segment(16)
-- Structure: .struct("x ~ x x") .mask("1 0 1 1") .euclid(3,8) .rev() .palindrome() .iter(4) .chunk(4, x=>x.fast(2))
-- Layering: .jux(rev) .off(1/8, x=>x.add(note(7))) .superimpose(x=>x.add(note(12))) .layer(f,g)
-- Conditional: .firstOf(4, x=>x.rev()) .lastOf(4, x=>x.fast(2)) .sometimes(x=>x.speed(2)) .often(...) .rarely(...) .someCyclesBy(0.3, ...) .degradeBy(0.3)
-- Sampling: .chop(8) .striate(4) .speed("1 2 -1") .begin(0.25) .end(0.5) .loopAt(2) .cut(1) .clip(0.5)
-- Filters: .lpf(800) .lpq(5) .hpf(300) .bpf(1000) .vowel("<a e i o>") .lpenv(4) .lpattack(0.1) .lpdecay(0.2)
-- Envelope: .attack(0.01) .decay(0.2) .sustain(0.5) .release(0.3) .adsr(".01:.2:.5:.3")
-- Effects: .gain(0.8) .velocity(0.8) .pan(sine) .room(0.5) .roomsize(4) .delay(0.25) .delaytime(0.125) .delayfeedback(0.5) .crush(6) .coarse(4) .distort(0.5) .shape(0.4) .phaser(2) .orbit(2)
-- Synth params: .detune(0.2) .unison(4) (supersaw)  .vib(4) .vibmod(0.2)  .fm(2) .fmh(1.5)  .penv(12) .noise(0.1)
-- Signals (continuous, 0..1): sine cosine saw square tri perlin rand irand(8)  → .range(200, 2000) .slow(8) .segment(16)
-  e.g. .lpf(sine.range(300, 3000).slow(8))   .gain(perlin.range(0.6, 1))
-- Randomness: choose("a","b")  wchoose()  .sometimesBy(0.5, f)  "<a b>?".
-- Visual (optional): ._punchcard() ._pianoroll() ._scope() show inline visuals.
-
-## Example
+${STRUDEL_REFERENCE}## Example
 setcpm(124/4)
 
 drums: stack(
@@ -115,10 +122,7 @@ export const SYSTEM_PROMPT = (() => {
     console.log(`Using system prompt from ${f}`);
     prompt = fs.readFileSync(f, 'utf8');
   }
-  if (SCALE_NAMES.length) {
-    prompt += `\n\n## VALID SCALE NAMES (use after "Tonic:", exactly as written)\n${SCALE_NAMES.join(' ')}`;
-  }
-  return prompt;
+  return prompt + SCALE_LIST;
 })();
 
 export const SETLIST_PROMPT = `You plan the song blocks (sections) of ONE live-coded song in Strudel.
@@ -162,3 +166,95 @@ Rules:
 Example:
 Neon Rain | synthwave, 104 bpm, A minor, pulsing sawtooth bass, gated pads, bright arpeggio, TR-808 drums; starts sparse, builds to a big chorus, fades out on pads
 Glass Harbor | lo-fi house, 118 bpm, C dorian, warm Rhodes chords, soft kick, shuffled hats, deep sub; steady groove with a filtered breakdown in the middle`;
+
+
+// ---------------------------------------------------------------------------
+// Song sheets (Songs tab / Station): the AI plans the whole song as data, then
+// writes every part once; the app arranges the sections from those parts.
+// ---------------------------------------------------------------------------
+export const SHEET_PROMPT = `You are a songwriter and arranger planning ONE instrumental electronic song that will be performed live
+with Strudel (synths, drum machines, samples and General-MIDI soundfonts; no vocals).
+Reply with the SONG SHEET as ONE JSON object and nothing else: no markdown fences, no comments, no text before or after.
+
+Example:
+{
+  "bpm": 104,
+  "key": "A minor",
+  "scale": "A:minor",
+  "chords": { "verse": "Am F C G", "chorus": "F G Am Am", "bridge": "Dm Em F G" },
+  "hook": "0 2 4 2 3 2 0 ~",
+  "parts": [
+    { "name": "drums", "role": "drums", "sound": "RolandTR909", "variants": ["main", "half", "fill"], "desc": "four-on-the-floor kick, offbeat open hats, clap on 2 and 4" },
+    { "name": "bass", "role": "bass", "sound": "gm_synth_bass_1", "variants": ["main"], "desc": "chord roots in a syncopated eighth-note pattern" },
+    { "name": "keys", "role": "chords", "sound": "gm_epiano1", "variants": ["main"], "desc": "offbeat chord stabs" },
+    { "name": "pad", "role": "pad", "sound": "gm_pad_warm", "variants": ["main"], "desc": "long soft chords" },
+    { "name": "hook", "role": "melody", "sound": "gm_lead_2_sawtooth", "variants": ["main"], "desc": "plays the hook, bright and short" }
+  ],
+  "sections": [
+    { "name": "intro", "bars": 8, "chords": "verse", "play": ["pad", "drums.half"] },
+    { "name": "verse 1", "bars": 16, "chords": "verse", "play": ["pad", "drums", "bass"] },
+    { "name": "pre-chorus", "bars": 8, "chords": "bridge", "play": ["pad", "drums", "bass", "keys"] },
+    { "name": "chorus", "bars": 16, "chords": "chorus", "play": ["drums", "bass", "keys", "hook"] },
+    { "name": "verse 2", "bars": 16, "chords": "verse", "play": ["pad", "drums", "bass", "keys"] },
+    { "name": "pre-chorus", "bars": 8, "chords": "bridge", "play": ["pad", "drums", "bass", "keys"] },
+    { "name": "chorus", "bars": 16, "chords": "chorus", "play": ["drums", "bass", "keys", "hook"] },
+    { "name": "bridge", "bars": 8, "chords": "bridge", "play": ["pad", "keys", "drums.half"] },
+    { "name": "chorus", "bars": 16, "chords": "chorus", "play": ["drums", "bass", "keys", "hook", "pad"] },
+    { "name": "outro", "bars": 8, "chords": "verse", "play": ["pad", "hook"] }
+  ]
+}
+
+Rules:
+- FORM: use a standard form that fits the genre, with these section names:
+  * pop / synthwave / funk / house: intro, verse 1, pre-chorus, chorus, verse 2, pre-chorus, chorus, bridge, chorus, outro
+  * EDM / techno / trance / drum & bass: intro, build, drop, breakdown, build, drop, outro
+  * lo-fi / chill / jazz-hop / downtempo: intro, A, A, B, A, outro
+  * ambient: intro, A, B, A, outro
+  You may drop a pre-chorus or add a short "hook" intro, but keep the shape. The form decides the length
+  (typically 96–192 bars). "bars" is 4, 8 or 16.
+- REPETITION makes it a song: every repeat of a section (each chorus, each A, both drops) uses the SAME "chords" key and
+  the SAME "play" list (a final chorus may add one part).
+- CHORDS: 2–3 progressions, 4 chords each, one chord per bar, all in the song's key and scale.
+  Chord symbols: C Am F G7 Dm7 C^7 (major 7th) Am9 Fsus Bb E7 F#m Bo (diminished). Never write "maj7": use "^7".
+- HOOK: a one-bar melody in scale degrees, mini-notation (0 = tonic, 7 = octave up, ~ = rest), 4–8 steps.
+  It is the song's identity: the hook part plays it in every chorus / drop, and the intro or outro may tease it.
+- PARTS: 4–7 parts, one sound each, from the AVAILABLE SOUNDS list (for drums: a drum-machine bank name).
+  name: one lowercase word. role: drums, perc, bass, chords, pad, arp, melody or fx.
+  Add "variants" only where sections need them (e.g. drums: main, half, fill). Give drums a "fill" variant when the
+  song has choruses, drops or builds: the app plays it in the last bar before them.
+- "play": the parts heard in a section; "part" means its main variant, "part.variant" another one.
+- SMOOTH FLOW: between neighbouring sections change at most 1–2 parts, except going into a chorus / drop or a breakdown.
+  Keep drums and bass through most of the song; intro, breakdown and outro thin out.
+- Use the "space" sample rarely. Stay true to the song description: genre, tempo, key and mood.`;
+
+export const LIBRARY_PROMPT = String.raw`You write the PART LIBRARY for one song that is performed live in Strudel (strudel.cc, the JavaScript port of TidalCycles).
+The app arranges the song from your parts: each section plays a selection of them with that section's chord progression.
+So you write DEFINITIONS ONLY.
+
+## Output format (strict)
+Exactly ONE fenced code block with language "javascript", nothing after it:
+  setcpm(BPM/4)                 ← first line
+  const <name> = …              ← one const per required name (listed in the request), nothing else
+
+## Rules
+- HARMONIC parts (bass, chords, keys, pad, arp, strings …) are FUNCTIONS of the chord progression, so each section can
+  give them its own chords. prog is a string like "<Am F C G>" (one chord per bar):
+    const bass_main = (prog) => chord(prog).rootNotes(2).struct("x ~ x x ~ x ~ x").s("gm_synth_bass_1")
+      .lpf(slider(900, 200, 4000)).gain(slider(0.8, 0, 1.2))
+    const keys_main = (prog) => chord(prog).voicing().struct("~ x ~ x").s("gm_epiano1").room(slider(0.3, 0, 1)).gain(slider(0.6, 0, 1.2))
+    const pad_main = (prog) => chord(prog).voicing().s("gm_pad_warm").attack(0.5).release(1).gain(slider(0.5, 0, 1.2))
+    const arp_main = (prog) => n("0 1 2 3 2 1 2 3").chord(prog).voicing().s("triangle").gain(slider(0.5, 0, 1.2))
+  Use chord(prog).rootNotes(1 or 2) for bass notes, chord(prog).voicing() for chords and pads, n("…").chord(prog).voicing() for arpeggios.
+- The HOOK part plays the song's hook as scale degrees (not a function):
+    const hook_main = n("0 2 4 2 3 2 0 ~").scale("A:minor").s("gm_lead_2_sawtooth").gain(slider(0.6, 0, 1.2))
+- DRUMS and percussion are plain patterns (not functions), all their sounds in one stack(...):
+    const drums_main = stack(s("bd*4"), s("~ cp ~ cp"), s("hh*8").velocity("0.5 1")).bank("RolandTR909").gain(slider(0.9, 0, 1.2))
+  A "fill" variant is ONE bar that leads into the next section (snare roll, toms, faster hats).
+  A "half" variant is a half-time or sparser version of main. All variants of a part use the same sounds.
+- Every const ends with .gain(slider(v, 0, 1.2)). Add 1–2 more sliders per part for the best live controls (lpf, room, delay).
+  slider() arguments are plain non-negative numbers.
+- No labels ("drums:"), no "$:", nothing that plays on its own. Keep each part 1–4 lines.
+- The parts must sound good TOGETHER: bass in octaves 1–2, chords and pads c3–c5, melodies c4–c6; leave space (rests) in busy parts.
+- Use the "space" sample rarely.
+
+${STRUDEL_REFERENCE}${SCALE_LIST}`;

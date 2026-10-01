@@ -16,13 +16,6 @@ bass: note("<c2 c2 eb2 g1>*8").s("sawtooth")
   .gain(slider(0.6, 0, 1.2))
 `;
 
-const EXAMPLE_SETLIST = `# bars | what to do   (lines starting with # are ignored)
-8  | minimal intro: only a soft kick and closed hats, 124 bpm
-8  | add a deep sub bass following C minor
-16 | add a clap on 2 and 4 and an airy pad with Cm9 and Abmaj7
-8  | breakdown: drop kick and bass, keep pad, add a filtered arpeggio
-16 | drop: everything back with a broken beat, open the filter on the bass, add open hats
-8  | outro: remove bass and pad, fade hats`;
 
 const MAX_FIX_ATTEMPTS = 2;
 const HISTORY_LIMIT = 8; // messages kept for context (current code is re-sent every turn anyway)
@@ -331,7 +324,7 @@ setInterval(() => {
     pb.hidden = false;
     pb.textContent = `⏱ ${p.label || 'next change'} at ${barBeat(p.at)} (${secs.toFixed(1)}s)`;
   } else pb.hidden = true;
-  renderSetlistStatus();
+  updateStepStates();
 }, 100);
 $('pending').onclick = () => { cancelPending(true); addMsg('info', 'pending change cancelled'); };
 
@@ -550,7 +543,7 @@ $('provider').onchange = () => { save({ provider: $('provider').value }); loadMo
 $('model').onchange = () => save({ models: { ...(load().models || {}), [$('provider').value]: $('model').value } });
 $('refresh').onclick = loadModels;
 
-for (const id of ['autoApply', 'autoFix', 'loopSetlist']) {
+for (const id of ['autoApply', 'autoFix']) {
   if (saved[id] !== undefined) $(id).checked = saved[id];
   $(id).onchange = () => save({ [id]: $(id).checked });
 }
@@ -1231,24 +1224,12 @@ $('input').addEventListener('keydown', (e) => {
   }
 });
 
-$('queueBtn').onclick = () => {
-  const text = $('input').value.trim();
-  if (!text) return;
-  const ta = $('setlist');
-  ta.value = (ta.value.trimEnd() ? ta.value.trimEnd() + '\n' : '') + `8 | ${text.replace(/\n/g, ' ')}`;
-  save({ setlist: ta.value });
-  $('input').value = '';
-  addMsg('info', `+ added as a song block (8 bars): ${text}`);
-  if (setlist.running && !setlist.feeder) syncSetlistSteps();
-};
 
 // ---------------------------------------------------------------------------
 // Setlist: a list of timed changes. Code for each step is generated ahead of
 // time (each step builds on the previous step's code) and each step is
 // switched in exactly on its bar.
 // ---------------------------------------------------------------------------
-$('setlist').value = saved.setlist ?? EXAMPLE_SETLIST;
-$('setlist').oninput = () => save({ setlist: $('setlist').value });
 
 const setlist = {
   running: false,
@@ -1271,7 +1252,7 @@ const SECTION_GUIDE =
   '5 groups or fewer, and when you add a part consider taking another one out. When the section calls for a change of ' +
   'energy or feel, switch up the beat: rewrite the drum patterns (kick placement, hat rhythm, swing, half-time, broken ' +
   'beat, fills) instead of only stacking new layers on the same groove.';
-const autoAdvance = () => $('autoAdvance').checked;
+const autoAdvance = () => !setlist.hold;
 
 function parseSetlist(text) {
   return text
@@ -1285,19 +1266,17 @@ function parseSetlist(text) {
     .map((s) => ({ ...s, code: null, status: 'waiting', error: null }));
 }
 
-/** Re-parse the textarea while running, keeping generated code for unchanged steps. */
-function syncSetlistSteps() {
-  const fresh = parseSetlist($('setlist').value);
-  fresh.forEach((s, i) => {
-    const old = setlist.steps[i];
-    if (old && old.prompt === s.prompt) Object.assign(s, { code: old.code, status: old.status, error: old.error });
-  });
-  setlist.steps = fresh;
-  pumpGeneration();
-}
-
 async function generateStep(i) {
   const step = setlist.steps[i];
+  if (step.song?.library && step.section) {
+    // a section of a sheet song: fix the shared parts, then it is re-arranged
+    step.status = 'generating';
+    await repairSong(step.song, step.fixHint || step.error || 'it failed when played');
+    delete step.fixHint;
+    if (!step.code) throw new Error('could not fix the parts');
+    step.status = 'ready';
+    return;
+  }
   const base = (i > 0 && setlist.steps[i - 1].code) || getCode();
   step.status = 'generating';
   let prompt;
@@ -1411,9 +1390,7 @@ function skipBlocksBefore(i) {
 
 /** Manually switch to step i (on the next "switch on" boundary). */
 function jumpTo(i) {
-  const step = setlist.steps[i] || parseSetlist($('setlist').value)[i];
-  if (!step) return;
-  if (!setlist.running) startSetlist({ at: i });
+  if (!setlist.running || !setlist.steps[i]) return;
   // cancel a step that is armed but hasn't started yet
   for (const s of setlist.steps) {
     if (s.status === 'armed' && s.startedAt !== undefined && nowCycle() < s.startedAt) {
@@ -1435,8 +1412,7 @@ function jumpTo(i) {
   if (!target.code) {
     addMsg('info', `⏭ section ${i + 1} is being generated${skipped ? ` (skipping ${skipped} unwritten block${skipped > 1 ? 's' : ''} before it)` : ''} — it will switch in as soon as it's ready`);
   }
-  lastStatusKey = '';
-  renderSetlistStatus();
+  lastSongsKey = '';
 }
 
 async function tickSetlist() {
@@ -1446,17 +1422,12 @@ async function tickSetlist() {
   const i = setlist.playIndex;
   if (i >= setlist.steps.length && setlist.feeder?.active()) return; // more blocks are on their way
   if (i >= setlist.steps.length) {
-    if ($('loopSetlist').checked && setlist.steps.length && setlist.steps.every((s) => s.code || s.status === 'skipped')) {
-      setlist.playIndex = 0;
-      setlist.steps.forEach((s) => { if (s.status !== 'playing' && s.status !== 'failed') { s.status = s.code ? 'ready' : 'waiting'; delete s.startedAt; } });
-      if (setlist.steps.some((s) => !s.code)) restartGeneration(0); // write the blocks that were skipped
-    } else if (!autoAdvance()) {
+    if (!autoAdvance()) {
       setlist.jumpTarget = null; // manual mode: keep holding the last section
       return;
     } else {
       // let the last step play out its bars before declaring the set finished
       if (setlist.nextAt != null && isPlaying() && nowCycle() < setlist.nextAt) return;
-      renderSetlistStatus();
       addMsg('info', `■ ${setlist.feeder?.label || 'song blocks'} finished (last section keeps playing)`);
       stopSetlist();
       return;
@@ -1490,13 +1461,16 @@ async function tickSetlist() {
   let at = setlist.nextAt ?? nextBoundary(q);
   if (at < nextBoundary(1)) at = nextBoundary(q);
   // arm ~2s before the switch (or before its crossfade starts) so the editor shows what's next
-  const secsUntil = (at - fadeCycles() - nowCycle()) / cps();
+  const fade = step.fade ?? fadeCycles();
+  const secsUntil = (at - fade - nowCycle()) / cps();
   if (secsUntil > 2) return;
   step.status = 'armed';
-  const err = await evaluateCode(step.code, {
+  const playing = setlist.steps.find((s) => s.status === 'playing');
+  const code = step.section && playing?.song === step.song ? carryLiveState(getCode(), step.code) : step.code;
+  const err = await evaluateCode(code, {
     at,
-    fade: fadeCycles(),
-    label: step.song ? `“${step.song.title}” ${step.songPos + 1}/${step.songLen}` : `block ${setlist.playIndex + 1}`,
+    fade,
+    label: step.song ? `“${step.song.title}” ${step.section ? step.prompt : `${step.songPos + 1}/${step.songLen}`}` : `block ${setlist.playIndex + 1}`,
   });
   if (err) {
     // keep the old music playing, regenerate this section with the error and try again
@@ -1525,20 +1499,16 @@ async function tickSetlist() {
 }
 
 function startSetlist({ at = 0, steps = null, feeder = null } = {}) {
-  steps = steps || parseSetlist($('setlist').value);
+  steps = steps || [];
   if (!steps.length && !feeder) return;
   stopSetlist();
   stopReplay();
   Object.assign(setlist, {
     running: true, steps, genIndex: at, playIndex: at, nextAt: null, jumpTarget: at,
-    abort: new AbortController(), feeder,
+    abort: new AbortController(), feeder, hold: false,
   });
   steps.forEach((s, j) => { if (j < at && !s.code) s.status = 'skipped'; }); // started further down: don't write the blocks above
   setlist.timer = setInterval(() => tickSetlist().catch((e) => addMsg('error', e.message)), 100);
-  $('slStart').disabled = true;
-  $('slStop').disabled = false;
-  $('blocksDriver').hidden = !feeder;
-  $('blocksDriver').textContent = feeder ? `Driven by the ${feeder.label} — blocks are added automatically.` : '';
   if (!feeder) addMsg('info', `▶ song blocks started (${steps.length} blocks) — generating ahead…`);
   restartGeneration(at);
 }
@@ -1554,7 +1524,7 @@ function appendSteps(steps) {
     setlist.genIndex -= cut;
     if (setlist.jumpTarget !== null) setlist.jumpTarget = Math.max(0, setlist.jumpTarget - cut);
   }
-  lastStatusKey = '';
+  lastSongsKey = '';
   pumpGeneration();
 }
 
@@ -1573,7 +1543,7 @@ function dropUpcomingSteps() {
   setlist.steps.splice(keep);
   setlist.playIndex = Math.min(setlist.playIndex, keep);
   setlist.genIndex = Math.min(setlist.genIndex, keep);
-  lastStatusKey = '';
+  lastSongsKey = '';
 }
 
 function stopSetlist() {
@@ -1582,18 +1552,11 @@ function stopSetlist() {
   setlist.jumpTarget = null;
   const feeder = setlist.feeder;
   setlist.feeder = null;
-  $('blocksDriver').hidden = true;
   feeder?.onStop?.();
   setlist.abort?.abort();
   clearInterval(setlist.timer);
   setlist.steps.forEach((s) => { if (s.status === 'generating' || s.status === 'armed') s.status = 'waiting'; });
-  $('slStart').disabled = false;
-  $('slStop').disabled = true;
 }
-
-$('slStart').onclick = () => startSetlist();
-$('slStop').onclick = () => { stopSetlist(); cancelPending(true); addMsg('info', '■ song blocks stopped'); };
-$('slExample').onclick = () => { $('setlist').value = EXAMPLE_SETLIST; save({ setlist: EXAMPLE_SETLIST }); };
 
 /** Ask the LLM for song blocks ("bars | instruction" lines) from a description. */
 async function writeBlocks(idea, code, signal) {
@@ -1607,31 +1570,9 @@ async function writeBlocks(idea, code, signal) {
   return lines;
 }
 
-// Ask the LLM to write song blocks from a description
-$('slWrite').onclick = async () => {
-  const idea = prompt('Describe the song (e.g. "3 minute techno build-up with a big drop at bar 48"):');
-  if (!idea) return;
-  const btn = $('slWrite');
-  btn.disabled = true;
-  btn.textContent = 'writing…';
-  try {
-    const lines = await writeBlocks(idea, getCode());
-    $('setlist').value = `# ${idea}\n` + lines.join('\n');
-    save({ setlist: $('setlist').value });
-  } catch (e) {
-    addMsg('error', `Writing song blocks failed: ${e.message}`);
-  } finally {
-    btn.disabled = false;
-    btn.textContent = '✨ Write with AI';
-  }
-};
-
 const STATUS_ICON = { waiting: '·', generating: '…', ready: '✓', armed: '⏱', playing: '▶', failed: '✗', done: '✔', skipped: '↷' };
-let lastStatusKey = '';
-function renderSetlistStatus() {
-  const el = $('slStatus');
-  if (!setlist.steps.length) { el.innerHTML = ''; lastStatusKey = ''; return; }
-  // mark steps that have been superseded
+/** Armed blocks become "playing" once their bar arrives (the song views render from these states). */
+function updateStepStates() {
   const cur = nowCycle();
   setlist.steps.forEach((s, i) => {
     if (s.status === 'armed' && s.startedAt !== undefined && cur >= s.startedAt) {
@@ -1640,59 +1581,27 @@ function renderSetlistStatus() {
       setlist.feeder?.onStepStart?.(s);
     }
   });
-  const key = setlist.steps.map((s) => s.status + (s.code?.length || 0)).join() + setlist.running + setlist.jumpTarget;
-  if (key === lastStatusKey) return;
-  lastStatusKey = key;
-  const open = new Set([...el.querySelectorAll('details[open]')].map((d) => d.dataset.i));
-  el.innerHTML = setlist.steps
-    .map((s, i) => {
-      const queued = setlist.jumpTarget === i && s.status !== 'armed' && s.status !== 'playing';
-      const head = s.song && s.songStart ? `<div class="song-head">🎵 ${esc(s.song.title)}</div>` : '';
-      return head + `<details class="step ${s.status}${queued ? ' queued' : ''}" data-i="${i}" ${open.has(String(i)) ? 'open' : ''}>
-        <summary><span class="ico">${queued ? '⏭' : STATUS_ICON[s.status] || ''}</span>
-          <b>${i + 1}</b> <span class="bars">${s.bars} bars</span> <span class="prompt">${esc(s.prompt)}</span>
-          ${s.error ? `<span class="err">— ${esc(s.error)}</span>` : ''}
-          ${queued ? '<span class="next">next</span>' : ''}
-          <button class="jump" data-i="${i}" title="Switch to this section (Alt+${i + 1 <= 9 ? i + 1 : '…'})">⏭ go</button></summary>
-        ${s.code ? `<pre>${esc(s.code)}</pre>` : ''}
-      </details>`;
-    })
-    .join('');
 }
 
-// Show the steps (with jump buttons) as soon as the setlist is edited, even before starting.
-function previewSetlist() {
-  if (setlist.running) return;
-  setlist.steps = parseSetlist($('setlist').value);
-  lastStatusKey = '';
-  renderSetlistStatus();
+/** Hold: stay on the current section until another one is picked (or hold is released). */
+function setHold(on) {
+  setlist.hold = on;
+  // releasing: continue with the section after the current one on the next boundary
+  if (!on && setlist.running && setlist.nextAt === null) setlist.nextAt = nextBoundary(Math.max(1, quantize() || 1));
+  lastSongsKey = '';
 }
-$('setlist').addEventListener('input', previewSetlist);
-previewSetlist();
 
-$('slStatus').addEventListener('click', (e) => {
-  const btn = e.target.closest('.jump');
-  if (!btn) return;
-  e.preventDefault();
-  e.stopPropagation();
-  jumpTo(Number(btn.dataset.i));
-});
-
-// Alt+1 … Alt+9 jump to setlist sections
+// Alt+1 … Alt+9 jump to the sections of the song that is playing
 document.addEventListener('keydown', (e) => {
   if (!e.altKey || e.ctrlKey || e.metaKey) return;
   const n = Number(e.key);
-  if (n >= 1 && n <= 9 && n <= (setlist.running ? setlist.steps.length : parseSetlist($('setlist').value).length)) {
+  const song = setl.songs[setl.current];
+  const step = song?.blocks?.[n - 1];
+  if (n >= 1 && n <= 9 && step && setlist.steps.includes(step)) {
     e.preventDefault();
-    jumpTo(n - 1);
+    jumpTo(setlist.steps.indexOf(step));
   }
 });
-if (saved.autoAdvance !== undefined) $('autoAdvance').checked = saved.autoAdvance;
-$('autoAdvance').onchange = () => {
-  save({ autoAdvance: $('autoAdvance').checked });
-  // switching auto-advance back on: continue from the section after the current one
-  if ($('autoAdvance').checked && setlist.running && setlist.nextAt === null) setlist.nextAt = nextBoundary(Math.max(1, quantize() || 1));
-};
 
 // ---------------------------------------------------------------------------
 if (!window.isSecureContext) {
@@ -2166,7 +2075,7 @@ $('shareBtn').onclick = (e) => {
   pop.hidden = !pop.hidden;
   if (!pop.hidden) {
     $('shareResult').hidden = true;
-    $('shareSetlist').checked = !!($('setlist').value.trim() || $('setText').value.trim()) && load().shareSetlist !== false;
+    $('shareSetlist').checked = !!$('setText').value.trim() && load().shareSetlist !== false;
     const take = rec.take?.events.length ? rec.take : rec.last;
     $('shareRecWrap').hidden = !take;
     $('shareRec').checked = !!take && load().shareRec !== false;
@@ -2193,7 +2102,6 @@ $('shareCreate').onclick = async () => {
       body: JSON.stringify({
         code: getCode(),
         title: $('shareTitle').value.trim(),
-        setlist: $('shareSetlist').checked ? $('setlist').value : null,
         setText: $('shareSetlist').checked ? $('setText').value : null,
         recording: $('shareRec').checked && !$('shareRecWrap').hidden ? recordingForShare() : null,
       }),
@@ -2232,11 +2140,6 @@ async function openSharedSong() {
       $('undo').disabled = false;
     }
     mirror().setCode(song.code);
-    if (song.setlist) {
-      $('setlist').value = song.setlist;
-      save({ setlist: song.setlist });
-      previewSetlist?.();
-    }
     if (song.setText) { $('setText').value = song.setText; save({ setText: song.setText }); }
     state.lastAICode = song.code;
     live.applied = song.code;
@@ -2251,7 +2154,7 @@ async function openSharedSong() {
       b.onclick = () => startReplay(take, song.title);
       div.appendChild(b);
     } else {
-      addMsg('info', `🔗 Opened ${title}${song.setlist || song.setText ? ' (with song blocks / set list)' : ''} — press ▶ Play. Your previous code is one ↶ Undo away.`);
+      addMsg('info', `🔗 Opened ${title}${song.setText ? ' (with its set list)' : ''} — press ▶ Play. Your previous code is one ↶ Undo away.`);
     }
     document.title = song.title ? `${song.title} · Strudel AI` : document.title;
   } catch (e) {
@@ -2312,7 +2215,339 @@ function parseSongs(text) {
     });
 }
 
+// ---------------------------------------------------------------------------
+// Song sheets: for the Songs tab and the Station, the AI first plans the whole song
+// as data (tempo, key, chord progressions, hook, parts, form), then writes every
+// part once as a library of named patterns. The app arranges each section from the
+// library itself, so a chorus is the same code every time, the key and sounds never
+// drift, and parts that continue from one section to the next are identical (the
+// crossfade keeps them steady).
+// ---------------------------------------------------------------------------
+const LIB_START = '// ── parts (shared by every section of this song) ──';
+const SEC_START = '// ── this section ──';
+const HARMONIC_ROLE = /bass|chord|pad|key|arp|harmon|string|piano|organ|guitar/i;
+
+const ident = (x) => {
+  const t = String(x || '').toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+  return /^[a-z]/.test(t) ? t : 'p_' + (t || 'part');
+};
+
+/** First JSON object in a reply, tolerating fences, comments and trailing commas. */
+function parseJSONLoose(text) {
+  const t = stripThinking(text).replace(/```[a-z]*\n?|```/g, '');
+  const a = t.indexOf('{'), b = t.lastIndexOf('}');
+  if (a < 0 || b <= a) throw new Error('no JSON object in the reply');
+  const body = t.slice(a, b + 1).replace(/^\s*\/\/.*$/gm, '').replace(/,\s*([}\]])/g, '$1');
+  try { return JSON.parse(body); } catch (e) { throw new Error('invalid JSON: ' + e.message); }
+}
+
+// chord qualities Strudel's default voicings know (plus their m / M aliases)
+const CHORD_Q = new Set(['', 'm', '7', 'm7', '^7', 'M7', '9', 'm9', '^9', 'M9', '6', 'm6', '69', 'm69', 'add9', 'madd9',
+  'sus', '7sus', '9sus', 'o', 'o7', 'h7', 'h9', '+', 'aug', '11', 'm11', '13', '7b9', '7#9', '7#11', '7b5', '7#5',
+  'm^7', 'mM7', 'm7b5', '^7#11', '^13', '2', '5']);
+/** "Fmaj7" → "F^7", "Bdim" → "Bo", "Gsus4" → "Gsus", unknown qualities → nearest triad / 7th. */
+function normChord(tok) {
+  const m = tok.match(/^([A-Ga-g])([#b]?)(.*)$/);
+  if (!m) return tok;
+  let q = m[3].replace(/\/.*$/, ''); // no slash chords
+  q = q.replace(/^(maj|Maj|M|Δ)7/, '^7').replace(/^(maj|Maj|M|Δ)9/, '^9').replace(/^(maj|Maj)$/, '')
+    .replace(/^min/, 'm').replace(/^mi(?!n)/, 'm').replace(/^-/, 'm')
+    .replace(/^dim7/, 'o7').replace(/^dim/, 'o').replace(/^ø7?/, 'h7').replace(/^m7b5$/, 'h7')
+    .replace(/^sus[24]$/, 'sus').replace(/^7sus[24]$/, '7sus').replace(/^aug$/, '+');
+  if (!CHORD_Q.has(q)) q = /^m(?!aj)/.test(q) ? (/7/.test(q) ? 'm7' : 'm') : /7/.test(q) ? '7' : '';
+  return m[1].toUpperCase() + m[2] + q;
+}
+/** "Am F C G" / "<Am F C G>" / "Am | F | C | G" → "<Am F C G>" with valid chord symbols. */
+function normProgression(p) {
+  let t = String(p || '').replace(/[|,]/g, ' ').replace(/\s+/g, ' ').trim();
+  if (!t) return null;
+  t = t.replace(/[A-Ga-g][#b]?[^\s\[\]<>@*!~]*/g, normChord);
+  return t.startsWith('<') ? t : `<${t}>`;
+}
+function sectionType(name) {
+  const n = String(name).toLowerCase();
+  if (/pre-?chorus/.test(n)) return 'prechorus';
+  if (/chorus|hook/.test(n)) return 'chorus';
+  if (/drop/.test(n)) return 'drop';
+  if (/break/.test(n)) return 'breakdown';
+  if (/build|rise/.test(n)) return 'build';
+  if (/bridge|^b\b/.test(n)) return 'bridge';
+  if (/intro/.test(n)) return 'intro';
+  if (/outro|end/.test(n)) return 'outro';
+  return 'verse';
+}
+
+/** Validate + repair a song sheet from the model. Throws when it can't be used. */
+function normalizeSheet(raw) {
+  if (!raw || typeof raw !== 'object') throw new Error('the sheet is not an object');
+  const bpm = Math.max(50, Math.min(200, Math.round(Number(raw.bpm) || 100)));
+  // scale: "A:minor" (or derived from "key": "A minor"), checked against the real scale names
+  let scale = String(raw.scale || raw.key || 'C minor').trim().replace(/\s+/, ':');
+  const fixed = fixScaleString(scale);
+  scale = fixed.unknown.length ? 'C:minor' : fixed.fixed;
+  const chords = {};
+  for (const [k, v] of Object.entries(raw.chords || raw.progressions || {})) {
+    const p = normProgression(Array.isArray(v) ? v.join(' ') : v);
+    if (p) chords[ident(k)] = p;
+  }
+  if (!Object.keys(chords).length) throw new Error('no chord progressions');
+  const hook = String(raw.hook || '0 2 4 2').replace(/[^0-9~\s\-\[\]<>.*@!]/g, ' ').replace(/\s+/g, ' ').trim() || '0 2 4 2';
+  const parts = [];
+  for (const p of Array.isArray(raw.parts) ? raw.parts : []) {
+    const id = ident(p.name || p.role);
+    if (parts.some((q) => q.id === id)) continue;
+    const variants = [...new Set(['main', ...(Array.isArray(p.variants) ? p.variants : []).map(ident)])];
+    parts.push({ id, role: String(p.role || '').toLowerCase(), sound: String(p.sound || ''), desc: String(p.desc || p.description || ''), variants });
+  }
+  if (parts.length < 2) throw new Error('fewer than 2 parts');
+  parts.splice(8);
+  const firstChords = Object.keys(chords)[0];
+  const sections = [];
+  for (const sec of Array.isArray(raw.sections) ? raw.sections : []) {
+    const bars = Math.max(4, Math.min(32, Math.round((Number(sec.bars) || 8) / 4) * 4));
+    const ck = ident(sec.chords);
+    const play = [];
+    for (const ref of Array.isArray(sec.play) ? sec.play : []) {
+      const [pn, vn] = String(ref).split(/[.:]/);
+      const part = parts.find((q) => q.id === ident(pn));
+      if (!part) continue;
+      const variant = vn && part.variants.includes(ident(vn)) ? ident(vn) : 'main';
+      if (!play.some((x) => x.part === part.id)) play.push({ part: part.id, variant });
+    }
+    if (!play.length && sections.length) play.push(...sections[sections.length - 1].play);
+    if (!play.length) play.push({ part: parts[0].id, variant: 'main' });
+    const name = String(sec.name || sec.type || 'section').slice(0, 40);
+    sections.push({ name, type: sectionType(name), bars, chords: chords[ck] ? ck : firstChords, play });
+  }
+  if (sections.length < 2) throw new Error('fewer than 2 sections');
+  return { bpm, key: String(raw.key || scale.replace(':', ' ')), scale, chords, hook, parts, sections };
+}
+
+/** The part that gets the one-bar fill before choruses / drops (drums with a "fill" variant). */
+const fillPart = (sheet) => sheet.parts.find((p) => p.variants.includes('fill') && /drum|perc|beat/i.test(p.role + p.id)) ||
+  sheet.parts.find((p) => p.variants.includes('fill'));
+/** Library const names the sections need (+ the fill variant). */
+function libraryIds(sheet) {
+  const ids = new Set();
+  for (const sec of sheet.sections) for (const x of sec.play) ids.add(`${x.part}_${x.variant}`);
+  const fp = fillPart(sheet);
+  if (fp) ids.add(`${fp.id}_fill`);
+  return [...ids];
+}
+const isFnPart = (lib, id) => new RegExp(`(?:const|let|var)\\s+${id}\\s*=\\s*\\(?\\s*[A-Za-z_$][\\w$]*\\s*\\)?\\s*=>`).test(lib);
+const definesId = (lib, id) => new RegExp(`(?:const|let|var)\\s+${id}\\s*=`).test(lib);
+const partExpr = (lib, id) => (isFnPart(lib, id) ? `${id}(sectionChords)` : id);
+
+/**
+ * Strudel's transpiler turns double-quoted (and backtick) strings into mini-notation.
+ * The silent test runs plain JS, so do the same: "bd sd" → mini("bd sd").
+ */
+function miniStrings(code) {
+  let out = '', i = 0;
+  while (i < code.length) {
+    const c = code[i], d = code[i + 1];
+    if (c === '/' && d === '/') { const e = code.indexOf('\n', i); const j = e < 0 ? code.length : e; out += code.slice(i, j); i = j; continue; }
+    if (c === '/' && d === '*') { const e = code.indexOf('*/', i + 2); const j = e < 0 ? code.length : e + 2; out += code.slice(i, j); i = j; continue; }
+    if (c === '"' || c === "'" || c === '`') {
+      let j = i + 1;
+      while (j < code.length && code[j] !== c) j += code[j] === '\\' ? 2 : 1;
+      const lit = code.slice(i, j + 1);
+      out += c === "'" || (c === '`' && lit.includes('${')) ? lit : `mini(${c === '`' ? JSON.stringify(lit.slice(1, -1)) : lit})`;
+      i = j + 1;
+      continue;
+    }
+    out += c;
+    i++;
+  }
+  return out;
+}
+
+/**
+ * Play the library silently (no editor, no scheduler): build every part with every
+ * progression and query a few bars. Returns an Error or null.
+ */
+function testLibrary(lib, sheet) {
+  const ids = libraryIds(sheet);
+  const body = miniStrings(lib.replace(/^\s*setcp[ms]\([^)]*\)\s*;?\s*$/gm, '')).replace(/\bslider\(/g, '__slider(') +
+    `\nreturn (sectionChords) => stack(${ids.map((id) => partExpr(lib, id)).join(', ')});`;
+  let make;
+  try { make = new Function('__slider', '"use strict";\n' + body)((v) => v); }
+  catch (e) { return e; }
+  for (const prog of Object.values(sheet.chords)) {
+    let pat;
+    try { pat = make(globalThis.mini ? globalThis.mini(prog) : prog); } catch (e) { return e; }
+    if (!pat || typeof pat.queryArc !== 'function') return new Error('the parts are not Strudel patterns');
+    const err = dryRun(pat);
+    if (err) return err;
+  }
+  return null;
+}
+
+async function writeSongSheet(song, signal) {
+  const prev = setl.songs[setl.songs.indexOf(song) - 1]?.sheet;
+  let msg = `SONG: "${song.title}" — ${song.desc}\n` +
+    (prev ? `The previous song was ${prev.bpm} bpm in ${prev.key}; this one should flow from it (a related key or a nearby tempo is nice).\n` : '') +
+    'Write the song sheet JSON.';
+  let lastErr;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    song.phase = 'writing the song sheet';
+    const text = await requestLLM({ mode: 'sheet', messages: [{ role: 'user', content: msg }], signal });
+    try { return normalizeSheet(parseJSONLoose(text)); }
+    catch (e) {
+      lastErr = e;
+      msg = msg.replace(/\n\nYOUR PREVIOUS REPLY[\s\S]*$/, '') +
+        `\n\nYOUR PREVIOUS REPLY could not be used (${e.message}). Reply with ONLY the JSON object, exactly in the example's format.`;
+    }
+  }
+  throw new Error(`no usable song sheet (${lastErr?.message})`);
+}
+
+/** Write (or repair) the part library. Returns checked, corrected library code. */
+async function writeSongLibrary(song, signal, { fix = null, prev = null } = {}) {
+  const sh = song.sheet;
+  const fp = fillPart(sh);
+  const need = libraryIds(sh).map((id) => {
+    const p = sh.parts.find((q) => id.startsWith(q.id + '_'));
+    const variant = id.slice(p.id.length + 1);
+    const kind = HARMONIC_ROLE.test(p.role) ? 'function of prog' : 'plain pattern';
+    const extra = p.role === 'melody' && /hook/.test(p.id + p.desc) ? ` — plays the hook: n("${sh.hook}").scale("${sh.scale}")` : '';
+    const vdesc = variant === 'main' ? '' : variant === 'fill' && p === fp ? ' (ONE-bar fill leading into the next section)' : ` (${variant} version of ${p.id}_main)`;
+    return `- ${id}  [${kind}]  ${p.role}, sound ${p.sound || '(your choice)'}: ${p.desc}${vdesc}${extra}`;
+  });
+  const base =
+    `SONG: "${song.title}" — ${song.desc}\n` +
+    `Tempo line: setcpm(${sh.bpm}/4)   Key / scale: ${sh.key} → .scale("${sh.scale}")\n` +
+    `Chord progressions the sections use: ${Object.entries(sh.chords).map(([k, v]) => `${k} ${v}`).join(' · ')}\n` +
+    `Hook (scale degrees): "${sh.hook}"\n\n` +
+    `Write the part library. Define EXACTLY these consts:\n${need.join('\n')}`;
+  let content = fix && prev
+    ? `${base}\n\nTHE CURRENT LIBRARY:\n\`\`\`javascript\n${prev}\n\`\`\`\nIt failed when played: ${fix}${/scale/i.test(fix) ? '\n' + scaleHelp() : ''}\nReturn the corrected COMPLETE library.`
+    : base;
+  let lastErr;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    song.phase = fix ? 'fixing the parts' : 'writing the parts';
+    const text = await requestLLM({ mode: 'library', messages: [{ role: 'user', content }], signal });
+    let lib = extractCode(text);
+    let err = null;
+    if (!lib) err = 'no ```javascript code block in the reply';
+    else {
+      // the app owns the tempo line
+      lib = `setcpm(${sh.bpm}/4)\n` + lib.replace(/^\s*setcp[ms]\([^)]*\)\s*;?\s*$/gm, '').trim();
+      const missing = libraryIds(sh).filter((id) => !definesId(lib, id));
+      if (missing.length) err = `these consts are missing: ${missing.join(', ')}`;
+      else if (patternLines(lib).length) err = 'the library must not contain labelled lines like "drums:" or "$:" — only const definitions';
+      else err = syntaxError(lib);
+      if (!err) {
+        const prep = await prepareCode(lib, { quiet: true });
+        lib = prep.code;
+        err = prep.error || testLibrary(lib, sh)?.message || null;
+      }
+    }
+    if (!err) return lib;
+    lastErr = err;
+    content = `${base}\n\nYOUR PREVIOUS LIBRARY:\n\`\`\`javascript\n${lib || ''}\n\`\`\`\nIt can't be used: ${err}${/scale/i.test(err) ? '\n' + scaleHelp() : ''}\nReturn the corrected COMPLETE library.`;
+  }
+  throw new Error(`no usable part library (${lastErr})`);
+}
+
+/** Full program for one section: the library, then one labelled group per part. */
+function sectionCode(song, sec, { fill = false } = {}) {
+  const lib = song.library;
+  const fp = fill ? fillPart(song.sheet) : null;
+  const lines = [
+    `// ${song.title} — ${sec.name}${fill ? ' (fill)' : ''} · ${fill ? 1 : sec.bars} bars · chords: ${sec.chords}`,
+    LIB_START,
+    lib.trim(),
+    '',
+    SEC_START,
+    `const sectionChords = ${JSON.stringify(song.sheet.chords[sec.chords])}`,
+  ];
+  for (const x of sec.play) {
+    const id = `${x.part}_${fp && x.part === fp.id ? 'fill' : x.variant}`;
+    lines.push(`${x.part}: ${partExpr(lib, id)}.postgain(slider(1, 0, 1.5))`);
+  }
+  return lines.join('\n') + '\n';
+}
+
+/** Engine steps for a sheet song: one per section, plus a one-bar fill before choruses / drops. */
+function arrangeSong(song) {
+  const sh = song.sheet;
+  const fp = fillPart(sh);
+  const steps = [];
+  sh.sections.forEach((sec, j) => {
+    const next = sh.sections[j + 1];
+    const wantFill = fp && next && ['chorus', 'drop'].includes(next.type) && sec.bars >= 4 &&
+      sec.play.some((x) => x.part === fp.id) && next.type !== sec.type;
+    const prevFill = steps[steps.length - 1]?.fillStep;
+    steps.push({
+      bars: wantFill ? sec.bars - 1 : sec.bars, prompt: sec.name, section: sec, code: sectionCode(song, sec),
+      status: 'ready', error: null,
+      // land a drop, and the downbeat after a fill, hard; everything else uses the fade setting
+      fade: prevFill || sec.type === 'drop' ? 0 : undefined,
+    });
+    if (wantFill) {
+      steps.push({ bars: 1, prompt: `${sec.name} · fill`, section: sec, fillStep: true, code: sectionCode(song, sec, { fill: true }), status: 'ready', error: null, fade: 0 });
+    }
+  });
+  return steps;
+}
+
+/** A section failed when it was about to play: fix the library and re-arrange the song's unplayed sections. */
+function repairSong(song, err) {
+  song.repairing ||= (async () => {
+    addMsg('info', `🔧 “${song.title}”: a section failed (${err}) — fixing the parts…`);
+    song.library = await writeSongLibrary(song, setl.abort?.signal, { fix: err, prev: song.library });
+    for (const st of song.blocks || []) {
+      if (['playing', 'done', 'armed'].includes(st.status)) continue;
+      st.code = sectionCode(song, st.section, { fill: !!st.fillStep });
+      st.status = 'ready';
+      st.error = null;
+    }
+  })().finally(() => { song.repairing = null; });
+  return song.repairing;
+}
+
+/**
+ * When the next section of the same song switches in, keep what the performer changed:
+ * fader positions in the parts, group faders, and mute / solo.
+ */
+function carryLiveState(prev, next) {
+  const span = (c) => { const a = c.indexOf(LIB_START), b = c.indexOf(SEC_START); return a >= 0 && b > a ? [a, b] : null; };
+  const ps = span(prev), ns = span(next);
+  let out = next;
+  if (ps && ns && sliderless(prev.slice(...ps)) === sliderless(next.slice(...ns))) out = next.slice(0, ns[0]) + prev.slice(...ps) + next.slice(ns[1]);
+  if (!ps || !ns) return out;
+  const prevLines = prev.split('\n');
+  const groups = new Map(patternLines(prev).map((r) => [r.base, { ...r, text: prevLines[r.line] }]));
+  return out.split('\n').map((line) => {
+    const m = line.match(LABEL_LINE);
+    const g = m && groups.get(parseLabel(m[1]).base);
+    if (!g) return line;
+    let l = line.replace(LABEL_LINE, makeLabel({ base: g.base, muted: g.muted, solo: g.solo }) + ':');
+    const v = g.text.match(/\.postgain\(slider\(\s*([\d.]+)/);
+    if (v) l = l.replace(/\.postgain\(slider\(\s*[\d.]+/, `.postgain(slider(${v[1]}`);
+    return l;
+  }).join('\n');
+}
+
 /** Write (or reuse) a song's blocks and append them to the engine. */
+/** Sheet → library → arranged steps; null when that fails (the song is then written block by block). */
+async function sheetSteps(song) {
+  song.status = 'writing';
+  try {
+    song.sheet = await writeSongSheet(song, setl.abort.signal);
+    song.library = await writeSongLibrary(song, setl.abort.signal);
+    song.phase = null;
+    return arrangeSong(song);
+  } catch (e) {
+    if (e.name === 'AbortError') throw e;
+    song.sheet = song.sheet || null;
+    song.library = null;
+    addMsg('info', `“${song.title}”: ${e.message} — writing it block by block instead`);
+    return null;
+  }
+}
+
 async function appendSong(k) {
   const song = setl.songs[k];
   if (!song) return;
@@ -2320,8 +2555,11 @@ async function appendSong(k) {
   if (song.blocks?.length) {
     // already written (loop / jump back): reuse blocks and their code
     steps = song.blocks.map((b) => ({ ...b, status: b.code ? 'ready' : 'waiting', startedAt: undefined, genPromise: undefined, error: null }));
+  } else if ((steps = await sheetSteps(song))) {
+    // song sheet → part library → sections arranged by the app
   } else {
     song.status = 'writing';
+    song.phase = 'writing blocks one by one';
     const prev = [...setlist.steps].reverse().find((st) => st.code)?.code || getCode();
     const lines = await writeBlocks(
       `Song "${song.title}": ${song.desc}\n` +
@@ -2338,6 +2576,7 @@ async function appendSong(k) {
   song.firstStep = steps[0];
   song.bars = steps.reduce((a, b) => a + b.bars, 0);
   if (song.status !== 'playing') song.status = 'ready';
+  song.phase = null;
   appendSteps(steps);
   return steps;
 }
@@ -2423,6 +2662,7 @@ function makeFeeder() {
         setl.songs.splice(0, cut);
         setl.current -= cut;
         setl.nextSong -= cut;
+        if (songSel.station != null) songSel.station = songSel.station >= cut ? songSel.station - cut : null;
       }
     },
     onStop: () => stopSet(false),
@@ -2444,6 +2684,7 @@ function startSet(mode, { at = 0, keepSongs = false } = {}) {
     setl.songs = [];
   }
   stopSet(false);
+  songSel[mode] = null; // follow the song that is playing
   Object.assign(setl, { running: true, mode, nextSong: at, current: at - 1, forceJump: null, abort: new AbortController(), textDirty: false });
   startSetlist({ steps: [], feeder: makeFeeder() });
   updateSetButtons();
@@ -2486,28 +2727,95 @@ function updateSetButtons() {
 
 const SONG_ICON = { waiting: '·', writing: '✎', ready: '✓', playing: '▶', done: '✔', failed: '✗' };
 let lastSongsKey = '';
-function songsHTML(songs, live) {
+const songSel = { set: null, station: null }; // index of the song shown in each tab's song view
+
+function songMeta(sg) {
+  const sh = sg.sheet;
+  if (sg.phase) return `✎ ${sg.phase}…`;
+  if (!sg.blocks) return sh ? `${sh.bpm} bpm · ${sh.key}` : '';
+  const coded = sg.blocks.filter((b) => b.code).length;
+  return sh && sg.library
+    ? `${sh.bpm} bpm · ${sh.key} · ${sh.sections.length} sections · ${sg.bars} bars · ~${fmtTime((sg.bars * 4 * 60) / sh.bpm)}`
+    : `${sg.blocks.length} blocks · ${sg.bars} bars · ${coded}/${sg.blocks.length} coded`;
+}
+function songsHTML(songs, live, sel) {
   return songs.map((sg, k) => {
-    const blocks = sg.blocks ? `${sg.blocks.length} blocks · ${sg.bars} bars · ${sg.blocks.filter((b) => b.code).length}/${sg.blocks.length} coded` : '';
-    return `<div class="song ${sg.status}">
+    const meta = songMeta(sg);
+    return `<div class="song ${sg.status}${k === sel ? ' selected' : ''}" data-k="${k}" title="Show this song's sheet and sections">
       <span class="ico">${SONG_ICON[sg.status] || '·'}</span>
       <div class="body"><div class="t">${k + 1}. ${esc(sg.title)}</div><div class="d">${esc(sg.desc)}</div>
-        ${blocks ? `<div class="meta">${blocks}</div>` : ''}${sg.error ? `<div class="err">${esc(sg.error)}</div>` : ''}</div>
+        ${meta ? `<div class="meta">${esc(meta)}</div>` : ''}${sg.error ? `<div class="err">${esc(sg.error)}</div>` : ''}</div>
       <button class="jump" data-song="${k}" title="Switch to this song">⏭ go</button>
     </div>`;
   }).join('') + (live && setl.planning ? '<div class="song writing"><span class="ico">✎</span><div class="body"><div class="d">planning the next songs…</div></div></div>' : '');
 }
+
+/** The song sheet and the sections of one song, with live status and jump buttons. */
+function songViewHTML(sg, live) {
+  if (!sg) return '';
+  const sh = sg.sheet;
+  const isCurrent = live && setl.songs[setl.current] === sg;
+  let h = `<div class="sv-head"><b>${esc(sg.title)}</b>${isCurrent ? ' <span class="sv-live">▶ playing</span>' : ''}</div>
+    <div class="sv-desc">${esc(sg.desc)}</div>`;
+  if (sg.phase) h += `<div class="sv-phase">✎ ${esc(sg.phase)}…</div>`;
+  if (sh) {
+    h += `<div class="sv-grid">
+      <span class="k">tempo</span><span>${sh.bpm} bpm · ${esc(sh.key)} <code>${esc(sh.scale)}</code></span>
+      <span class="k">chords</span><span>${Object.entries(sh.chords).map(([k, v]) => `<span class="chip"><b>${esc(k)}</b> ${esc(v.replace(/^<|>$/g, ''))}</span>`).join(' ')}</span>
+      <span class="k">hook</span><span><code>${esc(sh.hook)}</code></span>
+      <span class="k">parts</span><span>${sh.parts.map((p) => `<span class="chip part" style="--c:${vizColor(p.id)}" title="${esc(`${p.role} · ${p.desc}${p.variants.length > 1 ? ` · variants: ${p.variants.join(', ')}` : ''}`)}"><b>${esc(p.id)}</b> ${esc(p.sound)}</span>`).join(' ')}</span>
+    </div>`;
+  }
+  const steps = sg.blocks || (sh ? sh.sections.map((sec) => ({ section: sec, bars: sec.bars, prompt: sec.name, status: 'waiting' })) : []);
+  if (steps.length) {
+    if (isCurrent) {
+      h += `<div class="sv-tools"><button class="sv-hold" title="Stay on the current section until you pick another one">${setlist.hold ? '▶ continue the song' : '⏸ hold this section'}</button>
+        <small class="muted">Alt+1…9 jump to a section</small></div>`;
+    }
+    h += '<div class="sv-sections">' + steps.map((st, j) => {
+      const i = setlist.steps.indexOf(st);
+      const queued = i >= 0 && setlist.jumpTarget === i && st.status !== 'armed' && st.status !== 'playing';
+      const sec = st.section;
+      const parts = sec ? sec.play.map((x) => `<span class="chip part" style="--c:${vizColor(x.part)}">${esc(x.part)}${x.variant !== 'main' ? `<small>.${esc(st.fillStep && fillPart(sh)?.id === x.part ? 'fill' : x.variant)}</small>` : st.fillStep && fillPart(sh)?.id === x.part ? '<small>.fill</small>' : ''}</span>`).join('') : '';
+      const name = sec ? `${esc(st.prompt)}${sec && !st.fillStep ? ` <span class="sv-chords">${esc(sec.chords)}</span>` : ''}` : esc(st.prompt);
+      return `<details class="step ${st.status}${queued ? ' queued' : ''}${st.fillStep ? ' fill' : ''}" data-j="${j}">
+        <summary><span class="ico">${queued ? '⏭' : STATUS_ICON[st.status] || ''}</span>
+          <span class="bars">${st.bars}</span><span class="prompt">${name}${parts ? `<span class="sv-parts">${parts}</span>` : ''}</span>
+          ${st.error ? `<span class="err">— ${esc(st.error)}</span>` : ''}${queued ? '<span class="next">next</span>' : ''}
+          ${i >= 0 ? `<button class="jump" data-i="${i}" title="Switch to this section${j < 9 && isCurrent ? ` (Alt+${j + 1})` : ''}">⏭ go</button>` : ''}</summary>
+        ${st.code ? `<pre>${esc(st.code.slice(st.code.indexOf(SEC_START) >= 0 ? st.code.indexOf(SEC_START) : 0))}</pre>` : ''}
+      </details>`;
+    }).join('') + '</div>';
+  }
+  if (sg.library) h += `<details class="sv-lib"><summary>parts code (shared by every section)</summary><pre>${esc(sg.library)}</pre></details>`;
+  return h;
+}
+
 function renderSongs() {
-  // Set list tab: the running/last set (until the text is edited), otherwise a preview of the text
+  // Songs tab: the running/last set (until the text is edited), otherwise a preview of the text
   const setSongs = setl.mode === 'set' && setl.songs.length && !setl.textDirty ? setl.songs : parseSongs($('setText').value);
   const stationSongs = setl.mode === 'station' ? setl.songs : [];
   const now = setl.mode === 'station' ? setl.songs[setl.current] : null;
-  const key = JSON.stringify([setl.running, setl.mode, setl.planning, now?.title,
-    ...[setSongs, stationSongs].map((l) => l.map((sg) => [sg.title, sg.status, sg.bars, sg.blocks?.filter((b) => b.code).length, sg.error]))]);
+  const pick = (tab, list) => {
+    const k = songSel[tab] ?? (setl.running && setl.mode === tab && setl.current >= 0 ? setl.current : null);
+    return k != null && list[k] ? k : null;
+  };
+  const selSet = pick('set', setSongs), selSt = pick('station', stationSongs);
+  const stepKey = (sg) => sg?.blocks?.map((b) => b.status + (b.code ? b.code.length : 0) + (b.error || '')).join() || '';
+  const key = JSON.stringify([setl.running, setl.mode, setl.planning, now?.title, selSet, selSt, setlist.hold, setlist.jumpTarget, setl.current,
+    ...[setSongs, stationSongs].map((l) => l.map((sg) => [sg.title, sg.status, sg.phase, sg.bars, sg.blocks?.filter((b) => b.code).length, sg.error, !!sg.sheet])),
+    stepKey(setSongs[selSet]), stepKey(stationSongs[selSt])]);
   if (key === lastSongsKey) return;
   lastSongsKey = key;
-  $('setStatus').innerHTML = songsHTML(setSongs, setl.running && setl.mode === 'set');
-  $('stationStatus').innerHTML = songsHTML(stationSongs, setl.running && setl.mode === 'station');
+  $('setStatus').innerHTML = songsHTML(setSongs, setl.running && setl.mode === 'set', selSet);
+  $('stationStatus').innerHTML = songsHTML(stationSongs, setl.running && setl.mode === 'station', selSt);
+  for (const [id, sg, live] of [['setSongView', setSongs[selSet], setl.running && setl.mode === 'set'], ['stationSongView', stationSongs[selSt], setl.running && setl.mode === 'station']]) {
+    const el = $(id);
+    const open = new Set([...el.querySelectorAll('details[open]')].map((d) => d.dataset.j ?? 'lib'));
+    el.hidden = !sg;
+    el.innerHTML = songViewHTML(sg, live);
+    for (const d of el.querySelectorAll('details')) if (open.has(d.dataset.j ?? 'lib')) d.open = true;
+  }
   const onAir = setl.mode === 'station' && setl.running;
   $('stationNow').hidden = !onAir;
   if (onAir) {
@@ -2518,9 +2826,19 @@ function renderSongs() {
 }
 setInterval(renderSongs, 300);
 for (const id of ['setStatus', 'stationStatus']) {
+  const tab = id === 'stationStatus' ? 'station' : 'set';
   $(id).addEventListener('click', (e) => {
     const b = e.target.closest('.jump[data-song]');
-    if (b) jumpToSong(Number(b.dataset.song), id === 'stationStatus' ? 'station' : 'set');
+    if (b) { jumpToSong(Number(b.dataset.song), tab); return; }
+    const row = e.target.closest('.song[data-k]');
+    if (row) { const k = Number(row.dataset.k); songSel[tab] = songSel[tab] === k ? null : k; lastSongsKey = ''; renderSongs(); }
+  });
+}
+for (const id of ['setSongView', 'stationSongView']) {
+  $(id).addEventListener('click', (e) => {
+    const go = e.target.closest('.jump[data-i]');
+    if (go) { e.preventDefault(); e.stopPropagation(); jumpTo(Number(go.dataset.i)); return; }
+    if (e.target.closest('.sv-hold')) { e.preventDefault(); setHold(!setlist.hold); renderSongs(); }
   });
 }
 

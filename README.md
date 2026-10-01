@@ -73,7 +73,7 @@ Browser ── Strudel REPL (web component, WebAudio) ◄── setCode() + eval
 - **fade** (in the header) crossfades into the new code instead of cutting: *cut*, *1 beat*, *2 beats* (default), *1 bar* or *2 bars*.
   - During the fade both versions play. The old one's notes get quieter and the new one's louder (equal-power curves, applied to each note's velocity). The new code lands on the bar line at full level.
   - Notes that both versions play at the same moment, such as a kick that doesn't change, are played once at full level, so the shared groove doesn't dip.
-  - It applies to AI changes, song blocks, set lists and stations. Mute/solo, live edits and *immediately* switches stay instant.
+  - It applies to AI changes, songs and stations. Mute/solo, live edits and *immediately* switches stay instant.
   - Strudel has one audio engine, so the crossfade happens in the pattern itself rather than by running a second Strudel and fading between them. That keeps both versions on exactly the same clock.
 - The header shows `bar.beat` and the current BPM.
 - Each chat reply also has **▶ Apply now** and **⏱ Apply on bar** buttons.
@@ -100,45 +100,52 @@ Tick **⚡ live** in the header and your edits in the code window take effect ab
 - **Combined views:** piano roll + spectrum, and piano roll + oscilloscope.
 - **Dock** it under the code, above it, or at the top of the side panel, and drag its edge to resize. All of this is remembered.
 
-## Song blocks, Set list & 📻 Station
-
-There are three layers, each built on the one below:
+## 🎵 Songs & 📻 Station
 
 | Tab | What you give it | What it does |
 |---|---|---|
-| **Blocks** | the sections of one song: `bars \| instruction` lines | writes code for every block ahead of time and switches each one in exactly on the bar line |
-| **Set list** | songs: `title \| description` lines | for each song, the AI writes its blocks and their code while the previous song plays, then hands over on the bar line |
+| **🎵 Songs** | a set list: `title \| description` lines | writes each song while the previous one plays, then hands over on the bar line |
 | **📻 Station** | a theme | an agent keeps inventing new songs for the theme, writes them and plays them, forever |
 
-### Blocks
-```
-8  | intro at 124 bpm: soft kick and closed hats only
-16 | add a sub bass in C minor and a clap on 2 and 4
-8  | breakdown: drop kick and bass, add a pad and a filtered arpeggio
-16 | drop: everything back, open the bass filter
-```
-- **▶ Play blocks** writes code for every block ahead of time, each building on the previous one. The first block switches in on the next boundary, and each later one exactly when the previous block's bars are over.
-- **Jump:** click **⏭ go** on any block, or press **Alt+1 … Alt+9**. **auto-advance** off holds the current block until you pick another.
-- **Skipping ahead** stops writing the blocks above the one you picked that have no code yet, including a request that's in progress. Generation continues from the picked block, building on the code that's playing. Skipped blocks show ↷. With **loop** on they're written when the blocks come round again.
-- **Sections change, not just grow:** the AI is told that blocks may remove parts as well as add them (it deletes what an instruction drops), to keep about 5 groups, and to switch up the beat (new kick patterns, half-time, broken beats, swing). **✨ Write with AI** plans sections that take things away and change the groove.
-- **loop** repeats the blocks. **✨ Write with AI** turns a description into blocks. **+ Block** (under Send in the chat) adds what you typed as an 8-bar block.
-- If a block fails, it's regenerated with the error, or skipped, and the set keeps going.
+### How a song is written: song sheet → parts → arrangement
+1. **Song sheet.** The AI plans the whole song as data:
+   - tempo, key and scale;
+   - 2–3 chord progressions, e.g. *verse* `Am F C G`, *chorus* `F G Am Am`;
+   - a one-bar **hook** melody;
+   - 4–7 **parts** (drums, bass, keys, pad, hook …), each with one sound and optional variants such as `drums.half` or `drums.fill`;
+   - the **form**, with section names that fit the genre:
+     - pop / synthwave / house: intro, verse, pre-chorus, chorus, verse, pre-chorus, chorus, bridge, chorus, outro
+     - EDM: intro, build, drop, breakdown, build, drop, outro
+     - lo-fi: intro, A, A, B, A, outro
 
-### Set list
+   The form decides the song's length. Each section says which chords it uses and which parts play.
+2. **Parts.** The AI writes every part once, as a library of named patterns (`drums_main`, `bass_main` …).
+   - Harmonic parts (bass, chords, pads, arpeggios) are functions of the chord progression, so each section can give them its own chords.
+   - The library is test-played silently before it's used. If a part is missing or a sound, scale or chord doesn't exist, it goes back to the AI with the error (up to 3 tries).
+3. **Arrangement.** The app builds each section itself: the library, the section's chords, and one labelled group per part that plays.
+   - **Repeats are exact:** a chorus is the same code every time, so the song repeats like a real one, and the key and sounds can't drift.
+   - **Smooth changes:** parts that continue into the next section are identical code, so the crossfade keeps them steady and only what changes fades.
+   - **Fills:** the drums' *fill* variant plays in the last bar before a chorus or drop. The fill and the drop's downbeat cut in hard; everything else uses the *fade* setting.
+   - **Your changes stay:** fader positions and mute/solo carry over from one section to the next.
+   - **Repairs:** if a section fails when it's about to play, the parts are fixed with the error and the song's remaining sections are re-arranged. The old music keeps playing meanwhile.
+   - **Fallback:** if no usable sheet or library comes back, that song is written block by block the old way.
+
+### 🎵 Songs
 ```
 Night Drive | synthwave, 100 bpm, A minor, pulsing bass, neon pads; slow build, big chorus
 Rain on Glass | lo-fi hip hop, 80 bpm, jazzy Rhodes chords, vinyl crackle; laid back
 ```
-- **▶ Start set:** the AI writes song 1's blocks and code. While song 1 plays, song 2 is written, and so on, always one song ahead.
-- **Song changes:** each song's first block is told to start a fresh arrangement — its own tempo, key and sounds — and the switch happens on the bar line after the previous song's last block.
-- **Jump:** **⏭ go** jumps to any song. If it isn't written yet, it's written first and switched in as soon as it's ready.
-- **Progress:** the Blocks tab shows the running blocks grouped under each song's name.
-- **loop** replays the set using the code that's already written, so looping needs no further AI calls. **✨ Write with AI** turns a theme into a set list.
+- **▶ Start set:** song 1 is written, then song 2 is written while song 1 plays, always one song ahead. Each song's sheet is asked to flow from the previous song (a related key or a nearby tempo).
+- **Click a song** to see its **song sheet**: tempo, key, chords, hook and parts, then its sections with their chords, the parts playing, and live status (✓ ready, ⏱ armed, ▶ playing). Each section's code and the shared parts code can be expanded. While a set runs, the view follows the playing song until you click another.
+- **Jump:** **⏭ go** on a song jumps to it. If it isn't written yet, it's written first and switched in as soon as it's ready. **⏭ go** on a section jumps to that section on the next boundary, and **Alt+1 … Alt+9** jump to the playing song's sections.
+- **⏸ hold this section** stays on the current section until you pick another or press **▶ continue the song**.
+- **Skipping ahead** stops writing anything above the section you picked that has no code yet (only possible for songs written block by block).
+- **loop** replays the set with the code that's already written, so looping needs no further AI calls. **✨ Write with AI** turns a theme into a set list.
 
 ### 📻 Station
 - **Setup:** pick or create a station: a name and a theme, e.g. *"late-night lo-fi with jazzy chords, 70–90 bpm, rainy city mood"*. Stations are saved in the browser, and three examples are included.
 - **How the agent runs:** **📻 Start station** starts an agent that keeps the queue filled with **songs ahead** (1–3) planned songs. It asks the AI for new songs that fit the theme, aren't in the recently played list, and flow from the last one (related keys and tempos, an energy arc). Then it writes and plays them like a set list, endlessly.
-- **What you see:** the **On air** box shows the current song, and the list shows what's played, playing and coming up. **⏭ go** works there too.
+- **What you see:** the **On air** box shows the current song, and the list shows what's played, playing and coming up. Click a song for its sheet and sections. **⏭ go**, hold and Alt+1…9 work as in the Songs tab.
 - If the AI fails 5 times in a row, the station stops itself.
 
 ## About
@@ -196,12 +203,12 @@ Hold **🎤 Hold to hum** (or hold the **`** key while the editor isn't focused)
   - **Nothing playing** (no AI reply in progress, no blocks / set / station running, no pending change): the page saves your session — code, chat, undo history and unsent text — then reloads itself and restores it.
   - **Music playing:** reloading would cut the audio, so a green **⬆ vX ready — applies when you stop** pill appears instead. The update applies as soon as you press Stop, or right away if you click the pill.
 - **Share links:** **🔗 Share** creates a short link like `https://your-host/s/AbC123xyz0` and copies it.
-  - Opening it loads the song into the editor and, if you ticked *include song blocks & set list*, those too. It doesn't start playing until you press ▶.
+  - Opening it loads the song into the editor and, if you ticked *include the set list*, the set list too. It doesn't start playing until you press ▶.
   - The person's previous code stays one ↶ Undo away, and the address bar goes back to `/` so a refresh doesn't overwrite their later edits.
   - Shared songs are stored in the `songs` Docker volume, so they survive rebuilds.
   - Anyone who can reach your server can open a link. There are no accounts, so don't share anything private.
 - **Recordings — share a generated song exactly as it played:**
-  - **What's recorded:** from the moment playback starts until you stop it, every code change that actually plays is recorded with the cycle (bar) it took effect on. That covers AI song blocks, set lists and stations, chat changes, your own Ctrl+Enter / live edits, mutes and solos, and fader moves.
+  - **What's recorded:** from the moment playback starts until you stop it, every code change that actually plays is recorded with the cycle (bar) it took effect on. That covers songs and stations, chat changes, your own Ctrl+Enter / live edits, mutes and solos, and fader moves.
   - **Sharing:** tick *include recording* in the share pop-up. It shows how many changes and roughly how long. The current take is shared while it's still playing, otherwise the last one.
   - **Replaying:** the link offers **⏺ Play the recording**. Playback restarts from bar 1 and every change is switched in on exactly the same cycle as the original, so tempo changes, bar-line switches and Strudel's cycle-based randomness all come out the same. The replay stops at the point where the original was stopped. The pulsing **⏺ replaying · stop** pill stops following the recording and leaves the music playing.
   - **Re-sharing:** a link opened from a recording keeps it, so sharing it again includes the recording.

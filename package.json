@@ -1,6 +1,6 @@
 {
   "name": "strudel-ai",
-  "version": "1.15.0",
+  "version": "1.16.0",
   "description": "Strudel live-coding REPL with an AI chat co-pilot (llama.cpp / OpenWebUI)",
   "main": "server.js",
   "type": "module",
