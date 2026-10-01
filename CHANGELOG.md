@@ -2,6 +2,19 @@
 
 The version is in `package.json`. Bump it when you release. Open pages also notice *any* redeploy through the build id, which is a hash of the app files, even if the version wasn't bumped.
 
+## 1.17.0
+- **🎼 Song forms you can edit:** the forms songs follow (pop, edm, drum & bass, hip hop, lo-fi, ambient, short) are now editable data.
+  - Change their sections and bar counts, what genres they're used for, or add your own.
+  - The Songs and Station tabs have a **form** picker: *auto* (fits each song's genre) or one fixed form.
+  - The chosen form's bar counts are applied to the song sheet.
+- **Tighter sections:** the built-in forms use 4- and 8-bar sections, so songs run about 32–64 bars. Sections are capped at the form's longest section, or 16 bars.
+- **⌨ Autocomplete in the code editor** (on by default, toggle in the header):
+  - every Strudel function, with its description, parameters and examples;
+  - the sound names that are actually loaded, drum-machine banks, scale names and chord symbols.
+
+  Ctrl+Space opens it any time.
+- **🔗 Share song:** a finished song's view has a share button. The link contains the sheet, the parts and every section, opens in the Songs tab, and **▶ Play this song** plays it exactly, with no AI calls.
+
 ## 1.16.0
 - **Songs are planned as song sheets.** For the Songs tab and the Station, the AI first writes a sheet: tempo, key, 2–3 chord progressions, a hook, the parts and their sounds, and a standard form (verse/chorus, build/drop, A/B …) whose length decides the song's length. Then it writes every part once, and the app arranges the sections from those parts:
   - choruses repeat exactly, and the key and sounds stay consistent;

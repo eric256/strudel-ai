@@ -178,6 +178,7 @@ Reply with the SONG SHEET as ONE JSON object and nothing else: no markdown fence
 
 Example:
 {
+  "form": "pop",
   "bpm": 104,
   "key": "A minor",
   "scale": "A:minor",
@@ -191,27 +192,23 @@ Example:
     { "name": "hook", "role": "melody", "sound": "gm_lead_2_sawtooth", "variants": ["main"], "desc": "plays the hook, bright and short" }
   ],
   "sections": [
-    { "name": "intro", "bars": 8, "chords": "verse", "play": ["pad", "drums.half"] },
-    { "name": "verse 1", "bars": 16, "chords": "verse", "play": ["pad", "drums", "bass"] },
-    { "name": "pre-chorus", "bars": 8, "chords": "bridge", "play": ["pad", "drums", "bass", "keys"] },
-    { "name": "chorus", "bars": 16, "chords": "chorus", "play": ["drums", "bass", "keys", "hook"] },
-    { "name": "verse 2", "bars": 16, "chords": "verse", "play": ["pad", "drums", "bass", "keys"] },
-    { "name": "pre-chorus", "bars": 8, "chords": "bridge", "play": ["pad", "drums", "bass", "keys"] },
-    { "name": "chorus", "bars": 16, "chords": "chorus", "play": ["drums", "bass", "keys", "hook"] },
+    { "name": "intro", "bars": 4, "chords": "verse", "play": ["pad", "drums.half"] },
+    { "name": "verse 1", "bars": 8, "chords": "verse", "play": ["pad", "drums", "bass"] },
+    { "name": "pre-chorus", "bars": 4, "chords": "bridge", "play": ["pad", "drums", "bass", "keys"] },
+    { "name": "chorus", "bars": 8, "chords": "chorus", "play": ["drums", "bass", "keys", "hook"] },
+    { "name": "verse 2", "bars": 8, "chords": "verse", "play": ["pad", "drums", "bass", "keys"] },
+    { "name": "pre-chorus", "bars": 4, "chords": "bridge", "play": ["pad", "drums", "bass", "keys"] },
+    { "name": "chorus", "bars": 8, "chords": "chorus", "play": ["drums", "bass", "keys", "hook"] },
     { "name": "bridge", "bars": 8, "chords": "bridge", "play": ["pad", "keys", "drums.half"] },
-    { "name": "chorus", "bars": 16, "chords": "chorus", "play": ["drums", "bass", "keys", "hook", "pad"] },
-    { "name": "outro", "bars": 8, "chords": "verse", "play": ["pad", "hook"] }
+    { "name": "chorus", "bars": 8, "chords": "chorus", "play": ["drums", "bass", "keys", "hook", "pad"] },
+    { "name": "outro", "bars": 4, "chords": "verse", "play": ["pad", "hook"] }
   ]
 }
 
 Rules:
-- FORM: use a standard form that fits the genre, with these section names:
-  * pop / synthwave / funk / house: intro, verse 1, pre-chorus, chorus, verse 2, pre-chorus, chorus, bridge, chorus, outro
-  * EDM / techno / trance / drum & bass: intro, build, drop, breakdown, build, drop, outro
-  * lo-fi / chill / jazz-hop / downtempo: intro, A, A, B, A, outro
-  * ambient: intro, A, B, A, outro
-  You may drop a pre-chorus or add a short "hook" intro, but keep the shape. The form decides the length
-  (typically 96–192 bars). "bars" is 4, 8 or 16.
+- FORM: the request lists the SONG FORMS you may use (or names the one to use). Pick the one that fits the genre, set
+  "form" to its name, and copy its sections IN ORDER with EXACTLY its bar counts (you may number repeats: "verse 1",
+  "verse 2"). Short sections keep the song moving: never make a section longer than the form says.
 - REPETITION makes it a song: every repeat of a section (each chorus, each A, both drops) uses the SAME "chords" key and
   the SAME "play" list (a final chorus may add one part).
 - CHORDS: 2–3 progressions, 4 chords each, one chord per bar, all in the song's key and scale.

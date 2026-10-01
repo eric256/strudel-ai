@@ -24,6 +24,7 @@
           <option value="16">16 bars</option>
         </select>
       </label>
+      <label class="live" title="Autocomplete in the code editor: Strudel functions (with docs and examples), sounds, drum banks, scales and chords. Ctrl+Space shows it any time."><input type="checkbox" id="autoComplete" checked /> ⌨</label>
       <label id="liveLabel" class="live" title="Live update: edits in the code window take effect as soon as you stop typing"><input type="checkbox" id="liveMode" /> ⚡ live</label>
       <label class="quant" title="Crossfade into each new block / AI change: the old part fades out while the new one fades in, landing on the bar line">fade
         <select id="fade">
@@ -151,6 +152,11 @@
           <span class="spacer"></span>
           <button id="setWrite">✨ Write with AI</button>
         </div>
+        <div class="sl-buttons">
+          <label title="Song form for every song in the set — auto picks one that fits each song's genre">form
+            <select id="setForm" class="form-select"></select></label>
+          <button class="link forms-edit" title="See, edit and add song forms">🎼 edit forms</button>
+        </div>
         <div id="setStatus" class="songs"></div>
         <div id="setSongView" class="song-view" hidden></div>
       </div>
@@ -169,6 +175,11 @@
           <button id="stationStop" disabled>■ Stop</button>
           <label title="How many future songs the agent keeps planned">songs ahead
             <select id="stationAhead"><option>1</option><option selected>2</option><option>3</option></select></label>
+        </div>
+        <div class="sl-buttons">
+          <label title="Song form for the station's songs — auto picks one that fits each song's genre">form
+            <select id="stationForm" class="form-select"></select></label>
+          <button class="link forms-edit" title="See, edit and add song forms">🎼 edit forms</button>
         </div>
         <div id="stationNow" class="on-air" hidden></div>
         <div id="stationStatus" class="songs"></div>
@@ -198,6 +209,26 @@
       </div>
     </aside>
   </main>
+
+  <dialog id="formsDlg" class="about forms">
+    <div class="about-head">
+      <b>🎼 Song forms</b>
+      <button id="formsClose" class="link" title="Close">✕</button>
+    </div>
+    <p class="muted small">A form is the order and length of a song's sections. The AI picks the form that fits each song's genre
+      (or the one you choose in the Songs / Station tab) and copies its sections and bar counts exactly. Saved in this browser.</p>
+    <div class="station-row">
+      <select id="formSelect" title="Song forms"></select>
+      <button id="formNew">＋ New</button>
+      <button id="formDelete" class="link">delete</button>
+    </div>
+    <label class="field">Name <input id="formName" maxlength="40" placeholder="pop" /></label>
+    <label class="field">Use for (genres / moods) <input id="formUse" maxlength="200" placeholder="pop, synthwave, funk, house" /></label>
+    <label class="field">Sections — <span class="muted">name and bars, separated by commas or new lines</span>
+      <textarea id="formSections" rows="5" placeholder="intro 4, verse 8, chorus 8, verse 8, chorus 8, outro 4"></textarea></label>
+    <div id="formPreview" class="form-preview"></div>
+    <div class="sl-buttons"><span class="spacer"></span><button id="formReset" class="link" title="Bring back the built-in forms (your own forms are kept)">restore built-in forms</button></div>
+  </dialog>
 
   <dialog id="aboutDlg" class="about">
     <div class="about-head">
