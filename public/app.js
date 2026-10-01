@@ -1723,8 +1723,11 @@ async function tickSetlist() {
     } else {
       // let the last step play out its bars before declaring the set finished
       if (setlist.nextAt != null && isPlaying() && nowCycle() < setlist.nextAt) return;
-      addMsg('info', `■ ${setlist.feeder?.label || 'song blocks'} finished (last section keeps playing)`);
+      addMsg('info', `■ ${setlist.feeder?.label || 'song blocks'} finished`);
       stopSetlist();
+      // the last section has played out: stop (sounds already scheduled still ring out)
+      mirror()?.stop();
+      if (mp3.autoSong) setTimeout(mp3Stop, 1500);
       return;
     }
   }
@@ -2520,14 +2523,14 @@ function parseSongs(text) {
 // the chosen form's bar counts are enforced on the sheet that comes back.
 // ---------------------------------------------------------------------------
 const DEFAULT_FORMS = [
-  { name: 'pop', use: 'pop, synthwave, funk, disco, indie dance', sections: 'intro 4, verse 8, pre-chorus 4, chorus 8, verse 8, pre-chorus 4, chorus 8, bridge 8, chorus 8, outro 4' },
-  { name: 'verse-chorus', use: 'short pop songs, city pop, synth pop, rock', sections: 'intro 4, verse 8, chorus 8, verse 8, chorus 8, outro 4' },
+  { name: 'pop', use: 'pop, synthwave, funk, disco, indie dance', sections: 'intro 4, verse 8, pre-chorus 4, chorus 4, verse 8, pre-chorus 4, chorus 4, bridge 8, chorus 4, outro 4' },
+  { name: 'verse-chorus', use: 'short pop songs, city pop, synth pop, rock', sections: 'intro 4, verse 8, chorus 4, verse 8, chorus 4, outro 4' },
   { name: 'edm', use: 'EDM, big room, future bass, dubstep, electro', sections: 'intro 8, build 8, drop 8, breakdown 8, build 4, drop 8, outro 4' },
   { name: 'house', use: 'house, deep house, tech house, afro house, nu-disco', sections: 'intro 8, groove 8, build 4, drop 8, break 8, build 4, drop 8, outro 8' },
   { name: 'techno', use: 'techno, minimal, industrial, acid', sections: 'intro 8, groove 8, build 8, peak 8, break 8, peak 8, outro 8' },
   { name: 'trance', use: 'trance, progressive, psytrance, uplifting', sections: 'intro 8, build 8, breakdown 8, build 4, drop 8, breakdown 4, drop 8, outro 8' },
   { name: 'drum & bass', use: 'drum & bass, jungle, breakbeat, liquid', sections: 'intro 8, build 4, drop 8, breakdown 8, build 4, drop 8, outro 4' },
-  { name: 'hip hop', use: 'hip hop, trap, boom bap, r&b', sections: 'intro 4, verse 8, hook 8, verse 8, hook 8, bridge 4, hook 8, outro 4' },
+  { name: 'hip hop', use: 'hip hop, trap, boom bap, r&b', sections: 'intro 4, verse 8, hook 4, verse 8, hook 4, bridge 4, hook 4, outro 4' },
   { name: 'lo-fi', use: 'lo-fi, chillhop, jazz-hop, downtempo, chill', sections: 'intro 4, A 8, A 8, B 8, A 8, outro 4' },
   { name: 'jazz AABA', use: 'jazz, neo-soul, bossa nova, swing, lounge', sections: 'intro 4, A 8, A 8, B 8, A 8, solo 8, A 8, outro 4' },
   { name: 'dub', use: 'dub, reggae, dub techno, ska', sections: 'intro 8, riddim 8, dub 8, riddim 8, dub 8, outro 8' },
@@ -2549,6 +2552,13 @@ function addNewDefaults(list, defaults, kind, oldNames) {
   return out;
 }
 let songForms = addNewDefaults(load().songForms, DEFAULT_FORMS, 'forms', OLD_DEFAULT_FORMS);
+// built-in forms whose choruses used to be 8 bars: update them unless the user changed them
+const OLD_FORM_SECTIONS = { 'pop': 'intro 4, verse 8, pre-chorus 4, chorus 8, verse 8, pre-chorus 4, chorus 8, bridge 8, chorus 8, outro 4', 'verse-chorus': 'intro 4, verse 8, chorus 8, verse 8, chorus 8, outro 4', 'hip hop': 'intro 4, verse 8, hook 8, verse 8, hook 8, bridge 4, hook 8, outro 4' };
+for (const f of songForms) {
+  const d = DEFAULT_FORMS.find((x) => x.name === f.name);
+  if (d && OLD_FORM_SECTIONS[f.name] === f.sections) f.sections = d.sections;
+}
+save({ songForms });
 let formIdx = 0;
 
 /** "intro 4, verse 8 …" → [{ name, bars }] */
@@ -2645,6 +2655,7 @@ renderFormSelects();
 // drift, and parts that continue from one section to the next are identical (the
 // crossfade keeps them steady).
 // ---------------------------------------------------------------------------
+const MAX_CHORUS_BARS = 4;
 const LIB_START = '// ── parts (shared by every section of this song) ──';
 const SEC_START = '// ── this section ──';
 const HARMONIC_ROLE = /bass|chord|pad|key|arp|harmon|string|piano|organ|guitar/i;
@@ -2751,6 +2762,8 @@ function normalizeSheet(raw, choice = 'auto', { enforceForm = true } = {}) {
     for (const sec of sections) sec.bars = Math.min(sec.bars, cap);
   }
   if (!enforceForm) for (const sec of sections) sec.bars = Math.max(1, Math.min(32, sec.bars));
+  // choruses (and hooks) are short and punchy: never longer than 4 bars
+  for (const sec of sections) if (sec.type === 'chorus') sec.bars = Math.min(sec.bars, MAX_CHORUS_BARS);
   return { form: form?.name || String(raw.form || ''), bpm, key: String(raw.key || scale.replace(':', ' ')), scale, chords, hook, parts, sections };
 }
 
@@ -3081,7 +3094,7 @@ async function feedLoop() {
         failures = 0;
         continue;
       }
-      if (ahead < 1 && setl.mode === 'set' && $('setLoop').checked && setl.songs.length) {
+      if (ahead < 1 && setl.mode === 'set' && $('setLoop').checked && !setl.single && setl.songs.length) {
         setl.nextSong = 0;
         continue;
       }
@@ -3109,7 +3122,7 @@ function makeFeeder() {
   return {
     label: setl.mode === 'station' ? `station “${setl.station.name || 'untitled'}”` : 'set list',
     active: () => setl.running && (setl.mode === 'station' || setl.nextSong < setl.songs.length || setl.forceJump !== null ||
-      ($('setLoop').checked && setl.songs.length > 0) || setl.songs.some((sg) => sg.status === 'writing')),
+      ($('setLoop').checked && !setl.single && setl.songs.length > 0) || setl.songs.some((sg) => sg.status === 'writing')),
     onStepStart: (step) => {
       if (!step.song) return;
       const k = setl.songs.indexOf(step.song);
@@ -3151,7 +3164,7 @@ function startSet(mode, { at = 0, keepSongs = false } = {}) {
   }
   stopSet(false);
   songSel[mode] = null; // follow the song that is playing
-  Object.assign(setl, { running: true, mode, nextSong: at, current: at - 1, forceJump: null, abort: new AbortController(), textDirty: false });
+  Object.assign(setl, { running: true, mode, nextSong: at, current: at - 1, forceJump: null, abort: new AbortController(), textDirty: false, single: false });
   startSetlist({ steps: [], feeder: makeFeeder() });
   updateSetButtons();
   addMsg('info', mode === 'station'
@@ -4643,6 +4656,7 @@ function loadSongIntoSet(song) {
 function playSong(song) {
   loadSongIntoSet(song);
   startSet('set', { keepSongs: true });
+  setl.single = true; // one song: stop after its last section, never loop
 }
 $('mySongs').addEventListener('click', (e) => {
   const play = e.target.closest('[data-mine-play]');
@@ -5029,4 +5043,4 @@ $('mp3Btn').onclick = () => (mp3.rec ? mp3Stop() : mp3Start(setl.songs[setl.curr
 setInterval(() => { if (mp3.rec) $('mp3Btn').textContent = `■ ${fmtTime((performance.now() - mp3.rec.t0) / 1000)}`; }, 500);
 
 // handy for debugging from the browser console
-window.strudelAI = { getFavorites: () => favorites, loadFavorites, getPads: () => pads, mySongs, activeSong, songFromJSON, songToJSON, mp3, session, pads, padsState, keysState, noteOn, noteOff, setPad, docks, rec, replay, startReplay, recordingForShare, viz, checkScales, checkSounds, prepareCode, evaluateCode, dryRun, hum, transcribe, ensureSliders, setlist, setl };
+window.strudelAI = { normalizeSheet, playSong, getForms: () => songForms, getFavorites: () => favorites, loadFavorites, getPads: () => pads, mySongs, activeSong, songFromJSON, songToJSON, mp3, session, pads, padsState, keysState, noteOn, noteOff, setPad, docks, rec, replay, startReplay, recordingForShare, viz, checkScales, checkSounds, prepareCode, evaluateCode, dryRun, hum, transcribe, ensureSliders, setlist, setl };

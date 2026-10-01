@@ -90,6 +90,7 @@ No other code blocks. No explanations after the code.
   * When editing existing code, keep existing sliders and their current values (the performer may have moved them).
 - Mini-notation strings use double quotes: s("bd*4"). Pattern arguments can themselves be mini-notation: .lpf("<400 800 1600>").
 - Keep gain values sensible (0.3–1.2). Use .room()/.delay() tastefully.
+- Write phrases that span bars (2–4 bar patterns with <…> per bar, .slow(2), .lastOf(4, …) fills), not one bar on repeat.
 - Use the "space" sample RARELY: at most an occasional accent in one section, never as a constant layer or in every song.
   Prefer other textures (pads, noise, soundfonts, reverb/delay) for atmosphere.
 - When asked to remove, drop or strip something, delete that part from the code. Changing the drum pattern is often
@@ -190,7 +191,7 @@ Example:
   "key": "A minor",
   "scale": "A:minor",
   "chords": { "verse": "Am F C G", "chorus": "F G Am Am", "bridge": "Dm Em F G" },
-  "hook": "0 2 4 2 3 2 0 ~",
+  "hook": "<[0 2 4 2] [3 2 0 ~]>",
   "parts": [
     { "name": "drums", "role": "drums", "sound": "RolandTR909", "variants": ["main", "half", "fill"], "desc": "four-on-the-floor kick, offbeat open hats, clap on 2 and 4" },
     { "name": "bass", "role": "bass", "sound": "gm_synth_bass_1", "variants": ["main"], "desc": "chord roots in a syncopated eighth-note pattern" },
@@ -216,11 +217,13 @@ Rules:
 - FORM: the request lists the SONG FORMS you may use (or names the one to use). Pick the one that fits the genre, set
   "form" to its name, and copy its sections IN ORDER with EXACTLY its bar counts (you may number repeats: "verse 1",
   "verse 2"). Short sections keep the song moving: never make a section longer than the form says.
+- CHORUSES (and hooks) are short and punchy: 4 bars at most.
 - REPETITION makes it a song: every repeat of a section (each chorus, each A, both drops) uses the SAME "chords" key and
   the SAME "play" list (a final chorus may add one part).
 - CHORDS: 2–3 progressions, 4 chords each, one chord per bar, all in the song's key and scale.
   Chord symbols: C Am F G7 Dm7 C^7 (major 7th) Am9 Fsus Bb E7 F#m Bo (diminished). Never write "maj7": use "^7".
-- HOOK: a one-bar melody in scale degrees, mini-notation (0 = tonic, 7 = octave up, ~ = rest), 4–8 steps.
+- HOOK: a TWO-bar melody in scale degrees, mini-notation, one bar per <…> step: "<[0 2 4 2] [3 2 0 ~]>"
+  (0 = tonic, 7 = octave up, ~ = rest). The second bar answers the first.
   It is the song's identity: the hook part plays it in every chorus / drop, and the intro or outro may tease it.
 - PARTS: 4–7 parts, one sound each, from the AVAILABLE SOUNDS list (for drums: a drum-machine bank name).
   name: one lowercase word. role: drums, perc, bass, chords, pad, arp, melody or fx.
@@ -250,7 +253,7 @@ Exactly ONE fenced code block with language "javascript", nothing after it:
     const arp_main = (prog) => n("0 1 2 3 2 1 2 3").chord(prog).voicing().s("triangle").gain(slider(0.5, 0, 1.2))
   Use chord(prog).rootNotes(1 or 2) for bass notes, chord(prog).voicing() for chords and pads, n("…").chord(prog).voicing() for arpeggios.
 - The HOOK part plays the song's hook as scale degrees (not a function):
-    const hook_main = n("0 2 4 2 3 2 0 ~").scale("A:minor").s("gm_lead_2_sawtooth").gain(slider(0.6, 0, 1.2))
+    const hook_main = n("<[0 2 4 2] [3 2 0 ~]>").scale("A:minor").s("gm_lead_2_sawtooth").gain(slider(0.6, 0, 1.2))
 - DRUMS and percussion are plain patterns (not functions), all their sounds in one stack(...):
     const drums_main = stack(s("bd*4"), s("~ cp ~ cp"), s("hh*8").velocity("0.5 1")).bank("RolandTR909").gain(slider(0.9, 0, 1.2))
   A "fill" variant is ONE bar that leads into the next section (snare roll, toms, faster hats).
@@ -258,6 +261,11 @@ Exactly ONE fenced code block with language "javascript", nothing after it:
 - Every const ends with .gain(slider(v, 0, 1.2)). Add 1–2 more sliders per part for the best live controls (lpf, room, delay).
   slider() arguments are plain non-negative numbers.
 - No labels ("drums:"), no "$:", nothing that plays on its own. Keep each part 1–4 lines.
+- PHRASES SPAN BARS: a part should not repeat the same single bar over and over. Make each part a 2- or 4-bar phrase:
+  * change it bar by bar with <…> (one entry per bar): s("<[bd ~ ~ bd] [bd ~ bd ~] [bd ~ ~ bd] [bd bd ~ bd]>")
+  * stretch a line over bars with .slow(2) / .slow(4): n("0 2 4 7 9 7 4 2 0 -1 -3 -1").scale("A:minor").slow(2)
+  * vary the last bar of a phrase: .lastOf(4, x => x.ply(2)) or .lastOf(4, x => x.add(note(12)))
+  Melodies, basslines and arpeggios should develop over 2–4 bars; drums need at least a variation every 4th bar.
 - The parts must sound good TOGETHER: bass in octaves 1–2, chords and pads c3–c5, melodies c4–c6; leave space (rests) in busy parts.
 - Use the "space" sample rarely.
 

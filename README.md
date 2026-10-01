@@ -201,7 +201,7 @@ Rain on Glass | lo-fi hip hop, 80 bpm, jazzy Rhodes chords, vinyl crackle; laid 
   - Opening the link puts the song in the Songs tab with **▶ Play this song**. It plays exactly as written, with no AI calls, so the person opening it doesn't need a model.
   - The opener's own set list text isn't touched.
 - **Skipping ahead** stops writing anything above the section you picked that has no code yet (only possible for songs written block by block).
-- **loop** replays the set with the code that's already written, so looping needs no further AI calls. **✨ Write with AI** turns a theme into a set list.
+- **loop** replays the set with the code that's already written, so looping needs no further AI calls. When a set (without loop) or a single song finishes, the music stops after the last section. **✨ Write with AI** turns a theme into a set list.
 
 ### 📁 My songs, ★ Favorites and portable songs
 Every finished song has a toolbar:

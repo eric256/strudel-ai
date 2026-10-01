@@ -15,6 +15,14 @@ The version is in `package.json`. Bump it when you release. Open pages also noti
 - **🧾 Session log:** every song played is logged. **⬇ played this session** saves it as a text file that can be imported again.
 - **Errors stay out of the page:** AI errors such as "overloaded" go to the console. Claude requests are retried 4 times first. If an error can't be resolved, the status bar shows ⚠ with the message as a tooltip.
 - **Fixes work on the right code:** when the AI's code fails a check, the fix request now sends that failed code ("code to fix") instead of whatever is in the editor. Block-by-block song sections are regenerated from their own failed code too.
+- **Shorter choruses:** choruses and hooks are 4 bars at most, in the built-in forms and on every AI-written song. Stored copies of the old built-in forms are updated unless you changed them.
+- **Patterns span bars:** the AI is asked for 2–4 bar phrases instead of one bar on repeat:
+  - bar-by-bar changes with `<…>`;
+  - longer lines with `.slow(2)`;
+  - fills in the last bar of a phrase with `.lastOf(4, …)`.
+
+  Hooks are now 2-bar melodies.
+- **Songs stop at the end:** a song played from a list (▶ on My songs, Favorites or a song view) stops after its last section, instead of looping or holding the last section. A finished set list stops too.
 - **Much less AI usage:**
   - **Session cost and budget:** the status bar shows the session's cost. A session budget (default $2) stops requests at that point.
   - **Cheaper requests:** a 1-hour prompt cache; the parts step only gets the sounds it needs; song and pad context is only sent when the message is about them.
