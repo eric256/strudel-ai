@@ -102,6 +102,13 @@
         </div>
       </div>
       <div class="options">
+        <label class="chat-target" title="What the chat works on: the code in the editor (the section playing now), the whole song (its sections, chords, parts — every section, from the next bar), or the pads. auto: the code, or the song / pads when your message is about them.">🎯
+          <select id="chatTarget">
+            <option value="auto">auto</option>
+            <option value="code">🎛 code in the editor</option>
+            <option value="song">🎵 whole song</option>
+            <option value="pads">🔲 pads</option>
+          </select></label>
         <span class="muted small" id="aiSummary" title="Change in ⚙ Settings → AI"></span>
         <span class="spacer"></span>
         <button id="clearChat" class="link">clear chat</button>

@@ -1508,10 +1508,15 @@ async function runTurn(userText, attempt = 0, bubble = null, failedCode = null) 
       } else {
         // say what the song really does now (tempo / key moves), not just what the reply claims
         const moved = sg.sheet.sections.filter((x) => x.bpm || x.shift).map((x) => `${x.name}: ${[x.bpm ? `${x.bpm} bpm` : '', x.shift ? `key ${signed(x.shift)}` : ''].filter(Boolean).join(', ')}`);
-        notes.push(`🎵 “${sg.title}” updated${setl.songs.includes(sg) && setl.running ? ' — from its next section' : ''} · ${sg.sheet.bpm} bpm${moved.length ? `; ${moved.join(' · ')}` : ', one tempo throughout'}`);
+        // the section playing now switches to its new version on the next bar (the rest already did)
+        const nowToo = await refreshPlayingSection(sg);
+        const when = setl.songs.includes(sg) && setl.running ? (nowToo ? ' — from the next bar' : ' — from its next section') : '';
+        notes.push(`🎵 “${sg.title}” updated${when} · ${sg.sheet.bpm} bpm${moved.length ? `; ${moved.join(' · ')}` : ', one tempo throughout'}`);
       }
     }
   }
+  // whole-song mode: the song blocks are the answer; editor code would only change the section playing now
+  if (chatTarget() === 'song' && (songBlock || partsBlock) && code) { clog('info', 'whole-song mode: ignored the reply’s editor code'); code = null; }
   if (!code && notes.length) {
     // a song / pads answer without new editor code
     state.history.push({ role: 'assistant', content: stripThinking(text) });
@@ -1523,6 +1528,10 @@ async function runTurn(userText, attempt = 0, bubble = null, failedCode = null) 
     state.history.pop(); // don't let the model imitate a code-less reply
     if (attempt < MAX_FIX_ATTEMPTS) {
       const base = userText.replace(/\n\nIMPORTANT: your previous reply[\s\S]*$/, '');
+      if (chatTarget() === 'song') {
+        return retry('no song in the reply', base + '\n\nIMPORTANT: your previous reply changed nothing. Reply with the COMPLETE updated sheet in a ```song block ' +
+          '(and a ```parts block if parts change).');
+      }
       return retry('no code in the reply', base + '\n\nIMPORTANT: your previous reply had no code. Answer with ONE short sentence, then the COMPLETE ' +
         'updated program in a single ```javascript code block.');
     }
@@ -3567,7 +3576,7 @@ function renderSongs() {
   const selSet = pick('set', setSongs), selSt = pick('station', stationSongs);
   const setView = viewedSong('set');
   const stepKey = (sg) => sg?.blocks?.map((b) => b.status + (b.code ? b.code.length : 0) + (b.error || '')).join() || '';
-  const key = JSON.stringify([setl.running, !!setlist.paused, nowSong?.title, stepKey(nowSong), setl.mode, setl.planning, now?.title, selSet, selSt, setlist.hold, setlist.jumpTarget, setl.current,
+  const key = JSON.stringify([setl.running, !!setlist.paused, nowSong?.title, stepKey(nowSong), setl.songs.map((x) => x.phase || x.status).join(), setl.mode, setl.planning, now?.title, selSet, selSt, setlist.hold, setlist.jumpTarget, setl.current,
     ...[setSongs, stationSongs].map((l) => l.map((sg) => [sg.title, sg.status, sg.phase, sg.bars, sg.blocks?.filter((b) => b.code).length, sg.error, !!sg.sheet, sg.shareUrl])),
     stepKey(setView), stepKey(stationSongs[selSt]), stepKey(setl.songs[setl.current]), songSel.set, songEdit.sg?.title, padsState.owner?.title, padsState.follow,
     mySongs.map((sg) => [sg.title, sg.bars, setl.songs[setl.current] === sg]), mp3.seg?.sg?.title || '', mp3.takes.length, mp3.want.size,
@@ -3579,7 +3588,9 @@ function renderSongs() {
   $('favSongs').innerHTML = favListHTML();
   $('stationStatus').innerHTML = songsHTML(stationSongs, setl.running && setl.mode === 'station', selSt, { tools: true });
   // 🎶 Now playing: the playing song — or, once it's over, the last one that played (stopped)
-  const playingSong = (setl.running && setl.songs[setl.current]) || nowSong;
+  // while a set or station is still writing its first song, show that song (with what's being written)
+  const preparing = setl.running && !setl.songs[setl.current] ? setl.songs.find((x) => ['writing', 'waiting', 'ready'].includes(x.status)) : null;
+  const playingSong = (setl.running && setl.songs[setl.current]) || preparing || nowSong;
   const nowLive = !!(setl.running && playingSong && setl.songs[setl.current] === playingSong);
   $('nowEmpty').hidden = !!playingSong;
   $('nowTransport').hidden = !nowLive;
@@ -3591,7 +3602,7 @@ function renderSongs() {
     const open = new Set([...el.querySelectorAll('details[open]')].map((d) => d.dataset.j ?? 'lib'));
     el.hidden = !sg;
     el.innerHTML = songViewHTML(sg, live);
-    if (id === 'nowSongView' && sg && !live) el.querySelector('.sv-head')?.insertAdjacentHTML('beforeend', ' <span class="sv-stopped">■ stopped</span>');
+    if (id === 'nowSongView' && sg && !live) el.querySelector('.sv-head')?.insertAdjacentHTML('beforeend', sg === preparing ? ' <span class="sv-stopped">✎ being written — plays when ready</span>' : ' <span class="sv-stopped">■ stopped</span>');
     for (const d of el.querySelectorAll('details')) if (open.has(d.dataset.j ?? 'lib')) d.open = true;
   }
   updateSectionProgress();
@@ -5281,6 +5292,23 @@ async function applySongEdit(sg, raw, partsCode = null) {
   clog('ok', `🎵 “${sg.title}” updated: ${sheet.sections.length} sections, ${sheet.sections.reduce((a, x) => a + x.bars, 0)} bars — ${tempos} bpm`);
   return null;
 }
+/**
+ * After a song edit: switch the section that's playing to its new version on the next bar (keeping faders,
+ * mute / solo and its place in the phrase). Returns true when it did.
+ */
+async function refreshPlayingSection(sg) {
+  if (!setl.running || setl.songs[setl.current] !== sg || state.pending || setlist.paused || !isPlaying()) return false;
+  const st = setlist.steps.find((x) => x.status === 'playing' && x.song === sg);
+  const sec = st?.section && sg.sheet.sections.find((x) => x.name === st.section.name);
+  if (!sec) return false;
+  const code = atSectionStart(carryLiveState(getCode(), sectionCode(sg, sec, { fill: !!st.fillStep })), st.startedAt ?? 0);
+  const err = await evaluateCode(code, { at: nextBoundary(1), fade: fadeCycles(sg), label: `“${sg.title}” ${st.prompt} (edited)` });
+  if (err) { clog('warn', `the edited ${st.prompt} didn't play (${err.message}) — it changes from the next section`); return false; }
+  st.code = code;
+  st.section = sec;
+  return true;
+}
+
 /** Rebuild a song's sections; if it's in the player, replace the ones that haven't started. */
 function rearrangeSong(sg) {
   const fresh = arrangeSong(sg);
@@ -5451,15 +5479,39 @@ const SONG_WORDS = /\b(song|section|sections|verse|chorus|bridge|intro|outro|dro
 /** Extra context for a chat request — only when the message is about the song / pads (keeps requests small). */
 function chatContext(text) {
   const out = [];
+  const target = chatTarget();
   const sg = activeSong();
-  if (sg && SONG_WORDS.test(text)) {
+  if (sg && (target === 'song' || (target === 'auto' && SONG_WORDS.test(text)))) {
     out.push(`ACTIVE SONG "${sg.title}" — sheet JSON:\n${JSON.stringify(rawSheet(sg.sheet))}\nPARTS CODE:\n\`\`\`javascript\n${sg.library}\n\`\`\``);
   }
-  if (/\bpads?\b/i.test(text)) {
+  if (target === 'song' && sg) {
+    out.push('TARGET: THE WHOLE SONG. Make the change across the song — its sections, form, chords, parts and their variants — ' +
+      'by replying with a ```song block (the COMPLETE updated sheet) and, when parts are added or their code changes, a ```parts block ' +
+      '(the COMPLETE parts code). Do NOT reply with a ```javascript block: the editor only shows the section playing now and is rebuilt from the song.');
+  }
+  if (target === 'pads' || (target === 'auto' && /\bpads?\b/i.test(text))) {
     out.push('PADS (number. label [mode]: code):\n' + pads.map((p, i) => `${i + 1}. ${p.label} [${p.mode}]${padIsOn(i) ? ' (on)' : ''}: ${oneLine(p.code)}`).join('\n'));
+    if (target === 'pads') out.push('TARGET: THE PADS. Reply with a ```pads block; only include a ```javascript block if the code in the editor must change too.');
   }
   return out.join('\n\n');
 }
+/** 🎯 What the chat works on: auto | code | song | pads ("song" falls back to auto when no song is open). */
+function chatTarget() {
+  const v = $('chatTarget').value;
+  return v === 'song' && !activeSong() ? 'auto' : v;
+}
+if (saved.chatTarget) $('chatTarget').value = saved.chatTarget;
+$('chatTarget').onchange = () => { save({ chatTarget: $('chatTarget').value }); renderChatTarget(); };
+/** Keep the song option labelled with the song it works on. */
+function renderChatTarget() {
+  const sg = activeSong();
+  const opt = $('chatTarget').querySelector('option[value="song"]');
+  const label = sg ? `🎵 whole song: ${sg.title.slice(0, 28)}` : '🎵 whole song (none open)';
+  if (opt.textContent !== label) opt.textContent = label;
+  $('input').placeholder = { song: sg ? `Change the whole song “${sg.title}”… (sections, chords, parts)` : 'No song is open — open one in 🎵 Songs (Enter to send)', pads: 'Program or press the pads… (Enter to send)', code: 'Change the code in the editor… (Enter to send, Shift+Enter for newline)' }[$('chatTarget').value]
+    || 'Make it groovier… (Enter to send, Shift+Enter for newline)';
+}
+setInterval(renderChatTarget, 1000);
 /** ```pads reply: program pads and/or switch them on / off. Returns a short summary. */
 function applyPadsReply(block) {
   const j = parseJSONLoose(block.startsWith('{') ? block : `{${block}}`);

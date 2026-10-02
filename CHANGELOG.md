@@ -4,6 +4,8 @@ The version is in `package.json`. Bump it when you release. Open pages also noti
 
 ## 1.24.0
 - **🎚 Mixer panel:** a channel strip for every part, plus the master. Each strip has a volume fader (the part's `.postgain` slider in the code, moved live), a 3-band EQ (low, mid, high, ±12 dB), and mute and solo. **+ fader** adds a group fader to a part that has none. A part with EQ gets its own output bus, so EQ changes are instant and leave the code alone. EQ is remembered per part name.
+- **🎯 Chat target:** a selector under the chat picks what it works on: the code in the editor, the **whole song**, the pads, or auto. In whole-song mode the AI changes the song's sections, chords, parts and variants across the whole song. The section playing now switches to its new version on the next bar, and the rest follow as they play.
+- **Now playing during writing:** while the first song of a set or station is being written, Now playing shows it as **✎ being written** instead of "nothing is playing".
 - **⏸ Pause / ▶ Resume in Now playing:** stops the song at its section and bar, and resumes from that bar later. ▶ Play resumes too.
 - **Now playing keeps the last song:** when a song ends with nothing after it, it stays in the panel marked **■ stopped**, with ▶ Play.
 - **Station tab without the song view:** the On air box (and a song you click in the list) has the song's buttons, and **🎶 Now playing ↗** opens the song's sheet and sections in the Now playing panel.
