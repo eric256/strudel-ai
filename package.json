@@ -1,13 +1,13 @@
 {
   "name": "strudel-ai",
-  "version": "1.22.0",
+  "version": "1.23.0",
   "description": "Strudel live-coding REPL with an AI chat co-pilot (llama.cpp / OpenWebUI)",
   "main": "server.js",
   "type": "module",
   "scripts": {
     "start": "node server.js",
     "test": "node --test test/*.test.mjs",
-    "check": "node --check server.js && node --check prompt.js && node --check public/app.js && node --check public/hum.js"
+    "check": "node --check server.js && node --check prompt.js && node --check public/app.js && node --check public/hum.js && node --check public/workspace.js"
   },
   "license": "AGPL-3.0-or-later",
   "dependencies": {

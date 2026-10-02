@@ -1,3 +1,4 @@
+import { createWorkspace } from './workspace.js';
 import { HumRecorder, transcribe, intervalsToSemitones, tonicPc, midiToName, freqToMidi, polyBarsToMini } from './hum.js';
 // Strudel AI — browser app
 const $ = (id) => document.getElementById(id);
@@ -217,6 +218,40 @@ function splice(oldPat, newPat, at, onCross, fade = 0) {
   });
 }
 
+/**
+ * Notes carrying a non-finite number (NaN / Infinity gain, frequency, cutoff …) make the audio engine throw
+ * "Failed to set the 'value' property on 'AudioParam'" for every one of them. Drop such notes before they're
+ * played, and say once in the console which control and sound produced them.
+ */
+const nonFiniteSeen = new Set();
+const CUTOFF_KEYS = ['cutoff', 'hcutoff', 'bandf'];
+function finiteGuard(pat) {
+  if (!pat || pat.__finite || typeof pat.query !== 'function') return pat;
+  const guarded = new pat.constructor((st) => pat.query(st).map((h) => {
+    // a cutoff of 0 or below (e.g. lpf(sine.range(0, 2000))) turns into a non-finite filter value
+    const v = h.value;
+    if (!v || typeof v !== 'object' || !CUTOFF_KEYS.some((k) => typeof v[k] === 'number' && v[k] < 10)) return h;
+    return h.withValue((x) => { const o = { ...x }; for (const k of CUTOFF_KEYS) if (typeof o[k] === 'number' && o[k] < 10) o[k] = 10; return o; });
+  }).filter((h) => {
+    const v = h.value;
+    if (!v || typeof v !== 'object') return true;
+    for (const k in v) {
+      const x = v[k];
+      if (typeof x === 'number' && !Number.isFinite(x)) {
+        const id = `${k}|${v.s ?? ''}`;
+        if (!nonFiniteSeen.has(id) && !vizQuerying && !inDryRun) {
+          nonFiniteSeen.add(id);
+          clog('warn', `Skipped notes with an invalid ${k} (${x}) on sound “${v.s ?? '?'}”${v.note != null ? `, note ${v.note}` : ''} — check that part's ${k} value`);
+        }
+        return false;
+      }
+    }
+    return true;
+  }));
+  guarded.__finite = true;
+  return guarded;
+}
+
 /** Next cycle that is a multiple of `every`, leaving enough time to evaluate. */
 function nextBoundary(every) {
   const s = scheduler();
@@ -309,7 +344,7 @@ async function evaluateCode(code, { at = null, label = '', undo = true, fade = 0
   let captured = null, autostart = true, deferredCps = null;
   sch.setCps = (c) => { deferredCps = c; };
   sch.setPattern = async (pat, auto) => {
-    captured = pat;
+    captured = finiteGuard(pat);
     autostart = auto;
     // the editor's highlighter queries scheduler.pattern after evaluating – give it something harmless
     if (!sch.pattern) sch.pattern = new pat.constructor(() => []);
@@ -374,7 +409,16 @@ function cancelPending(restore = true) {
 
 const quantize = () => Number($('quantize').value);
 /** Crossfade length in cycles for bar-line switches (0 = hard cut). */
-const fadeCycles = () => Number($('fade').value);
+/**
+ * The crossfade in bars (cycles). The beat options (1 or 2 beats) follow the meter of the song that is
+ * switching in: a beat is ¼ bar in 4/4, ⅓ bar in 3/4, ½ bar in 6/8.
+ */
+const fadeCycles = (song = setl.songs[setl.current]) => {
+  const v = Number($('fade').value);
+  return v > 0 && v < 1 ? (v * 4) / meterBeats(songMeter(song)) : v;
+};
+/** One beat of the playing song, in bars. */
+const beatCycles = () => 1 / meterBeats(songMeter(setl.songs[setl.current]));
 
 /** Apply code using the current quantize setting. */
 function applyQuantized(code, label) {
@@ -413,8 +457,10 @@ setInterval(() => {
   } else {
     const c = nowCycle();
     const bar = Math.floor(c) + 1;
-    const beat = Math.floor((c % 1) * 4) + 1;
-    st.textContent = `bar ${bar}.${beat}  ${Math.round(cps() * 240)}bpm`;
+    // beats follow the playing song's meter (4/4 for your own code)
+    const meter = setl.running ? songMeter(setl.songs[setl.current]) : '4/4', beats = meterBeats(meter);
+    const beat = Math.floor((c % 1) * beats) + 1;
+    st.textContent = `bar ${bar}.${beat}  ${Math.round(cps() * 60 * beats)}bpm${meter === '4/4' ? '' : ` ${meter}`}`;
     st.className = 'status ' + (err ? 'error' : 'playing');
   }
   const p = state.pending;
@@ -462,7 +508,7 @@ function installRecorderHook() {
   const proto = Object.getPrototypeOf(sch);
   sch.setPattern = async function (pat, auto) {
     const c = this.started ? switchCycle(this) : 0;
-    const r = await proto.setPattern.call(this, pat, auto);
+    const r = await proto.setPattern.call(this, finiteGuard(pat), auto);
     live.applied = getCode();
     recordSwitch(getCode(), c, 'edit');
     return r;
@@ -659,15 +705,69 @@ if (saved.temp !== undefined) $('temp').value = saved.temp;
 $('tempVal').textContent = $('temp').value;
 $('temp').oninput = () => { $('tempVal').textContent = $('temp').value; save({ temp: $('temp').value }); };
 
-// Tabs
-for (const btn of document.querySelectorAll('.tabs button')) {
-  btn.onclick = () => {
-    document.querySelectorAll('.tabs button').forEach((b) => b.classList.toggle('active', b === btn));
-    document.querySelectorAll('.tab').forEach((t) => (t.hidden = t.id !== btn.dataset.tab));
-    save({ tab: btn.dataset.tab });
-  };
+// ---------------------------------------------------------------------------
+// Workspace: chat, songs, station, the playing song and the tool docks are panels
+// that tab together, dock around the editor or float as windows (see workspace.js).
+// ---------------------------------------------------------------------------
+const PANELS = [
+  { id: 'chat', title: 'Chat', icon: '💬', el: $('chatTab'), area: 'right' },
+  { id: 'songs', title: 'Songs', icon: '🎵', el: $('setTab'), area: 'right' },
+  { id: 'station', title: 'Station', icon: '📻', el: $('stationTab'), area: 'right' },
+  { id: 'song', title: 'Now playing', icon: '🎶', el: $('songPanel'), area: 'right' },
+  { id: 'viz', title: 'Visualizer', icon: '📊', el: $('viz-dock'), area: 'bottom' },
+  { id: 'keys', title: 'Keys', icon: '🎹', el: $('keys-dock'), area: 'bottom' },
+  { id: 'pads', title: 'Pads', icon: '🔲', el: $('pads-dock'), area: 'bottom' },
+  { id: 'console', title: 'Console', icon: '🖥', el: $('console-dock'), area: 'bottom' },
+];
+const DEFAULT_LAYOUT = {
+  areas: { right: { size: 430 }, bottom: { size: 220 }, left: { size: 360 }, top: { size: 200 } },
+  groups: [
+    { id: 'main', where: 'right', panels: ['chat', 'songs', 'station'], active: 'chat', weight: 1.6 },
+    { id: 'now', where: 'right', panels: ['song'], active: 'song', weight: 1 },
+  ],
+};
+/** Before the workspace: the side panel's tab and width, and docks shown under / above the code or in the side panel. */
+function migratedLayout() {
+  const l = structuredClone(DEFAULT_LAYOUT);
+  const TAB = { chatTab: 'chat', setTab: 'songs', stationTab: 'station' };
+  if (TAB[saved.tab]) l.groups[0].active = TAB[saved.tab];
+  if (saved.paneWidth) l.areas.right.size = Math.round(saved.paneWidth);
+  for (const n of ['viz', 'keys', 'pads', 'console']) {
+    if (!saved[`${n}On`]) continue;
+    const where = { side: 'right', top: 'top' }[saved[`${n}Dock`]] || 'bottom';
+    const g = l.groups.find((x) => x.where === where && x.id !== 'main' && x.id !== 'now');
+    if (g) g.panels.push(n);
+    else l.groups.push({ id: `m${n}`, where, panels: [n], active: n });
+  }
+  return l;
 }
-if (saved.tab) document.querySelector(`.tabs button[data-tab="${saved.tab}"]`)?.click();
+const ws = createWorkspace({
+  root: $('workspace'),
+  panels: PANELS,
+  defaults: DEFAULT_LAYOUT,
+  saved: saved.layout || migratedLayout(),
+  onSave: (layout) => save({ layout }),
+});
+/** Bring a panel to the front (opening it if it's closed). */
+const showPanel = (id) => ws.open(id);
+// the ▦ Panels menu: open / close any panel, reset the layout
+function renderLayoutMenu() {
+  $('layoutMenu').innerHTML = ws.panels().map((p) => `<label><input type="checkbox" data-panel="${p.id}"${p.open ? ' checked' : ''} /> ${p.icon} ${esc(p.title)}</label>`).join('') +
+    '<div class="lm-foot"><button id="layoutReset" class="link" title="Back to the default layout">↺ reset layout</button></div>' +
+    '<small class="muted">Drag a tab or a header to move it: onto another group to tab it, to an edge to dock it, anywhere else to float it. ⧉ floats / docks a group.</small>';
+}
+$('layoutBtn').onclick = (e) => {
+  e.stopPropagation();
+  renderLayoutMenu();
+  const m = $('layoutMenu');
+  m.hidden = !m.hidden;
+  // open towards the side with room
+  const r = $('layoutBtn').getBoundingClientRect();
+  Object.assign(m.style, r.left + 260 > innerWidth ? { left: 'auto', right: '0' } : { left: '0', right: 'auto' });
+};
+$('layoutMenu').addEventListener('change', (e) => { const id = e.target.dataset.panel; if (id) e.target.checked ? ws.open(id) : ws.close(id); });
+$('layoutMenu').addEventListener('click', (e) => { if (e.target.id === 'layoutReset') { ws.reset(); renderLayoutMenu(); } e.stopPropagation(); });
+document.addEventListener('click', () => { $('layoutMenu').hidden = true; });
 
 // ---------------------------------------------------------------------------
 // Chat rendering
@@ -1402,7 +1502,11 @@ async function runTurn(userText, attempt = 0, bubble = null, failedCode = null) 
         }
         notes.push('⚠ song not changed');
         warnUser(`Song edit failed: ${err}`);
-      } else notes.push(`🎵 “${sg.title}” updated${setl.songs.includes(sg) && setl.running ? ' — from its next section' : ''}`);
+      } else {
+        // say what the song really does now (tempo / key moves), not just what the reply claims
+        const moved = sg.sheet.sections.filter((x) => x.bpm || x.shift).map((x) => `${x.name}: ${[x.bpm ? `${x.bpm} bpm` : '', x.shift ? `key ${signed(x.shift)}` : ''].filter(Boolean).join(', ')}`);
+        notes.push(`🎵 “${sg.title}” updated${setl.songs.includes(sg) && setl.running ? ' — from its next section' : ''} · ${sg.sheet.bpm} bpm${moved.length ? `; ${moved.join(' · ')}` : ', one tempo throughout'}`);
+      }
     }
   }
   if (!code && notes.length) {
@@ -1736,7 +1840,7 @@ async function tickSetlist() {
   if (!isPlaying()) {
     // nothing playing yet → start with the first ready step immediately
     step.status = 'armed';
-    await evaluateCode(step.code, { label: `block ${setlist.playIndex + 1}` });
+    await evaluateCode(atSectionStart(step.code, 0), { label: `block ${setlist.playIndex + 1}` });
     step.startedAt = 0;
     setlist.nextAt = step.bars;
     setlist.playIndex++;
@@ -1746,7 +1850,7 @@ async function tickSetlist() {
   if (setlist.nextAt === null && quantize() === 0) {
     // "switch on: immediately" → no waiting for a bar line
     step.status = 'armed';
-    const err = await evaluateCode(step.code, { label: `block ${setlist.playIndex + 1}` });
+    const err = await evaluateCode(atSectionStart(step.code, Math.floor(nowCycle())), { label: `block ${setlist.playIndex + 1}` });
     if (err) { step.status = 'failed'; step.error = err.message; }
     step.startedAt = nowCycle();
     setlist.nextAt = Math.ceil(nowCycle()) + step.bars;
@@ -1759,12 +1863,12 @@ async function tickSetlist() {
   let at = setlist.nextAt ?? nextBoundary(q);
   if (at < nextBoundary(1)) at = nextBoundary(q);
   // arm ~2s before the switch (or before its crossfade starts) so the editor shows what's next
-  const fade = step.fade ?? fadeCycles();
+  const fade = step.fade ?? fadeCycles(step.song);
   const secsUntil = (at - fade - nowCycle()) / cps();
   if (secsUntil > 2) return;
   step.status = 'armed';
   const playing = setlist.steps.find((s) => s.status === 'playing');
-  const code = step.section && playing?.song === step.song ? carryLiveState(getCode(), step.code) : step.code;
+  const code = atSectionStart(step.section && playing?.song === step.song ? carryLiveState(getCode(), step.code) : step.code, at);
   const err = await evaluateCode(code, {
     at,
     fade,
@@ -2132,7 +2236,7 @@ async function humSendToAI() {
     'Use this note pattern EXACTLY as written (same notes, same rhythm, same mini-notation string). ' +
     'You may choose the instrument, add .transpose(12) or .transpose(-12) for the octave, effects and gain.';
   // switch to the chat tab so the reply is visible
-  document.querySelector('.tabs button[data-tab="chatTab"]')?.click();
+  showPanel('chat');
   addMsg('user', `🎤 ${instruction}\n${melody}`);
   setBusy(true);
   state.abort = new AbortController();
@@ -2264,38 +2368,6 @@ for (const id of ['humGrid', 'humSnap', 'humDuck', 'humMode']) {
 }
 
 
-// ---------------------------------------------------------------------------
-// Resizable side panel (drag the handle between editor and chat)
-// ---------------------------------------------------------------------------
-(() => {
-  const pane = $('chat-pane');
-  const handle = $('resizer');
-  const clamp = (w) => Math.max(260, Math.min(w, window.innerWidth - 320));
-  const apply = (w) => { pane.style.flexBasis = clamp(w) + 'px'; };
-  if (saved.paneWidth) apply(saved.paneWidth);
-  let drag = null;
-  handle.addEventListener('pointerdown', (e) => {
-    drag = { x: e.clientX, w: pane.getBoundingClientRect().width };
-    handle.setPointerCapture(e.pointerId);
-    document.body.classList.add('resizing');
-  });
-  handle.addEventListener('pointermove', (e) => {
-    if (!drag) return;
-    apply(drag.w + (drag.x - e.clientX));
-    lastMixerKey = '';
-  });
-  const end = () => {
-    if (!drag) return;
-    drag = null;
-    document.body.classList.remove('resizing');
-    save({ paneWidth: pane.getBoundingClientRect().width });
-    window.dispatchEvent(new Event('resize'));
-  };
-  handle.addEventListener('pointerup', end);
-  handle.addEventListener('pointercancel', end);
-  handle.addEventListener('dblclick', () => { pane.style.flexBasis = ''; save({ paneWidth: null }); window.dispatchEvent(new Event('resize')); });
-  window.addEventListener('resize', () => { const w = load().paneWidth; if (w) apply(w); });
-})();
 
 
 // ---------------------------------------------------------------------------
@@ -2711,6 +2783,17 @@ function sectionType(name) {
 }
 
 /** Validate + repair a song sheet from the model. Throws when it can't be used. */
+const ENTER_MODES = ['in', 'out', 'alt'];
+/** Bars a part plays in a section that brings it in / out: a mask, one step per bar. */
+function enterMask(mode, bars) {
+  if (!mode || bars < 2) return null;
+  const half = Math.floor(bars / 2);
+  const steps = Array.from({ length: bars }, (_, k) => (mode === 'in' ? k >= half : mode === 'out' ? k < half : k % 4 < 2) ? 1 : 0);
+  return `<${steps.join(' ')}>`;
+}
+/** Every part of a section is anchored to the bar the section starts on (set when it's armed), so phrases and chord progressions start on their first bar. */
+const SECTION_START_RE = /^const sectionStart = [\d.]+.*$/m;
+const atSectionStart = (code, bar) => (SECTION_START_RE.test(code) ? code.replace(SECTION_START_RE, `const sectionStart = ${Math.max(0, Math.round(bar))} // the bar this section started on`) : code);
 const MAX_KEY_SHIFT = 3;      // semitones a section may move away from the song's key
 const MAX_TEMPO_DRIFT = 0.08; // a section's tempo stays within ±8% of the song's
 // usual spellings: major-ish roots Db Eb F# Ab Bb, minor roots C# Eb F# G# Bb
@@ -2726,6 +2809,23 @@ function transposeProgression(prog, n) {
   });
 }
 const signed = (n) => (n > 0 ? `+${n}` : String(n));
+// time signatures: one cycle is one bar; bpm counts the meter's beats (dotted quarters in 6/8, 9/8, 12/8)
+const METERS = ['4/4', '3/4', '6/8', '12/8', '5/4', '7/8', '7/4', '9/8', '2/4'];
+function normMeter(m) {
+  const t = String(m || '').replace(/\s+/g, '').match(/^(\d+)\/(\d+)$/);
+  const k = t ? `${Number(t[1])}/${Number(t[2])}` : '4/4';
+  return METERS.includes(k) ? k : '4/4';
+}
+/** Beats per bar for the tempo line: 4/4 → 4, 3/4 → 3, 6/8 → 2 (dotted quarters), 7/8 → 3.5 (quarters). */
+function meterBeats(m) {
+  const [n, d] = normMeter(m).split('/').map(Number);
+  return d === 8 && n % 3 === 0 ? n / 3 : (n * 4) / d;
+}
+/** Steps per bar for rhythms: the meter's top number. */
+const meterSteps = (m) => Number(normMeter(m).split('/')[0]);
+/** The app's tempo line for a bpm in a meter. */
+const tempoLine = (bpm, meter) => `setcpm(${bpm}/${meterBeats(meter)})`;
+const songMeter = (sg) => normMeter(sg?.sheet?.meter);
 
 function normalizeSheet(raw, choice = 'auto', { enforceForm = true } = {}) {
   if (!raw || typeof raw !== 'object') throw new Error('the sheet is not an object');
@@ -2740,7 +2840,8 @@ function normalizeSheet(raw, choice = 'auto', { enforceForm = true } = {}) {
     if (p) chords[ident(k)] = p;
   }
   if (!Object.keys(chords).length) throw new Error('no chord progressions');
-  const hook = String(raw.hook || '0 2 4 2').replace(/[^0-9~\s\-\[\]<>.*@!]/g, ' ').replace(/\s+/g, ' ').trim() || '0 2 4 2';
+  const meter = normMeter(raw.meter || raw.time || raw.timeSignature);
+  const hook = String(raw.hook || '0 2 4 2').replace(/[^0-9~\s\-\[\]<>.*@!_?,:]/g, ' ').replace(/\s+/g, ' ').trim() || '0 2 4 2';
   const parts = [];
   for (const p of Array.isArray(raw.parts) ? raw.parts : []) {
     const id = ident(p.name || p.role);
@@ -2749,7 +2850,7 @@ function normalizeSheet(raw, choice = 'auto', { enforceForm = true } = {}) {
     parts.push({ id, role: String(p.role || '').toLowerCase(), sound: String(p.sound || ''), desc: String(p.desc || p.description || ''), variants });
   }
   if (parts.length < 2) throw new Error('fewer than 2 parts');
-  parts.splice(8);
+  parts.splice(10);
   const firstChords = Object.keys(chords)[0];
   const sections = [];
   for (const sec of Array.isArray(raw.sections) ? raw.sections : []) {
@@ -2757,22 +2858,27 @@ function normalizeSheet(raw, choice = 'auto', { enforceForm = true } = {}) {
     const ck = ident(sec.chords);
     const play = [];
     for (const ref of Array.isArray(sec.play) ? sec.play : []) {
-      const [pn, vn] = String(ref).split(/[.:]/);
+      // "part", "part.variant", optionally "@in" (enters halfway), "@out" (drops out halfway), "@alt" (2 bars on, 2 off)
+      const [name, how] = String(ref).split('@');
+      const [pn, vn] = name.split(/[.:]/);
       const part = parts.find((q) => q.id === ident(pn));
       if (!part) continue;
       const variant = vn && part.variants.includes(ident(vn)) ? ident(vn) : 'main';
-      if (!play.some((x) => x.part === part.id)) play.push({ part: part.id, variant });
+      const enter = ENTER_MODES.includes(String(how || '').trim().toLowerCase()) ? String(how).trim().toLowerCase() : null;
+      if (!play.some((x) => x.part === part.id)) play.push({ part: part.id, variant, ...(enter ? { enter } : {}) });
     }
     if (!play.length && sections.length) play.push(...sections[sections.length - 1].play);
     if (!play.length) play.push({ part: parts[0].id, variant: 'main' });
     const name = String(sec.name || sec.type || 'section').slice(0, 40);
     const out = { name, type: sectionType(name), bars, chords: chords[ck] ? ck : firstChords, play };
     // key and tempo may move a little as the song goes on (a lifted last chorus, a tempo push)
-    const shift = Math.round(Number(sec.shift ?? sec.transpose) || 0);
-    if (shift) out.shift = Math.max(-MAX_KEY_SHIFT, Math.min(MAX_KEY_SHIFT, shift));
-    const sbpm = Math.round(Number(sec.bpm) || 0);
+    // (lenient: "+2", "104 bpm", tempo / key_shift spellings; edits the user asks for may move further)
+    const shift = Math.round(parseFloat(sec.shift ?? sec.transpose ?? sec.key_shift ?? sec.keyShift) || 0);
+    const maxShift = enforceForm ? MAX_KEY_SHIFT : 6;
+    if (shift) out.shift = Math.max(-maxShift, Math.min(maxShift, shift));
+    const sbpm = Math.round(parseFloat(sec.bpm ?? sec.tempo) || 0);
     if (sbpm) {
-      const lim = Math.max(2, Math.round(bpm * MAX_TEMPO_DRIFT));
+      const lim = Math.max(2, Math.round(bpm * (enforceForm ? MAX_TEMPO_DRIFT : 0.3)));
       const b2 = Math.max(bpm - lim, Math.min(bpm + lim, sbpm));
       if (b2 !== bpm) out.bpm = b2;
     }
@@ -2790,7 +2896,7 @@ function normalizeSheet(raw, choice = 'auto', { enforceForm = true } = {}) {
   if (!enforceForm) for (const sec of sections) sec.bars = Math.max(1, Math.min(32, sec.bars));
   // choruses (and hooks) are short and punchy: never longer than 4 bars
   for (const sec of sections) if (sec.type === 'chorus') sec.bars = Math.min(sec.bars, MAX_CHORUS_BARS);
-  return { form: form?.name || String(raw.form || ''), bpm, key: String(raw.key || scale.replace(':', ' ')), scale, chords, hook, parts, sections };
+  return { form: form?.name || String(raw.form || ''), bpm, meter, key: String(raw.key || scale.replace(':', ' ')), scale, chords, hook, parts, sections };
 }
 
 /** The part that gets the one-bar fill before choruses / drops (drums with a "fill" variant). */
@@ -2857,7 +2963,7 @@ async function writeSongSheet(song, signal) {
   const choice = formChoice();
   const prev = setl.songs[setl.songs.indexOf(song) - 1]?.sheet;
   let msg = `SONG: "${song.title}" — ${song.desc}\n` +
-    (prev ? `The previous song was ${prev.bpm} bpm in ${prev.key}; this one should flow from it (a related key or a nearby tempo is nice).\n` : '') +
+    (prev ? `The previous song was ${prev.bpm} bpm, ${normMeter(prev.meter)}, in ${prev.key}; this one should flow from it (a related key or a nearby tempo is nice).\n` : '') +
     `\n${formsForRequest(choice)}\n\nWrite the song sheet JSON.`;
   let lastErr;
   for (let attempt = 0; attempt < 2; attempt++) {
@@ -2909,12 +3015,18 @@ async function writeSongLibrary(song, signal, { fix = null, prev = null } = {}) 
     const variant = id.slice(p.id.length + 1);
     const kind = HARMONIC_ROLE.test(p.role) ? 'function of prog' : 'plain pattern';
     const extra = p.role === 'melody' && /hook/.test(p.id + p.desc) ? ` — plays the hook: n("${sh.hook}").scale("${sh.scale}")` : '';
-    const vdesc = variant === 'main' ? '' : variant === 'fill' && p === fp ? ' (ONE-bar fill leading into the next section)' : ` (${variant} version of ${p.id}_main)`;
+    const vdesc = variant === 'main' ? ''
+      : variant === 'fill' && p === fp ? ' (ONE-bar fill leading into the next section)'
+      : /^alt/.test(variant) ? ` (an ALTERNATE ${p.role || 'part'}: same sound and register as ${p.id}_main, but a clearly different line — new rhythm, contour or figure — that still fits the chords and the other parts; it gives the sections that use it their own character)`
+      : /harm/.test(variant) ? ` (a HARMONY of ${p.id}_main: same rhythm, a third or sixth above — e.g. the same degrees .add(2) — softer gain)`
+      : ` (${variant} version of ${p.id}_main)`;
     return `- ${id}  [${kind}]  ${p.role}, sound ${p.sound || '(your choice)'}: ${p.desc}${vdesc}${extra}`;
   });
   const base =
     `SONG: "${song.title}" — ${song.desc}\n` +
-    `Tempo line: setcpm(${sh.bpm}/4)   Key / scale: ${sh.key} → .scale("${sh.scale}")\n` +
+    `Tempo line: ${tempoLine(sh.bpm, sh.meter)}   Key / scale: ${sh.key} → .scale("${sh.scale}")\n` +
+    `Meter: ${normMeter(sh.meter)} — one cycle is ONE BAR of ${meterSteps(sh.meter)} ${/\/8$/.test(normMeter(sh.meter)) ? 'eighth notes' : 'beats'}: ` +
+    `write every rhythm with ${meterSteps(sh.meter)} (or ${meterSteps(sh.meter) * 2}) steps per bar${normMeter(sh.meter) === '4/4' ? '' : ' — NOT 4 or 8'}.\n` +
     `Chord progressions the sections use: ${Object.entries(sh.chords).map(([k, v]) => `${k} ${v}`).join(' · ')}\n` +
     `Hook (scale degrees): "${sh.hook}"\n\n` +
     `Write the part library. Define EXACTLY these consts:\n${need.join('\n')}`;
@@ -2932,7 +3044,7 @@ async function writeSongLibrary(song, signal, { fix = null, prev = null } = {}) 
     if (!lib) err = 'no ```javascript code block in the reply';
     else {
       // the app owns the tempo line
-      lib = `setcpm(${sh.bpm}/4)\n` + lib.replace(/^\s*setcp[ms]\([^)]*\)\s*;?\s*$/gm, '').trim();
+      lib = `${tempoLine(sh.bpm, sh.meter)}\n` + lib.replace(/^\s*setcp[ms]\([^)]*\)\s*;?\s*$/gm, '').trim();
       const missing = libraryIds(sh).filter((id) => !definesId(lib, id));
       if (missing.length) err = `these consts are missing: ${missing.join(', ')}`;
       else if (patternLines(lib).length) err = 'the library must not contain labelled lines like "drums:" or "$:" — only const definitions';
@@ -2961,17 +3073,19 @@ function sectionCode(song, sec, { fill = false } = {}) {
     `// ${song.title} — ${sec.name}${fill ? ' (fill)' : ''} · ${fill ? 1 : sec.bars} bars · chords: ${sec.chords}${moves ? ` · ${moves}` : ''}`,
     LIB_START,
     // a section with its own tempo replaces the song's tempo line
-    (sec.bpm ? lib.replace(/setcp[ms]\([^)]*\)/, `setcpm(${sec.bpm}/4)`) : lib).trim(),
+    (sec.bpm ? lib.replace(/setcp[ms]\([^)]*\)/, tempoLine(sec.bpm, song.sheet.meter)) : lib).trim(),
     '',
     SEC_START,
     `const sectionChords = ${JSON.stringify(transposeProgression(song.sheet.chords[sec.chords], shift))}`,
+    'const sectionStart = 0 // set when the section switches in',
   ];
   for (const x of sec.play) {
     const id = `${x.part}_${fp && x.part === fp.id ? 'fill' : x.variant}`;
     const part = song.sheet.parts.find((p) => p.id === x.part);
     // harmonic parts follow the (moved) chords; melodic plain parts (the hook) are moved with them; drums never
     const lift = shift && !isFnPart(lib, id) && !/drum|perc|beat|fx|noise/i.test(`${part?.role} ${x.part}`) ? `.transpose(${shift})` : '';
-    lines.push(`${x.part}: ${partExpr(lib, id)}${lift}.postgain(slider(1, 0, 1.5))`);
+    const mask = fill ? null : enterMask(x.enter, sec.bars);
+    lines.push(`${x.part}: ${partExpr(lib, id)}${lift}${mask ? `.mask("${mask}")` : ''}.postgain(slider(1, 0, 1.5)).late(sectionStart)`);
   }
   return lines.join('\n') + '\n';
 }
@@ -3296,7 +3410,7 @@ function songViewHTML(sg, live) {
   if (sh) {
     h += `<div class="sv-grid">
       ${sh.form ? `<span class="k">form</span><span>${esc(sh.form)} · ${sh.sections.length} sections · ${sh.sections.reduce((a, x) => a + x.bars, 0)} bars</span>` : ''}
-      <span class="k">tempo</span><span>${sh.bpm} bpm · ${esc(sh.key)} <code>${esc(sh.scale)}</code></span>
+      <span class="k">tempo</span><span>${sh.bpm} bpm · ${normMeter(sh.meter)} · ${esc(sh.key)} <code>${esc(sh.scale)}</code></span>
       <span class="k">chords</span><span>${Object.entries(sh.chords).map(([k, v]) => `<span class="chip"><b>${esc(k)}</b> ${esc(v.replace(/^<|>$/g, ''))}</span>`).join(' ')}</span>
       <span class="k">hook</span><span><code>${esc(sh.hook)}</code></span>
       <span class="k">parts</span><span>${sh.parts.map((p) => `<span class="chip part" style="--c:${vizColor(p.id)}" title="${esc(`${p.role} · ${p.desc}${p.variants.length > 1 ? ` · variants: ${p.variants.join(', ')}` : ''}`)}"><b>${esc(p.id)}</b> ${esc(p.sound)}</span>`).join(' ')}</span>
@@ -3314,7 +3428,7 @@ function songViewHTML(sg, live) {
       const i = setlist.steps.indexOf(st);
       const queued = i >= 0 && setlist.jumpTarget === i && st.status !== 'armed' && st.status !== 'playing';
       const sec = st.section;
-      const parts = sec ? sec.play.map((x) => `<span class="chip part" style="--c:${vizColor(x.part)}">${esc(x.part)}${x.variant !== 'main' ? `<small>.${esc(st.fillStep && fillPart(sh)?.id === x.part ? 'fill' : x.variant)}</small>` : st.fillStep && fillPart(sh)?.id === x.part ? '<small>.fill</small>' : ''}</span>`).join('') : '';
+      const parts = sec ? sec.play.map((x) => `<span class="chip part" style="--c:${vizColor(x.part)}">${esc(x.part)}${x.variant !== 'main' ? `<small>.${esc(st.fillStep && fillPart(sh)?.id === x.part ? 'fill' : x.variant)}</small>` : st.fillStep && fillPart(sh)?.id === x.part ? '<small>.fill</small>' : ''}${x.enter && !st.fillStep ? `<small title="${{ in: 'comes in halfway through', out: 'drops out halfway through', alt: '2 bars on, 2 bars off' }[x.enter]}">@${x.enter}</small>` : ''}</span>`).join('') : '';
       // mark tempo / key changes against the section before (the first one shows the song's tempo)
       const bpm = tempos[j], prevBpm = j ? tempos[j - 1] : null;
       const moves = [
@@ -3339,7 +3453,8 @@ function songViewHTML(sg, live) {
 /** A section's tempo in bpm: from its code's setcpm / setcps line, else its sheet. */
 function stepTempo(st) {
   const m = st?.code && /setcp([ms])\(\s*([\d.]+)\s*(?:\/\s*([\d.]+))?\s*\)/.exec(st.code);
-  if (m) { const v = Number(m[2]) / (Number(m[3]) || 1); return Math.round(m[1] === 'm' ? v * 4 : v * 240); }
+  const b = meterBeats(st?.song?.sheet?.meter);
+  if (m) { const v = Number(m[2]) / (Number(m[3]) || 1); return Math.round(m[1] === 'm' ? v * b : v * 60 * b); }
   return st?.section?.bpm || st?.song?.sheet?.bpm || null;
 }
 /** How far the playing section is: { bar, bars, frac, left (seconds until the next section), hold } or null. */
@@ -3356,8 +3471,9 @@ function sectionProgress(st) {
   return { bar: Math.min(len, Math.floor(pos % (hold ? len : Infinity)) + 1), bars: len, frac: hold ? (pos % len) / len : Math.min(1, pos / len),
     left: Math.max(0, (end - now) / cps()), hold, waiting: !hold && pos >= len };
 }
-// progress of the playing section in the song views (updated without re-rendering the lists)
-setInterval(() => {
+// progress of the playing section in the song views (updated without re-rendering the lists;
+// renderSongs calls it right after it rebuilds a view, so the bar never blinks out)
+function updateSectionProgress() {
   for (const el of document.querySelectorAll('.sv-left[data-i]')) {
     const st = setlist.steps[Number(el.dataset.i)];
     const pr = sectionProgress(st);
@@ -3371,7 +3487,8 @@ setInterval(() => {
       : pr.waiting ? 'next section is on its way…'
       : `bar ${pr.bar}/${pr.bars} · next in ${fmtTime(Math.ceil(pr.left))}${tempo}`;
   }
-}, 250);
+}
+setInterval(updateSectionProgress, 250);
 
 function renderSongs() {
   // Songs tab: the running/last set (until the text is edited), otherwise a preview of the text
@@ -3388,7 +3505,7 @@ function renderSongs() {
   const stepKey = (sg) => sg?.blocks?.map((b) => b.status + (b.code ? b.code.length : 0) + (b.error || '')).join() || '';
   const key = JSON.stringify([setl.running, setl.mode, setl.planning, now?.title, selSet, selSt, setlist.hold, setlist.jumpTarget, setl.current,
     ...[setSongs, stationSongs].map((l) => l.map((sg) => [sg.title, sg.status, sg.phase, sg.bars, sg.blocks?.filter((b) => b.code).length, sg.error, !!sg.sheet, sg.shareUrl])),
-    stepKey(setView), stepKey(stationSongs[selSt]), songSel.set, songEdit.sg?.title, padsState.owner?.title, padsState.follow,
+    stepKey(setView), stepKey(stationSongs[selSt]), stepKey(setl.songs[setl.current]), songSel.set, songEdit.sg?.title, padsState.owner?.title, padsState.follow,
     mySongs.map((sg) => [sg.title, sg.bars, setl.songs[setl.current] === sg]), mp3.seg?.sg?.title || '', mp3.takes.length, mp3.want.size,
     favorites.map((f) => [f.id, setl.songs[setl.current] === f.song])]);
   if (key === lastSongsKey) return;
@@ -3397,7 +3514,9 @@ function renderSongs() {
   $('mySongs').innerHTML = myListHTML();
   $('favSongs').innerHTML = favListHTML();
   $('stationStatus').innerHTML = songsHTML(stationSongs, setl.running && setl.mode === 'station', selSt);
-  for (const [id, sg, live] of [['setSongView', setView, setl.running && setl.mode === 'set'], ['stationSongView', stationSongs[selSt], setl.running && setl.mode === 'station']]) {
+  const playingSong = setl.running ? setl.songs[setl.current] || null : null;
+  $('nowEmpty').hidden = !!playingSong;
+  for (const [id, sg, live] of [['setSongView', setView, setl.running && setl.mode === 'set'], ['stationSongView', stationSongs[selSt], setl.running && setl.mode === 'station'], ['nowSongView', playingSong, true]]) {
     const el = $(id);
     if (sg && songEdit.sg === sg && el.querySelector('.sv-edit')) continue; // don't wipe the editor while typing
     const open = new Set([...el.querySelectorAll('details[open]')].map((d) => d.dataset.j ?? 'lib'));
@@ -3405,6 +3524,7 @@ function renderSongs() {
     el.innerHTML = songViewHTML(sg, live);
     for (const d of el.querySelectorAll('details')) if (open.has(d.dataset.j ?? 'lib')) d.open = true;
   }
+  updateSectionProgress();
   const onAir = setl.mode === 'station' && setl.running;
   $('stationNow').hidden = !onAir;
   if (onAir) {
@@ -3423,12 +3543,12 @@ for (const id of ['setStatus', 'stationStatus']) {
     if (row) { const k = Number(row.dataset.k); songSel[tab] = songSel[tab] === k ? null : k; lastSongsKey = ''; renderSongs(); }
   });
 }
-for (const id of ['setSongView', 'stationSongView']) {
+for (const id of ['setSongView', 'stationSongView', 'nowSongView']) {
   $(id).addEventListener('click', (e) => {
     const go = e.target.closest('.jump[data-i]');
     if (go) { e.preventDefault(); e.stopPropagation(); jumpTo(Number(go.dataset.i)); return; }
     if (e.target.closest('.sv-hold')) { e.preventDefault(); setHold(!setlist.hold); renderSongs(); return; }
-    const sg = viewedSong(id === 'stationSongView' ? 'station' : 'set');
+    const sg = id === 'nowSongView' ? setl.songs[setl.current] : viewedSong(id === 'stationSongView' ? 'station' : 'set');
     const act = e.target.closest('[data-act]')?.dataset.act;
     if (act && sg) { songAction(act, sg, e.target.closest('[data-act]'), $(id)); return; }
     if (e.target.closest('.sv-copy') && sg?.shareUrl) {
@@ -3502,7 +3622,7 @@ function loadSharedSong(s) {
     const song = songFromJSON(s);
     loadSongIntoSet(song);
     songSel.set = 0;
-    document.querySelector('.tabs button[data-tab="setTab"]')?.click();
+    showPanel('songs');
     return song;
   } catch { /* older share format below */ }
   const song = {
@@ -3515,7 +3635,7 @@ function loadSharedSong(s) {
   Object.assign(setl, { mode: 'set', songs: [song], current: -1, nextSong: 0, textDirty: false });
   songSel.set = 0;
   lastSongsKey = '';
-  document.querySelector('.tabs button[data-tab="setTab"]')?.click();
+  showPanel('songs');
   return song;
 }
 
@@ -3945,58 +4065,19 @@ function drawViz() {
 }
 
 // ---------------------------------------------------------------------------
-// Docks: the visualizer, keyboard and pads share docking (under / above the code
-// or in the side panel), resizing, show / hide, and a remembered layout.
+// Docks: the visualizer, keyboard, pads and console are workspace panels; their
+// header buttons open / close them.
 // ---------------------------------------------------------------------------
 const docks = {};
 function setupDock(name, { onShow, onHide } = {}) {
-  const el = $(`${name}-dock`), sel = $(`${name}Dock`), btn = $(`${name}Btn`), handle = $(`${name}Handle`);
-  const d = { name, el, on: false };
-  const relayout = () => { lastMixerKey = ''; window.dispatchEvent(new Event('resize')); };
-  d.place = (where) => {
-    if (where === 'side') $('chat-pane').insertBefore(el, $('chat-pane').firstChild);
-    else if (where === 'top') $('editor-pane').insertBefore(el, $('editor-wrap'));
-    else { where = 'bottom'; $('editor-pane').insertBefore(el, $('editor-wrap').nextSibling); }
-    el.classList.remove('dock-bottom', 'dock-top', 'dock-side');
-    el.classList.add(`dock-${where}`);
-    sel.value = where;
-    relayout();
-  };
-  d.show = (on) => {
-    d.on = on;
-    el.hidden = !on;
-    btn.classList.toggle('on', on);
-    (on ? onShow : onHide)?.();
-    relayout();
-  };
-  const st = load();
-  if (st[`${name}H`]) el.style.setProperty('--viz-h', st[`${name}H`] + 'px');
-  d.place(st[`${name}Dock`] || 'bottom');
-  btn.onclick = () => { d.show(!d.on); save({ [`${name}On`]: d.on }); };
-  $(`${name}Close`).onclick = () => { d.show(false); save({ [`${name}On`]: false }); };
-  sel.onchange = () => { d.place(sel.value); save({ [`${name}Dock`]: sel.value }); };
-  let drag = null;
-  handle.addEventListener('pointerdown', (e) => {
-    drag = { y: e.clientY, h: el.getBoundingClientRect().height, down: sel.value !== 'bottom' };
-    handle.setPointerCapture(e.pointerId);
-    document.body.classList.add('viz-resizing');
+  const btn = $(`${name}Btn`);
+  const d = { name, el: $(`${name}-dock`), on: ws.isOpen(name) };
+  d.show = (on) => (on ? ws.open(name) : ws.close(name));
+  btn.onclick = () => ws.toggle(name);
+  ws.on(name, {
+    onOpen: (o) => { d.on = o; btn.classList.toggle('on', o); lastMixerKey = ''; },
+    onVisible: (v) => (v ? onShow : onHide)?.(),
   });
-  handle.addEventListener('pointermove', (e) => {
-    if (!drag) return;
-    const dy = e.clientY - drag.y;
-    el.style.setProperty('--viz-h', Math.round(Math.max(90, Math.min(window.innerHeight * 0.7, drag.h + (drag.down ? dy : -dy)))) + 'px');
-    lastMixerKey = '';
-  });
-  const end = () => {
-    if (!drag) return;
-    drag = null;
-    document.body.classList.remove('viz-resizing');
-    save({ [`${name}H`]: Math.round(el.getBoundingClientRect().height) });
-    relayout();
-  };
-  handle.addEventListener('pointerup', end);
-  handle.addEventListener('pointercancel', end);
-  d.show(!!st[`${name}On`]);
   docks[name] = d;
   return d;
 }
@@ -4432,7 +4513,7 @@ $('keysAI').onclick = async () => {
   const instruction = typed || 'Add this recorded part to the music as a new part with a fitting sound and effects.';
   const msg = `${instruction}\n\nRECORDED PART (${r.bars} bar${r.bars > 1 ? 's' : ''}, one bar per cycle, played as: ${r.line}):\nnote("${r.mini}")\n` +
     'Use this note pattern EXACTLY as written (same notes, chords and rhythm). You may choose the sound, octave (.transpose), effects and gain.';
-  document.querySelector('.tabs button[data-tab="chatTab"]')?.click();
+  showPanel('chat');
   addMsg('user', `🎹 ${instruction}\nnote("${r.mini}")`);
   setBusy(true);
   state.abort = new AbortController();
@@ -4468,7 +4549,7 @@ const DEFAULT_PADS = [
   { label: 'crash', code: 's("cr").bank("RolandTR909").gain(0.6)', mode: 'once', color: '#ffd166' },
   { label: 'sub bass', code: 'note("<c1 c1 ab0 bb0>*4").s("sine").gain(0.8)', mode: 'toggle', color: '#20d3a6' },
   { label: 'acid', code: 'note("c2 c3 c2 eb2").s("sawtooth").lpf(sine.range(300, 2000).slow(4)).lpq(10).decay(0.1).sustain(0).gain(0.6)', mode: 'toggle', color: '#20d3a6' },
-  { label: 'stabs', code: 'chord("<Cm7 Fm7>").voicing().struct("~ x ~ x").s("square").decay(0.1).sustain(0).gain(0.35)', mode: 'toggle', color: '#20d3a6' },
+  { label: 'stabs', code: 'chord("<Cm7 Fm7>").voicing().struct("${offbeats}").s("square").decay(0.1).sustain(0).gain(0.35)', mode: 'toggle', color: '#20d3a6' },
   { label: 'arp', code: 'n("0 2 4 7 4 2").scale("C:minor").fast(2).s("triangle").gain(0.5)', mode: 'toggle', color: '#20d3a6' },
   { label: 'pad', code: 'chord("<Cm9 Ab^7>").voicing().s("gm_pad_warm").gain(0.5)', mode: 'toggle', color: '#7c5cff' },
   { label: 'riser', code: 's("white").lpf(saw.range(200, 8000)).gain(0.25)', mode: 'hold', color: '#7c5cff' },
@@ -4538,7 +4619,7 @@ async function setPad(i, on, { at = null, lineText = null } = {}) {
     ? codeWithPad(code.split('\n').map((l) => (l === pl ? (on ? l.replace(/^_/, '') : l.startsWith('_') ? l : `_${l}`) : l)).join('\n'), i, false)
     : codeWithPad(code, i, on, lineText);
   if (!isPlaying() && !on) { mirror().setCode(next); return null; }
-  const when = isPlaying() ? at ?? nextBoundary(Number($('padsSync').value)) : null;
+  const when = isPlaying() ? at ?? nextBoundary(padsSyncCycles()) : null;
   const err = await evaluateCode(next, { at: when, label: `pad “${p.label}” ${on ? 'on' : 'off'}`, undo: false });
   if (err) { addMsg('error', `Pad “${p.label}”: ${err.message}`); return null; }
   const c = when ?? 0;
@@ -4583,7 +4664,7 @@ for (const ev of ['pointerup', 'pointercancel']) {
     if (!h) return;
     padsState.holding = null;
     const onAt = await h.at;
-    const sync = Number($('padsSync').value);
+    const sync = padsSyncCycles();
     // play at least one sync step
     setPad(h.i, false, { at: isPlaying() ? Math.max(nextBoundary(sync), (onAt ?? 0) + sync) : null });
   });
@@ -4628,6 +4709,8 @@ $('padsEdit').onclick = () => {
 $('padDone').onclick = () => { if (padsState.edit) $('padsEdit').onclick(); };
 $('padTest').onclick = () => { const i = padsState.sel; if (i != null) padOnce(i, padLine(i, $('padCode').value)); };
 if (load().padsSync) $('padsSync').value = load().padsSync;
+/** Pad sync in bars: "next beat" follows the playing song's meter. */
+function padsSyncCycles() { const v = Number($('padsSync').value); return v < 1 ? beatCycles() : v; }
 $('padsSync').onchange = () => save({ padsSync: $('padsSync').value });
 
 // ⏺ Rec: bake the pad performance into the code as masks over the recorded bars
@@ -4756,7 +4839,7 @@ function addToMySongs(sg) {
   mySongs.unshift(copy);
   saveMySongs();
   songSel.set = 'mine:0';
-  document.querySelector('.tabs button[data-tab="setTab"]')?.click();
+  showPanel('songs');
   clog('ok', `📁 “${copy.title}” saved to My songs`);
   return copy;
 }
@@ -4881,10 +4964,10 @@ document.addEventListener('visibilitychange', () => { if (!document.hidden) load
 // --- editing a song: re-arranged by the app (no AI), live if it's playing
 function rawSheet(sh) {
   return {
-    form: sh.form, bpm: sh.bpm, key: sh.key, scale: sh.scale, hook: sh.hook,
+    form: sh.form, bpm: sh.bpm, meter: normMeter(sh.meter), key: sh.key, scale: sh.scale, hook: sh.hook,
     chords: Object.fromEntries(Object.entries(sh.chords).map(([k, v]) => [k, v.replace(/^<|>$/g, '')])),
     parts: sh.parts.map((p) => ({ name: p.id, role: p.role, sound: p.sound, variants: p.variants, desc: p.desc })),
-    sections: sh.sections.map((x) => ({ name: x.name, bars: x.bars, chords: x.chords, play: x.play.map((y) => (y.variant === 'main' ? y.part : `${y.part}.${y.variant}`)), ...(x.shift ? { shift: x.shift } : {}), ...(x.bpm ? { bpm: x.bpm } : {}) })),
+    sections: sh.sections.map((x) => ({ name: x.name, bars: x.bars, chords: x.chords, play: x.play.map((y) => (y.variant === 'main' ? y.part : `${y.part}.${y.variant}`) + (y.enter ? `@${y.enter}` : '')), ...(x.shift ? { shift: x.shift } : {}), ...(x.bpm ? { bpm: x.bpm } : {}) })),
   };
 }
 /**
@@ -4895,7 +4978,7 @@ function rawSheet(sh) {
 async function applySongEdit(sg, raw, partsCode = null) {
   let sheet;
   try { sheet = normalizeSheet(raw, 'auto', { enforceForm: false }); } catch (e) { return `the song sheet can't be used: ${e.message}`; }
-  let lib = partsCode ? `setcpm(${sheet.bpm}/4)\n` + partsCode.replace(/^\s*setcp[ms]\([^)]*\)\s*;?\s*$/gm, '').trim() : sg.library.replace(/setcpm\([^)]*\)/, `setcpm(${sheet.bpm}/4)`);
+  let lib = partsCode ? `${tempoLine(sheet.bpm, sheet.meter)}\n` + partsCode.replace(/^\s*setcp[ms]\([^)]*\)\s*;?\s*$/gm, '').trim() : sg.library.replace(/setcp[ms]\([^)]*\)/, tempoLine(sheet.bpm, sheet.meter));
   const missing = libraryIds(sheet).filter((id) => !definesId(lib, id));
   if (missing.length) return `the parts code is missing: ${missing.join(', ')} (every part.variant the sections play needs a const)`;
   if (patternLines(lib).length) return 'the parts code must only contain const definitions (no "name:" lines)';
@@ -4911,7 +4994,8 @@ async function applySongEdit(sg, raw, partsCode = null) {
   rearrangeSong(sg);
   if (isMine(sg)) saveMySongs();
   lastSongsKey = '';
-  clog('ok', `🎵 “${sg.title}” updated: ${sheet.sections.length} sections, ${sheet.sections.reduce((a, x) => a + x.bars, 0)} bars`);
+  const tempos = sheet.sections.map((x) => `${x.name} ${x.bpm || sheet.bpm}${x.shift ? ` key ${signed(x.shift)}` : ''}`).join(' · ');
+  clog('ok', `🎵 “${sg.title}” updated: ${sheet.sections.length} sections, ${sheet.sections.reduce((a, x) => a + x.bars, 0)} bars — ${tempos} bpm`);
   return null;
 }
 /** Rebuild a song's sections; if it's in the player, replace the ones that haven't started. */
@@ -4945,7 +5029,7 @@ const songEdit = { sg: null };
 function songEditorHTML(sg) {
   const r = rawSheet(sg.sheet);
   return `<div class="sv-edit">
-    <div class="sv-edit-row"><label>title <input data-f="title" value="${esc(sg.title)}" /></label><label>bpm <input data-f="bpm" type="number" min="50" max="200" value="${r.bpm}" /></label><label>scale <input data-f="scale" value="${esc(r.scale)}" /></label></div>
+    <div class="sv-edit-row"><label>title <input data-f="title" value="${esc(sg.title)}" /></label><label>bpm <input data-f="bpm" type="number" min="50" max="200" value="${r.bpm}" /></label><label>meter <select data-f="meter">${METERS.map((m) => `<option${m === r.meter ? ' selected' : ''}>${m}</option>`).join('')}</select></label><label>scale <input data-f="scale" value="${esc(r.scale)}" /></label></div>
     <label>chords — <span class="muted">one per line: <code>name: Am F C G</code></span>
       <textarea data-f="chords" rows="3">${esc(Object.entries(r.chords).map(([k, v]) => `${k}: ${v}`).join('\n'))}</textarea></label>
     <label>sections — <span class="muted">one per line: <code>name | bars | chords | parts (part or part.variant)</code>, optionally <code>| key +2, 106 bpm</code></span>
@@ -4963,6 +5047,7 @@ async function saveSongEditor(el, sg) {
   const lines = (t) => t.split('\n').map((l) => l.trim()).filter(Boolean);
   const raw = rawSheet(sg.sheet);
   raw.bpm = Number(v('bpm')) || raw.bpm;
+  raw.meter = v('meter') || raw.meter;
   raw.scale = v('scale').trim() || raw.scale;
   raw.key = raw.scale.replace(':', ' ');
   raw.chords = Object.fromEntries(lines(v('chords')).map((l) => { const i = l.indexOf(':'); return [l.slice(0, i).trim(), l.slice(i + 1).trim()]; }).filter(([k, c]) => k && c));
@@ -5005,6 +5090,9 @@ function songPads(sg) {
   const drums = sh.parts.find((p) => /drum|perc|beat/i.test(p.role + p.id));
   const bank = drums && /^[A-Z]/.test(drums.sound) ? `.bank("${drums.sound}")` : '';
   const scale = sh.scale;
+  // rhythms in the song's meter: a 16th-note roll is 16 steps in 4/4, 12 in 3/4, 12 in 6/8
+  const steps = meterSteps(sh.meter), roll = /\/8$/.test(normMeter(sh.meter)) ? steps * 2 : steps * 4;
+  const offbeats = Array.from({ length: steps }, (_, k) => (k % 2 ? 'x' : '~')).join(' ');
   // the song's own parts, one pad each: lit while the section plays the part, pressing mutes / unmutes it
   // (or plays it on top when the section doesn't have it); then their extra variants (half-time drums, fills …)
   const partPad = (p, v) => {
@@ -5020,7 +5108,7 @@ function songPads(sg) {
   add('tempo −¼', 'all(x => x.slow(4/3))', 'hold', '#ff8fa3'); // everything at ¾ speed while held
   add('tempo +¼', 'all(x => x.fast(5/4))', 'hold', '#ff8fa3'); // everything at 1¼ speed while held
   add('filter all', 'all(x => x.lpf(500))', 'hold', '#7c5cff');
-  add('snare roll', `s("sd*16")${bank}.gain(saw.range(0.2, 0.9))`, 'once', '#ffd166');
+  add('snare roll', `s("sd*${roll}")${bank}.gain(saw.range(0.2, 0.9))`, 'once', '#ffd166');
   add('crash', `s("cr")${bank}.gain(0.6)`, 'once', '#ffd166');
   add('riser', 's("white").lpf(saw.range(200, 8000)).gain(0.25)', 'hold', '#7c5cff');
   add('echo all', 'all(x => x.delay(0.5).delaytime(0.1875).delayfeedback(0.6))', 'hold', '#7c5cff');
@@ -5250,4 +5338,4 @@ function songMp3(sg) {
 }
 
 // handy for debugging from the browser console
-window.strudelAI = { normalizeSheet, playSong, songMp3, loadPads, songPads, transposeProgression, sectionCode, getForms: () => songForms, getFavorites: () => favorites, loadFavorites, getPads: () => pads, mySongs, activeSong, songFromJSON, songToJSON, mp3, session, pads, padsState, keysState, noteOn, noteOff, setPad, docks, rec, replay, startReplay, recordingForShare, viz, checkScales, checkSounds, prepareCode, evaluateCode, dryRun, hum, transcribe, ensureSliders, setlist, setl };
+window.strudelAI = { ws, normalizeSheet, playSong, songMp3, loadPads, songPads, transposeProgression, sectionCode, getForms: () => songForms, getFavorites: () => favorites, loadFavorites, getPads: () => pads, mySongs, activeSong, songFromJSON, songToJSON, mp3, session, pads, padsState, keysState, noteOn, noteOff, setPad, docks, rec, replay, startReplay, recordingForShare, viz, checkScales, checkSounds, prepareCode, evaluateCode, dryRun, hum, transcribe, ensureSliders, setlist, setl };

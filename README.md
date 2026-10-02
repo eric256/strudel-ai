@@ -151,7 +151,7 @@ Tick **⚡ live** (⚙ Settings → General) and your edits in the code window t
 **Songs are recorded as they play** (⚙ Settings → General → 🎙 record songs, on by default). Recording never interrupts the music: each song is recorded in the background from its first section, and once it has played to its end its toolbar shows **⬇ MP3** to download it. Songs that are cut short (skipped, stopped, or joined mid-way) are discarded. Recordings stay in memory until the page is reloaded; the last 20 are kept.
 
 Encoding happens in the browser while you record (lamejs, 192 kbps stereo), so nothing is uploaded.
-- **Dock** it under the code, above it, or at the top of the side panel, and drag its edge to resize. All of this is remembered.
+- It's a panel: dock, tab or float it like any other (see [Panels and layout](#panels-and-layout)).
 
 ## 🎵 Songs & 📻 Station
 
@@ -162,16 +162,22 @@ Encoding happens in the browser while you record (lamejs, 192 kbps stereo), so n
 
 ### How a song is written: song sheet → parts → arrangement
 1. **Song sheet.** The AI plans the whole song as data:
-   - tempo, key and scale;
+   - tempo, **meter** (4/4 for most dance music; 3/4, 6/8, 12/8, 5/4 or 7/8 where the genre or description calls for it), key and scale;
    - 2–3 chord progressions, e.g. *verse* `Am F C G`, *chorus* `F G Am Am`;
-   - a one-bar **hook** melody;
-   - 4–7 **parts** (drums, bass, keys, pad, hook …), each with one sound and optional variants such as `drums.half` or `drums.fill`;
+   - a **hook** melody of 1–4 bars, in a style that suits the genre (call and answer, a syncopated riff, held notes, octave leaps …);
+   - 5–9 **parts** (drums, bass, keys, pad, hook, a counter-melody, a riff …), each with one sound and variants:
+     - `drums.half` and `drums.fill`;
+     - alternate lines such as `bass.alt1` or `keys.alt2`, a different figure on the same sound, so each section has something of its own;
+     - `hook.harmony` (the hook a third above) for a last chorus;
+   - parts can come and go inside a section: `riff@in` enters halfway, `counter@out` drops out halfway, `riff@alt` plays 2 bars on and 2 off;
    - the **form**: the order and length of the sections, copied from one of your song forms (see below). Each section says which chords it uses and which parts play.
 2. **Parts.** The AI writes every part once, as a library of named patterns (`drums_main`, `bass_main` …).
    - Harmonic parts (bass, chords, pads, arpeggios) are functions of the chord progression, so each section can give them its own chords.
    - The library is test-played silently before it's used. If a part is missing or a sound, scale or chord doesn't exist, it goes back to the AI with the error (up to 3 tries).
 3. **Arrangement.** The app builds each section itself: the library, the section's chords, and one labelled group per part that plays.
-   - **Repeats are exact:** a chorus is the same code every time, so the song repeats like a real one, and the key and sounds can't drift.
+   - **Repeats stay recognisable:** a chorus uses the same chords and parts every time, so the key and sounds can't drift. A later repeat may swap in an alternate line or add the harmony.
+   - **Sections start on their first bar:** each section's parts and chord progression are anchored to the bar it switches in on, so phrases and progressions always begin at their start.
+   - **Meters:** one cycle is one bar. The tempo line follows the meter (`setcpm(bpm/3)` in 3/4), and the *fade*, pad *sync* and status bar beat count use the playing song's meter.
    - **Smooth changes:** parts that continue into the next section are identical code, so the crossfade keeps them steady and only what changes fades.
    - **Fills:** the drums' *fill* variant plays in the last bar before a chorus or drop. The fill and the drop's downbeat cut in hard; everything else uses the *fade* setting.
    - **Your changes stay:** fader positions and mute/solo carry over from one section to the next.
@@ -354,7 +360,24 @@ bass: note("c2*8").s("sawtooth").lpf(slider(1200, 200, 4000)).gain(slider(0.6, 0
   - Strudel treats any label starting with a capital **S** as solo, so group names are kept lowercase.
   - Mute/solo clicks don't go into the ↶ Undo history.
   - The button pulses until the change happens. Groups silenced by another group's solo show a red **M**.
-- **Side panel width:** drag the handle between the editor and the chat to resize it. Double-click the handle to reset. The width is remembered.
+
+## Panels and layout
+
+Chat 💬, Songs 🎵, Station 📻, **Now playing** 🎶, Visualizer 📊, Keys 🎹, Pads 🔲 and Console 🖥 are all panels. The code editor stays in the middle; panels dock around it, tab together, or float as windows.
+
+- **Tabs:** panels in the same group show as tabs. A panel you open goes into the group that's already in its area, as a new tab.
+- **Move:** drag a tab (one panel) or the empty part of a group's header (the whole group):
+  - onto the middle of another group → it becomes a tab there;
+  - onto the top or bottom quarter of a group on the left or right, or the left or right quarter of one on the top or bottom → it gets its own group next to it;
+  - to an edge of the page → a new group docked on that side (left, right, above or below the code);
+  - anywhere else → a floating window.
+
+  A highlight shows where it will land.
+- **Floating windows:** drag the header to move one; drag its corner to resize. **⧉** floats a docked group, and **⇲** docks a window back where it came from. Double-clicking a header does the same.
+- **Resize:** drag the bars between the editor and an area, or between two groups. Double-click an area's bar to reset its size.
+- **Open / close:** **✕** on a tab closes it, and the header buttons (📊 🎹 🔲 🖥) toggle their panels. **▦ Panels** lists every panel and has **↺ reset layout**.
+- **Now playing** shows the song that's playing, wherever you are in the app, with its sections, progress and toolbar.
+- The layout is saved in the browser. The side panel and docks from earlier versions are carried over.
 
 ## Hum a melody 🎤
 
