@@ -349,6 +349,7 @@ async function evaluateCode(code, { at = null, label = '', undo = true, fade = 0
     // the editor's highlighter queries scheduler.pattern after evaluating – give it something harmless
     if (!sch.pattern) sch.pattern = new pat.constructor(() => []);
   };
+  window.__mixerTrap?.(); // mixer EQ: route parts to their own orbit
   try {
     await m.evaluate();
   } finally {
@@ -428,6 +429,7 @@ function applyQuantized(code, label) {
 }
 
 $('play').onclick = async () => {
+  if (setlist.paused) return resumeSong();
   cancelPending(false);
   const err = await evaluateCode(getCode());
   if (err) addMsg('error', `Not applied: ${err.message}`);
@@ -717,6 +719,7 @@ const PANELS = [
   { id: 'viz', title: 'Visualizer', icon: '📊', el: $('viz-dock'), area: 'bottom' },
   { id: 'keys', title: 'Keys', icon: '🎹', el: $('keys-dock'), area: 'bottom' },
   { id: 'pads', title: 'Pads', icon: '🔲', el: $('pads-dock'), area: 'bottom' },
+  { id: 'mixer', title: 'Mixer', icon: '🎚', el: $('mixer-dock'), area: 'bottom' },
   { id: 'console', title: 'Console', icon: '🖥', el: $('console-dock'), area: 'bottom' },
 ];
 const DEFAULT_LAYOUT = {
@@ -732,7 +735,7 @@ function migratedLayout() {
   const TAB = { chatTab: 'chat', setTab: 'songs', stationTab: 'station' };
   if (TAB[saved.tab]) l.groups[0].active = TAB[saved.tab];
   if (saved.paneWidth) l.areas.right.size = Math.round(saved.paneWidth);
-  for (const n of ['viz', 'keys', 'pads', 'console']) {
+  for (const n of ['viz', 'keys', 'pads', 'console']) { // (the mixer is new: nothing to carry over)
     if (!saved[`${n}On`]) continue;
     const where = { side: 'right', top: 'top' }[saved[`${n}Dock`]] || 'bottom';
     const g = l.groups.find((x) => x.where === where && x.id !== 'main' && x.id !== 'now');
@@ -1505,10 +1508,15 @@ async function runTurn(userText, attempt = 0, bubble = null, failedCode = null) 
       } else {
         // say what the song really does now (tempo / key moves), not just what the reply claims
         const moved = sg.sheet.sections.filter((x) => x.bpm || x.shift).map((x) => `${x.name}: ${[x.bpm ? `${x.bpm} bpm` : '', x.shift ? `key ${signed(x.shift)}` : ''].filter(Boolean).join(', ')}`);
-        notes.push(`🎵 “${sg.title}” updated${setl.songs.includes(sg) && setl.running ? ' — from its next section' : ''} · ${sg.sheet.bpm} bpm${moved.length ? `; ${moved.join(' · ')}` : ', one tempo throughout'}`);
+        // the section playing now switches to its new version on the next bar (the rest already did)
+        const nowToo = await refreshPlayingSection(sg);
+        const when = setl.songs.includes(sg) && setl.running ? (nowToo ? ' — from the next bar' : ' — from its next section') : '';
+        notes.push(`🎵 “${sg.title}” updated${when} · ${sg.sheet.bpm} bpm${moved.length ? `; ${moved.join(' · ')}` : ', one tempo throughout'}`);
       }
     }
   }
+  // whole-song mode: the song blocks are the answer; editor code would only change the section playing now
+  if (chatTarget() === 'song' && (songBlock || partsBlock) && code) { clog('info', 'whole-song mode: ignored the reply’s editor code'); code = null; }
   if (!code && notes.length) {
     // a song / pads answer without new editor code
     state.history.push({ role: 'assistant', content: stripThinking(text) });
@@ -1520,6 +1528,10 @@ async function runTurn(userText, attempt = 0, bubble = null, failedCode = null) 
     state.history.pop(); // don't let the model imitate a code-less reply
     if (attempt < MAX_FIX_ATTEMPTS) {
       const base = userText.replace(/\n\nIMPORTANT: your previous reply[\s\S]*$/, '');
+      if (chatTarget() === 'song') {
+        return retry('no song in the reply', base + '\n\nIMPORTANT: your previous reply changed nothing. Reply with the COMPLETE updated sheet in a ```song block ' +
+          '(and a ```parts block if parts change).');
+      }
       return retry('no code in the reply', base + '\n\nIMPORTANT: your previous reply had no code. Answer with ONE short sentence, then the COMPLETE ' +
         'updated program in a single ```javascript code block.');
     }
@@ -1815,7 +1827,7 @@ function jumpTo(i) {
 }
 
 async function tickSetlist() {
-  if (!setlist.running) return;
+  if (!setlist.running || setlist.paused) return;
   // manual mode: only move when the user picked a section
   if (!autoAdvance() && setlist.jumpTarget === null) return;
   const i = setlist.playIndex;
@@ -1907,7 +1919,7 @@ function startSetlist({ at = 0, steps = null, feeder = null } = {}) {
   stopSetlist();
   stopReplay();
   Object.assign(setlist, {
-    running: true, steps, genIndex: at, playIndex: at, nextAt: null, jumpTarget: at,
+    running: true, paused: null, steps, genIndex: at, playIndex: at, nextAt: null, jumpTarget: at,
     abort: new AbortController(), feeder, hold: false,
   });
   steps.forEach((s, j) => { if (j < at && !s.code) s.status = 'skipped'; }); // started further down: don't write the blocks above
@@ -1950,6 +1962,8 @@ function dropUpcomingSteps() {
 }
 
 function stopSetlist() {
+  setlist.paused = null;
+  mp3.paused = false;
   if (!setlist.running) return;
   setlist.running = false;
   setlist.jumpTarget = null;
@@ -1985,6 +1999,41 @@ function updateStepStates() {
     }
   });
 }
+
+// ---------------------------------------------------------------------------
+// ⏸ Pause / ▶ Resume (🎶 Now playing): stop the sound where the song is — section and bar — and pick up
+// there later. The resumed section is anchored so its bar `bar` plays first (sectionStart = −bar).
+// ---------------------------------------------------------------------------
+function pauseSong() {
+  if (!setlist.running || setlist.paused || !isPlaying()) return;
+  const st = setlist.steps.find((x) => x.status === 'playing');
+  if (!st) return;
+  const len = Math.max(1, st.bars);
+  const bar = Math.max(0, Math.floor(nowCycle() - (st.startedAt ?? 0))) % len;
+  // a next section armed for the bar line: take it back, it plays after the resume
+  cancelPending(true);
+  setlist.steps.forEach((x) => { if (x.status === 'armed') { x.status = 'ready'; delete x.startedAt; } });
+  setlist.playIndex = setlist.steps.indexOf(st) + 1;
+  setlist.jumpTarget = null;
+  setlist.paused = { step: st, bar, code: getCode() };
+  mp3.paused = true;
+  mirror()?.stop();
+  addMsg('info', `⏸ paused “${st.song?.title || 'song'}” at ${st.prompt || 'this section'}, bar ${bar + 1}/${len}`);
+  lastSongsKey = '';
+}
+async function resumeSong() {
+  const p = setlist.paused;
+  if (!p) return;
+  setlist.paused = null;
+  const err = await evaluateCode(atSectionStart(p.code, -p.bar), { label: `resume ${p.step.prompt || ''}`, undo: false });
+  if (err) { addMsg('error', `Couldn't resume: ${err.message}`); setlist.paused = p; return; }
+  p.step.startedAt = -p.bar;
+  setlist.nextAt = p.step.startedAt + p.step.bars;
+  mp3.paused = false;
+  addMsg('info', `▶ resumed at bar ${p.bar + 1}`);
+  lastSongsKey = '';
+}
+$('nowPause').onclick = () => (setlist.paused ? resumeSong() : pauseSong());
 
 /** Hold: stay on the current section until another one is picked (or hold is released). */
 function setHold(on) {
@@ -2610,6 +2659,9 @@ const DEFAULT_FORMS = [
   { name: 'build & release', use: 'post-rock, cinematic builds, epic, anthems', sections: 'intro 4, build 8, build 8, peak 8, release 8, outro 4' },
   { name: 'ambient', use: 'ambient, drone, cinematic, meditation, soundscape', sections: 'intro 8, A 8, B 8, A 8, outro 8' },
   { name: 'short', use: 'quick sketches, jingles, short pieces', sections: 'intro 4, A 8, B 8, A 8, outro 4' },
+  // long forms (about 4 minutes): every section changes something, so they keep moving
+  { name: 'long ballad', use: 'long ballads, power ballads, soul, gospel, slow builds — about 4 minutes', sections: "intro 4, verse 8, verse 8, pre-chorus 4, chorus 4, interlude 4, verse 8, pre-chorus 4, chorus 4, chorus 4, bridge 8, breakdown 4, chorus 4, chorus 4, outro 8" },
+  { name: 'ambient journey', use: 'long ambient, environmental, nature soundscapes, drone, generative, meditation — about 4 minutes', sections: "intro 8, drift 8, A 8, A' 8, swell 8, B 8, B' 8, still 8, return 8, outro 8" },
 ];
 // built-ins before v1.19 — anything else new is added for people who already have their own list
 const OLD_DEFAULT_FORMS = ['pop', 'edm', 'drum & bass', 'hip hop', 'lo-fi', 'ambient', 'short'];
@@ -2792,8 +2844,8 @@ function enterMask(mode, bars) {
   return `<${steps.join(' ')}>`;
 }
 /** Every part of a section is anchored to the bar the section starts on (set when it's armed), so phrases and chord progressions start on their first bar. */
-const SECTION_START_RE = /^const sectionStart = [\d.]+.*$/m;
-const atSectionStart = (code, bar) => (SECTION_START_RE.test(code) ? code.replace(SECTION_START_RE, `const sectionStart = ${Math.max(0, Math.round(bar))} // the bar this section started on`) : code);
+const SECTION_START_RE = /^const sectionStart = -?[\d.]+.*$/m;
+const atSectionStart = (code, bar) => (SECTION_START_RE.test(code) ? code.replace(SECTION_START_RE, `const sectionStart = ${Math.round(bar)} // the bar this section started on`) : code);
 const MAX_KEY_SHIFT = 3;      // semitones a section may move away from the song's key
 const MAX_TEMPO_DRIFT = 0.08; // a section's tempo stays within ±8% of the song's
 // usual spellings: major-ish roots Db Eb F# Ab Bb, minor roots C# Eb F# G# Bb
@@ -3272,6 +3324,7 @@ function makeFeeder() {
     onStepStart: (step) => {
       if (!step.song) return;
       mp3SongStep(step);
+      nowSong = step.song; // 🎶 Now playing keeps showing it after it ends
       if (padsState.follow && step.song.pads && padsState.owner !== step.song) loadPads(step.song.pads, step.song);
       const k = setl.songs.indexOf(step.song);
       if (k < 0 || (k === setl.current && step.song.status === 'playing')) return;
@@ -3365,31 +3418,33 @@ function songMeta(sg) {
     ? `${sh.bpm} bpm · ${sh.key} · ${sh.sections.length} sections · ${sg.bars} bars · ~${fmtTime((sg.bars * 4 * 60) / sh.bpm)}`
     : `${sg.blocks.length} blocks · ${sg.bars} bars · ${coded}/${sg.blocks.length} coded`;
 }
-function songsHTML(songs, live, sel) {
+const NOW_LINK = '<button class="open-now" data-open-now title="Open the 🎶 Now playing panel: the song\'s sheet, sections and progress">🎶 Now playing ↗</button>';
+const sharedLinkHTML = (sg) => (sg.shareUrl ? `<div class="sv-shared">🔗 <input readonly value="${esc(sg.shareUrl)}" /><button class="sv-copy">📋 Copy</button><a href="${esc(sg.shareUrl)}" target="_blank" rel="noopener">open ↗</a></div>` : '');
+/** A song list. With `tools`, the selected song shows its toolbar in place (the station list: details live in 🎶 Now playing). */
+function songsHTML(songs, live, sel, { tools = false } = {}) {
   return songs.map((sg, k) => {
     const meta = songMeta(sg);
-    return `<div class="song ${sg.status}${k === sel ? ' selected' : ''}" data-k="${k}" title="Show this song's sheet and sections">
+    const isCurrent = live && setl.songs[setl.current] === sg;
+    const toolbar = tools && k === sel ? `<div class="song-tools">${songToolbarHTML(sg, live)}${isCurrent ? NOW_LINK : ''}${sharedLinkHTML(sg)}</div>` : '';
+    return `<div class="song ${sg.status}${k === sel ? ' selected' : ''}" data-k="${k}" title="${tools ? 'Show this song’s buttons' : 'Show this song’s sheet and sections'}">
       <span class="ico">${SONG_ICON[sg.status] || '·'}</span>
       <div class="body"><div class="t">${k + 1}. ${esc(sg.title)}</div><div class="d">${esc(sg.desc)}</div>
-        ${meta ? `<div class="meta">${esc(meta)}</div>` : ''}${sg.error ? `<span class="err-icon" title="${esc(sg.error)}">⚠</span>` : ''}</div>
+        ${meta ? `<div class="meta">${esc(meta)}</div>` : ''}${sg.error ? `<span class="err-icon" title="${esc(sg.error)}">⚠</span>` : ''}${toolbar}</div>
       <button class="jump" data-song="${k}" title="Switch to this song">⏭ go</button>
     </div>`;
   }).join('') + (live && setl.planning ? '<div class="song writing"><span class="ico">✎</span><div class="body"><div class="d">planning the next songs…</div></div></div>' : '');
 }
 
-/** The song sheet and the sections of one song, with live status and jump buttons. */
-function songViewHTML(sg, live) {
-  if (!sg) return '';
+/** A song's toolbar: play, edit, favorite, save, song pads, MP3, JSON, link (only once the song is written). */
+function songToolbarHTML(sg, live) {
   const sh = sg.sheet;
   const isCurrent = live && setl.songs[setl.current] === sg;
   const complete = sg.blocks?.length && sg.blocks.every((b) => b.code) && !sg.phase;
+  if (!complete) return '';
   const mine = isMine(sg);
   const canPlay = complete && !(isCurrent);
   const btn = (act, label, title) => `<button data-act="${act}" title="${esc(title)}">${label}</button>`;
-  let h = `<div class="sv-head"><b>${esc(sg.title)}</b>${isCurrent ? ' <span class="sv-live">▶ playing</span>' : ''}${mine ? ' <span class="sv-mine">📁 My songs</span>' : ''}</div>
-    <div class="sv-desc">${esc(sg.desc)}</div>`;
-  if (complete) {
-    h += `<div class="sv-toolbar">
+  return `<div class="sv-toolbar">
       ${canPlay ? btn('play', '▶ Play', 'Play this song from the start (already written — no AI needed)') : ''}
       ${mine && sh && sg.library ? btn('edit', songEdit.sg === sg ? '✎ editing…' : '✎ Edit', 'Edit the sections, chords and parts (or ask the chat)') : ''}
       ${btn('fav', favOf(sg) ? '★ favorite' : '☆ Favorite', favOf(sg) ? 'A favorite on this server — click to remove it from the shared list' : 'Add to ★ Favorites: everyone on this server sees it, and it survives restarts')}
@@ -3401,7 +3456,18 @@ function songViewHTML(sg, live) {
       ${btn('json', '⬇ JSON', 'Download the whole song (sheet, parts, sections, pads) as a .json file — import it on any Strudel AI server')}
       ${btn('link', '🔗 Link', 'Create a link that plays this whole song on this server')}
     </div>`;
-  }
+}
+
+/** The song sheet and the sections of one song, with live status and jump buttons. */
+function songViewHTML(sg, live) {
+  if (!sg) return '';
+  const sh = sg.sheet;
+  const isCurrent = live && setl.songs[setl.current] === sg;
+  const complete = sg.blocks?.length && sg.blocks.every((b) => b.code) && !sg.phase;
+  const mine = isMine(sg);
+  let h = `<div class="sv-head"><b>${esc(sg.title)}</b>${isCurrent ? ' <span class="sv-live">▶ playing</span>' : ''}${mine ? ' <span class="sv-mine">📁 My songs</span>' : ''}</div>
+    <div class="sv-desc">${esc(sg.desc)}</div>`;
+  h += songToolbarHTML(sg, live);
   if (songEdit.sg === sg && sh && sg.library) return h + songEditorHTML(sg);
   if (sg.shareUrl) {
     h += `<div class="sv-shared">🔗 <input readonly value="${esc(sg.shareUrl)}" /><button class="sv-copy">📋 Copy</button><a href="${esc(sg.shareUrl)}" target="_blank" rel="noopener">open ↗</a></div>`;
@@ -3476,8 +3542,13 @@ function sectionProgress(st) {
 function updateSectionProgress() {
   for (const el of document.querySelectorAll('.sv-left[data-i]')) {
     const st = setlist.steps[Number(el.dataset.i)];
-    const pr = sectionProgress(st);
     const sum = el.closest('summary');
+    if (setlist.paused && setlist.paused.step === st) {
+      el.textContent = `⏸ paused at bar ${setlist.paused.bar + 1}/${st.bars}`;
+      sum?.style.setProperty('--p', `${((setlist.paused.bar / Math.max(1, st.bars)) * 100).toFixed(1)}%`);
+      continue;
+    }
+    const pr = sectionProgress(st);
     if (!pr) { if (el.textContent) { el.textContent = ''; sum?.style.removeProperty('--p'); } continue; }
     sum?.style.setProperty('--p', `${(pr.frac * 100).toFixed(1)}%`);
     // the next section changes the tempo: say so
@@ -3490,6 +3561,7 @@ function updateSectionProgress() {
 }
 setInterval(updateSectionProgress, 250);
 
+let nowSong = null; // the last song that started playing
 function renderSongs() {
   // Songs tab: the running/last set (until the text is edited), otherwise a preview of the text
   const setSongs = setl.mode === 'set' && setl.songs.length && !setl.textDirty ? setl.songs : parseSongs($('setText').value);
@@ -3497,13 +3569,14 @@ function renderSongs() {
   const now = setl.mode === 'station' ? setl.songs[setl.current] : null;
   const pick = (tab, list) => {
     if (typeof songSel[tab] === 'string') return null; // a My songs entry is open
-    const k = songSel[tab] ?? (setl.running && setl.mode === tab && setl.current >= 0 ? setl.current : null);
+    // the station's playing song is in the On air box (and 🎶 Now playing): only an explicit pick opens a row
+    const k = songSel[tab] ?? (tab === 'set' && setl.running && setl.mode === tab && setl.current >= 0 ? setl.current : null);
     return k != null && list[k] ? k : null;
   };
   const selSet = pick('set', setSongs), selSt = pick('station', stationSongs);
   const setView = viewedSong('set');
   const stepKey = (sg) => sg?.blocks?.map((b) => b.status + (b.code ? b.code.length : 0) + (b.error || '')).join() || '';
-  const key = JSON.stringify([setl.running, setl.mode, setl.planning, now?.title, selSet, selSt, setlist.hold, setlist.jumpTarget, setl.current,
+  const key = JSON.stringify([setl.running, !!setlist.paused, nowSong?.title, stepKey(nowSong), setl.songs.map((x) => x.phase || x.status).join(), setl.mode, setl.planning, now?.title, selSet, selSt, setlist.hold, setlist.jumpTarget, setl.current,
     ...[setSongs, stationSongs].map((l) => l.map((sg) => [sg.title, sg.status, sg.phase, sg.bars, sg.blocks?.filter((b) => b.code).length, sg.error, !!sg.sheet, sg.shareUrl])),
     stepKey(setView), stepKey(stationSongs[selSt]), stepKey(setl.songs[setl.current]), songSel.set, songEdit.sg?.title, padsState.owner?.title, padsState.follow,
     mySongs.map((sg) => [sg.title, sg.bars, setl.songs[setl.current] === sg]), mp3.seg?.sg?.title || '', mp3.takes.length, mp3.want.size,
@@ -3513,15 +3586,23 @@ function renderSongs() {
   $('setStatus').innerHTML = songsHTML(setSongs, setl.running && setl.mode === 'set', selSet);
   $('mySongs').innerHTML = myListHTML();
   $('favSongs').innerHTML = favListHTML();
-  $('stationStatus').innerHTML = songsHTML(stationSongs, setl.running && setl.mode === 'station', selSt);
-  const playingSong = setl.running ? setl.songs[setl.current] || null : null;
+  $('stationStatus').innerHTML = songsHTML(stationSongs, setl.running && setl.mode === 'station', selSt, { tools: true });
+  // 🎶 Now playing: the playing song — or, once it's over, the last one that played (stopped)
+  // while a set or station is still writing its first song, show that song (with what's being written)
+  const preparing = setl.running && !setl.songs[setl.current] ? setl.songs.find((x) => ['writing', 'waiting', 'ready'].includes(x.status)) : null;
+  const playingSong = (setl.running && setl.songs[setl.current]) || preparing || nowSong;
+  const nowLive = !!(setl.running && playingSong && setl.songs[setl.current] === playingSong);
   $('nowEmpty').hidden = !!playingSong;
-  for (const [id, sg, live] of [['setSongView', setView, setl.running && setl.mode === 'set'], ['stationSongView', stationSongs[selSt], setl.running && setl.mode === 'station'], ['nowSongView', playingSong, true]]) {
+  $('nowTransport').hidden = !nowLive;
+  $('nowPause').textContent = setlist.paused ? '▶ Resume' : '⏸ Pause';
+  $('nowPause').classList.toggle('on', !!setlist.paused);
+  for (const [id, sg, live] of [['setSongView', setView, setl.running && setl.mode === 'set'], ['nowSongView', playingSong, nowLive]]) {
     const el = $(id);
     if (sg && songEdit.sg === sg && el.querySelector('.sv-edit')) continue; // don't wipe the editor while typing
     const open = new Set([...el.querySelectorAll('details[open]')].map((d) => d.dataset.j ?? 'lib'));
     el.hidden = !sg;
     el.innerHTML = songViewHTML(sg, live);
+    if (id === 'nowSongView' && sg && !live) el.querySelector('.sv-head')?.insertAdjacentHTML('beforeend', sg === preparing ? ' <span class="sv-stopped">✎ being written — plays when ready</span>' : ' <span class="sv-stopped">■ stopped</span>');
     for (const d of el.querySelectorAll('details')) if (open.has(d.dataset.j ?? 'lib')) d.open = true;
   }
   updateSectionProgress();
@@ -3529,7 +3610,7 @@ function renderSongs() {
   $('stationNow').hidden = !onAir;
   if (onAir) {
     $('stationNow').innerHTML = now
-      ? `📻 <b>On air:</b> ${esc(now.title)}<div class="d">${esc(now.desc)}</div>`
+      ? `📻 <b>On air:</b> ${esc(now.title)}<div class="d">${esc(now.desc)}</div><div class="song-tools">${songToolbarHTML(now, true)}${NOW_LINK}${sharedLinkHTML(now)}</div>`
       : '📻 <b>Warming up…</b><div class="d">the agent is planning and writing the first song</div>';
   }
 }
@@ -3539,16 +3620,32 @@ for (const id of ['setStatus', 'stationStatus']) {
   $(id).addEventListener('click', (e) => {
     const b = e.target.closest('.jump[data-song]');
     if (b) { jumpToSong(Number(b.dataset.song), tab); return; }
+    if (e.target.closest('[data-open-now]')) { showPanel('song'); return; }
+    // a song's toolbar inside its row (station list)
+    const act = e.target.closest('[data-act]');
+    const tools = e.target.closest('.song-tools');
+    if (tools) {
+      const sg = (tab === 'station' ? setl.songs : [])[Number(tools.closest('.song[data-k]')?.dataset.k)];
+      if (act && sg) songAction(act.dataset.act, sg, act, tools);
+      else if (e.target.closest('.sv-copy') && sg?.shareUrl) navigator.clipboard?.writeText(sg.shareUrl).then(() => { e.target.textContent = '✓ Copied'; }, () => {});
+      return;
+    }
     const row = e.target.closest('.song[data-k]');
     if (row) { const k = Number(row.dataset.k); songSel[tab] = songSel[tab] === k ? null : k; lastSongsKey = ''; renderSongs(); }
   });
 }
-for (const id of ['setSongView', 'stationSongView', 'nowSongView']) {
+$('stationNow').addEventListener('click', (e) => {
+  if (e.target.closest('[data-open-now]')) { showPanel('song'); return; }
+  const sg = setl.songs[setl.current], act = e.target.closest('[data-act]');
+  if (act && sg) songAction(act.dataset.act, sg, act, $('stationNow'));
+  else if (e.target.closest('.sv-copy') && sg?.shareUrl) navigator.clipboard?.writeText(sg.shareUrl).then(() => { e.target.textContent = '✓ Copied'; }, () => {});
+});
+for (const id of ['setSongView', 'nowSongView']) {
   $(id).addEventListener('click', (e) => {
     const go = e.target.closest('.jump[data-i]');
     if (go) { e.preventDefault(); e.stopPropagation(); jumpTo(Number(go.dataset.i)); return; }
     if (e.target.closest('.sv-hold')) { e.preventDefault(); setHold(!setlist.hold); renderSongs(); return; }
-    const sg = id === 'nowSongView' ? setl.songs[setl.current] : viewedSong(id === 'stationSongView' ? 'station' : 'set');
+    const sg = id === 'nowSongView' ? (setl.running && setl.songs[setl.current]) || nowSong : viewedSong('set');
     const act = e.target.closest('[data-act]')?.dataset.act;
     if (act && sg) { songAction(act, sg, e.target.closest('[data-act]'), $(id)); return; }
     if (e.target.closest('.sv-copy') && sg?.shareUrl) {
@@ -4234,6 +4331,203 @@ setInterval(renderAISummary, 2000);
 renderAISummary();
 
 setupDock('console');
+
+// ---------------------------------------------------------------------------
+// 🎚 Mixer: one channel strip per part (every labelled group in the code).
+//  · volume = the part's own group fader, .postgain(slider(…)), so it lives in the code, carries into the next
+//    section and plays back the same; moving it here moves that slider (no re-evaluation)
+//  · mute / solo = the same as the M / S buttons next to the code
+//  · EQ (low shelf 200 Hz, mid peak 1 kHz, high shelf 4 kHz, ±12 dB): a part with EQ gets its own orbit
+//    (Strudel's output bus); the filters sit on that bus, so EQ moves are instant and don't touch the code
+// ---------------------------------------------------------------------------
+const MX_BANDS = [['high', 'highshelf', 4000], ['mid', 'peaking', 1000], ['low', 'lowshelf', 200]];
+const mixer = { eq: load().mixerEq || {}, orbits: {}, nextOrbit: 2, busy: false, key: '' };
+const eqFlat = (e) => !e || MX_BANDS.every(([b]) => !Number(e[b]));
+/** The orbit a part plays on (only parts with EQ get one). */
+const mixerOrbit = (base) => mixer.orbits[base] ?? null;
+function assignOrbit(base) {
+  if (mixer.orbits[base] == null) mixer.orbits[base] = mixer.nextOrbit++;
+  return mixer.orbits[base];
+}
+for (const [base, e] of Object.entries(mixer.eq)) if (!eqFlat(e) && base !== '$') assignOrbit(base);
+window.__mixerTrap = () => { if (Object.keys(mixer.orbits).length) installOrbitTrap(); };
+
+// Strudel turns "bass: …" into pattern.p('bass') and redefines Pattern.prototype.p on every evaluation:
+// trap that assignment so the label's pattern is routed to the part's orbit.
+function installOrbitTrap() {
+  const P = globalThis.Pattern || scheduler()?.pattern?.constructor;
+  if (!P?.prototype || P.__mixerTrap) return;
+  let inner = P.prototype.p;
+  Object.defineProperty(P.prototype, 'p', {
+    configurable: true,
+    get() {
+      return function (id) {
+        const o = typeof id === 'string' ? mixerOrbit(parseLabel(id).base) : null;
+        return inner.call(o != null && typeof this.orbit === 'function' ? this.orbit(o) : this, id);
+      };
+    },
+    set(fn) { inner = fn; },
+  });
+  P.__mixerTrap = true;
+}
+
+/** EQ filters on a part's orbit: orbit output → high → mid → low → the speakers. */
+function orbitEq(base) {
+  const n = mixerOrbit(base);
+  let ctrl;
+  try { ctrl = globalThis.getSuperdoughAudioController(); } catch { return null; }
+  if (n == null || !ctrl) return null;
+  const orbit = ctrl.getOrbit(n, [0, 1]);
+  if (!orbit.__eq) {
+    const ac = orbit.audioContext;
+    const nodes = MX_BANDS.map(([, type, f]) => new BiquadFilterNode(ac, { type, frequency: f, Q: type === 'peaking' ? 0.8 : 0.7, gain: 0 }));
+    try { orbit.output.disconnect(); } catch {}
+    orbit.output.connect(nodes[0]);
+    nodes[0].connect(nodes[1]);
+    nodes[1].connect(nodes[2]);
+    ctrl.output.connectToDestination(nodes[2], [0, 1]);
+    orbit.__eq = Object.fromEntries(MX_BANDS.map(([b], i) => [b, nodes[i]]));
+  }
+  return orbit.__eq;
+}
+function applyEq(base) {
+  const nodes = orbitEq(base);
+  if (!nodes) return;
+  const e = mixer.eq[base] || {};
+  const t = nodes.low.context.currentTime;
+  for (const [b] of MX_BANDS) nodes[b].gain.setTargetAtTime(Number(e[b]) || 0, t, 0.02);
+}
+// the audio engine can be reset (or not started yet): keep the filters in place
+setInterval(() => { if (isPlaying()) for (const base of Object.keys(mixer.orbits)) applyEq(base); }, 1000);
+
+/** Re-evaluate the same code on the next beat, so a part that just got EQ moves to its own orbit. */
+async function rerouteSoon(why) {
+  if (!isPlaying()) return;
+  if (state.pending || mixer.busy) { setTimeout(() => rerouteSoon(why), 400); return; } // never apply an armed section early
+  mixer.busy = true;
+  try { await evaluateCode(getCode(), { at: nextBoundary(0.25), label: why, undo: false }); }
+  finally { mixer.busy = false; }
+}
+
+/** The group fader of each part: its last .postgain(slider(v, min, max)) — position of the number in `code`. */
+function groupFaders(code) {
+  const lines = code.split('\n');
+  const rows = patternLines(code);
+  const offs = [];
+  let o = 0;
+  for (const l of lines) { offs.push(o); o += l.length + 1; }
+  return rows.map((r, k) => {
+    const end = k + 1 < rows.length ? rows[k + 1].line : lines.length;
+    const from = offs[r.line], to = end < lines.length ? offs[end] : code.length;
+    const chunk = code.slice(from, to);
+    const re = /\.postgain\(\s*slider\(\s*([\d.]+)\s*(?:,\s*([\d.]+)\s*)?(?:,\s*([\d.]+)\s*)?/g;
+    let m, last = null;
+    while ((m = re.exec(chunk))) last = m;
+    const fader = last ? { pos: from + last.index + last[0].indexOf(last[1], last[0].indexOf('slider(')), text: last[1], value: Number(last[1]), min: Number(last[2] ?? 0), max: Number(last[3] ?? 1) } : null;
+    return { ...r, key: r.base === '$' ? `$${k}` : r.base, fader, endLine: end - 1 };
+  });
+}
+
+/** Move a part's fader: through the slider widget in the editor when it's on screen, else by hand. */
+function setGroupVolume(row, v) {
+  const f = row.fader;
+  if (!f) return;
+  const input = [...document.querySelectorAll('#editor-wrap .cm-slider input')].find((i) => i.from === f.pos);
+  if (input) { input.value = String(v); input.dispatchEvent(new Event('input', { bubbles: true })); return; }
+  // off screen: rewrite the number and tell Strudel, using the slider's id from the evaluated code
+  const evaluated = groupFaders(live.applied || '').find((x) => x.key === row.key)?.fader;
+  const text = String(Math.round(v * 1000) / 1000);
+  mirror().editor.dispatch({ changes: { from: f.pos, to: f.pos + f.text.length, insert: text } });
+  if (evaluated) window.postMessage({ type: 'cm-slider', value: Number(text), id: `slider_${evaluated.pos}` });
+}
+
+/** A part without a group fader: add one (applied on the next beat). */
+async function addGroupFader(row) {
+  const lines = getCode().split('\n');
+  let i = row.endLine;
+  while (i > row.line && !lines[i].trim()) i--;
+  const l = lines[i];
+  const c = l.search(/\s*\/\/(?![^"']*["'][^"']*$)/); // before a trailing comment
+  lines[i] = c >= 0 ? `${l.slice(0, c)}.postgain(slider(1, 0, 1.5))${l.slice(c)}` : `${l}.postgain(slider(1, 0, 1.5))`;
+  const next = lines.join('\n');
+  if (!isPlaying()) { mirror().setCode(next); return; }
+  const err = await evaluateCode(next, { at: nextBoundary(0.25), label: `fader for ${row.base}`, undo: false });
+  if (err) addMsg('error', `Couldn't add a fader: ${err.message}`);
+}
+
+function renderMixerPanel() {
+  if (!docks.mixer?.on) return;
+  if (mixer.dragging) return; // don't rebuild under the pointer
+  const rows = groupFaders(getCode());
+  const anySolo = rows.some((r) => r.solo);
+  const key = JSON.stringify([rows.map((r) => [r.key, r.line, r.muted, r.solo, r.fader?.text, r.fader?.min, r.fader?.max, mixerPending.has(r.line)]), mixer.eq, $('masterGain').value]);
+  if (key === mixer.key) return;
+  mixer.key = key;
+  const knob = (base, b, v, disabled) => `<label class="mx-eq-b" title="${b} ${b === 'mid' ? '(1 kHz)' : b === 'low' ? '(200 Hz shelf)' : '(4 kHz shelf)'}: ${v > 0 ? '+' : ''}${v} dB${disabled ? ' — name the line (e.g. lead:) to EQ it' : ''}">
+      <input type="range" class="mx-v" min="-12" max="12" step="0.5" value="${v}" data-eq="${b}" data-base="${esc(base)}"${disabled ? ' disabled' : ''} /><span>${b[0].toUpperCase()}</span></label>`;
+  const strips = rows.map((r) => {
+    const e = mixer.eq[r.base] || {};
+    const silenced = r.muted || (anySolo && !r.solo);
+    const f = r.fader;
+    return `<div class="mx-strip${silenced ? ' silenced' : ''}${mixerPending.has(r.line) ? ' pending' : ''}" style="--c:${vizColor(r.base)}" data-key="${esc(r.key)}">
+      <div class="mx-name" title="${esc(r.label)}: line ${r.line + 1}">${esc(r.base === '$' ? `$ ${r.line + 1}` : r.base)}</div>
+      <div class="mx-ms"><button data-mx="mute" data-line="${r.line}" class="m${r.muted ? ' on' : ''}" title="Mute (on the next beat)">M</button><button data-mx="solo" data-line="${r.line}" class="s${r.solo ? ' on' : ''}" title="Solo (on the next beat)">S</button></div>
+      <div class="mx-eq">${MX_BANDS.map(([b]) => knob(r.base, b, Number(e[b]) || 0, r.base === '$')).join('')}</div>
+      <div class="mx-fader">${f
+        ? `<input type="range" class="mx-v mx-vol" min="${f.min}" max="${f.max}" step="0.01" value="${f.value}" data-vol="${esc(r.key)}" title="Volume: the part's fader .postgain(slider(…)) — double-click for 1" /><span class="mx-val">${Math.round(f.value * 100)}%</span>`
+        : `<button class="mx-addfader" data-add="${esc(r.key)}" title="This part has no group fader: add .postgain(slider(1, 0, 1.5)) to it">+ fader</button>`}</div>
+    </div>`;
+  }).join('');
+  const master = `<div class="mx-strip master"><div class="mx-name">master</div><div class="mx-ms"></div><div class="mx-eq"></div>
+    <div class="mx-fader"><input type="range" class="mx-v mx-vol" min="0" max="1.5" step="0.01" value="${$('masterGain').value}" data-master="1" title="Master volume — double-click for 100%" /><span class="mx-val">${Math.round($('masterGain').value * 100)}%</span></div></div>`;
+  $('mixerStrips').innerHTML = rows.length ? strips + master : `<div class="muted small mx-empty">No parts yet: every labelled line in the code (<code>drums: …</code>, <code>bass: …</code>) gets a channel strip here.</div>${master}`;
+}
+setupDock('mixer', { onShow: () => { mixer.key = ''; renderMixerPanel(); } });
+setInterval(renderMixerPanel, 200);
+
+const mxRow = (key) => groupFaders(getCode()).find((r) => r.key === key);
+const saveEq = (() => { let t; return () => { clearTimeout(t); t = setTimeout(() => save({ mixerEq: mixer.eq }), 300); }; })();
+function setEq(base, band, v) {
+  (mixer.eq[base] ||= {})[band] = v;
+  if (eqFlat(mixer.eq[base])) delete mixer.eq[base];
+  saveEq();
+  if (mixerOrbit(base) == null && !eqFlat(mixer.eq[base])) {
+    assignOrbit(base);
+    window.__mixerTrap();
+    rerouteSoon(`EQ on ${base}`);
+  }
+  applyEq(base);
+}
+$('mixerStrips').addEventListener('pointerdown', (e) => { if (e.target.matches('input[type=range]')) mixer.dragging = true; });
+window.addEventListener('pointerup', () => { if (mixer.dragging) { mixer.dragging = false; mixer.key = ''; } });
+$('mixerStrips').addEventListener('input', (e) => {
+  const t = e.target;
+  if (t.dataset.eq) { setEq(t.dataset.base, t.dataset.eq, Number(t.value)); t.closest('label').title = `${t.dataset.eq}: ${t.value} dB`; return; }
+  if (t.dataset.master) { $('masterGain').value = t.value; $('masterGain').oninput(); t.nextElementSibling.textContent = `${Math.round(t.value * 100)}%`; return; }
+  if (t.dataset.vol) {
+    const row = mxRow(t.dataset.vol);
+    if (row) setGroupVolume(row, Number(t.value));
+    t.nextElementSibling.textContent = `${Math.round(t.value * 100)}%`;
+  }
+});
+$('mixerStrips').addEventListener('dblclick', (e) => {
+  const t = e.target;
+  if (!t.matches('input[type=range]')) return;
+  t.value = t.dataset.eq ? 0 : 1;
+  t.dispatchEvent(new Event('input', { bubbles: true }));
+  mixer.key = '';
+});
+$('mixerStrips').addEventListener('click', (e) => {
+  const b = e.target.closest('button');
+  if (!b) return;
+  if (b.dataset.mx) toggleLine(Number(b.dataset.line), b.dataset.mx);
+  else if (b.dataset.add) { const row = mxRow(b.dataset.add); if (row) addGroupFader(row); }
+});
+$('mixerFlat').onclick = () => {
+  for (const base of Object.keys(mixer.eq)) { delete mixer.eq[base]; applyEq(base); }
+  save({ mixerEq: mixer.eq });
+  mixer.key = '';
+};
 
 // ---------------------------------------------------------------------------
 // Status bar (bottom): bar.beat + tempo, the song / section playing, the pending
@@ -4998,6 +5292,23 @@ async function applySongEdit(sg, raw, partsCode = null) {
   clog('ok', `🎵 “${sg.title}” updated: ${sheet.sections.length} sections, ${sheet.sections.reduce((a, x) => a + x.bars, 0)} bars — ${tempos} bpm`);
   return null;
 }
+/**
+ * After a song edit: switch the section that's playing to its new version on the next bar (keeping faders,
+ * mute / solo and its place in the phrase). Returns true when it did.
+ */
+async function refreshPlayingSection(sg) {
+  if (!setl.running || setl.songs[setl.current] !== sg || state.pending || setlist.paused || !isPlaying()) return false;
+  const st = setlist.steps.find((x) => x.status === 'playing' && x.song === sg);
+  const sec = st?.section && sg.sheet.sections.find((x) => x.name === st.section.name);
+  if (!sec) return false;
+  const code = atSectionStart(carryLiveState(getCode(), sectionCode(sg, sec, { fill: !!st.fillStep })), st.startedAt ?? 0);
+  const err = await evaluateCode(code, { at: nextBoundary(1), fade: fadeCycles(sg), label: `“${sg.title}” ${st.prompt} (edited)` });
+  if (err) { clog('warn', `the edited ${st.prompt} didn't play (${err.message}) — it changes from the next section`); return false; }
+  st.code = code;
+  st.section = sec;
+  return true;
+}
+
 /** Rebuild a song's sections; if it's in the player, replace the ones that haven't started. */
 function rearrangeSong(sg) {
   const fresh = arrangeSong(sg);
@@ -5168,15 +5479,39 @@ const SONG_WORDS = /\b(song|section|sections|verse|chorus|bridge|intro|outro|dro
 /** Extra context for a chat request — only when the message is about the song / pads (keeps requests small). */
 function chatContext(text) {
   const out = [];
+  const target = chatTarget();
   const sg = activeSong();
-  if (sg && SONG_WORDS.test(text)) {
+  if (sg && (target === 'song' || (target === 'auto' && SONG_WORDS.test(text)))) {
     out.push(`ACTIVE SONG "${sg.title}" — sheet JSON:\n${JSON.stringify(rawSheet(sg.sheet))}\nPARTS CODE:\n\`\`\`javascript\n${sg.library}\n\`\`\``);
   }
-  if (/\bpads?\b/i.test(text)) {
+  if (target === 'song' && sg) {
+    out.push('TARGET: THE WHOLE SONG. Make the change across the song — its sections, form, chords, parts and their variants — ' +
+      'by replying with a ```song block (the COMPLETE updated sheet) and, when parts are added or their code changes, a ```parts block ' +
+      '(the COMPLETE parts code). Do NOT reply with a ```javascript block: the editor only shows the section playing now and is rebuilt from the song.');
+  }
+  if (target === 'pads' || (target === 'auto' && /\bpads?\b/i.test(text))) {
     out.push('PADS (number. label [mode]: code):\n' + pads.map((p, i) => `${i + 1}. ${p.label} [${p.mode}]${padIsOn(i) ? ' (on)' : ''}: ${oneLine(p.code)}`).join('\n'));
+    if (target === 'pads') out.push('TARGET: THE PADS. Reply with a ```pads block; only include a ```javascript block if the code in the editor must change too.');
   }
   return out.join('\n\n');
 }
+/** 🎯 What the chat works on: auto | code | song | pads ("song" falls back to auto when no song is open). */
+function chatTarget() {
+  const v = $('chatTarget').value;
+  return v === 'song' && !activeSong() ? 'auto' : v;
+}
+if (saved.chatTarget) $('chatTarget').value = saved.chatTarget;
+$('chatTarget').onchange = () => { save({ chatTarget: $('chatTarget').value }); renderChatTarget(); };
+/** Keep the song option labelled with the song it works on. */
+function renderChatTarget() {
+  const sg = activeSong();
+  const opt = $('chatTarget').querySelector('option[value="song"]');
+  const label = sg ? `🎵 whole song: ${sg.title.slice(0, 28)}` : '🎵 whole song (none open)';
+  if (opt.textContent !== label) opt.textContent = label;
+  $('input').placeholder = { song: sg ? `Change the whole song “${sg.title}”… (sections, chords, parts)` : 'No song is open — open one in 🎵 Songs (Enter to send)', pads: 'Program or press the pads… (Enter to send)', code: 'Change the code in the editor… (Enter to send, Shift+Enter for newline)' }[$('chatTarget').value]
+    || 'Make it groovier… (Enter to send, Shift+Enter for newline)';
+}
+setInterval(renderChatTarget, 1000);
 /** ```pads reply: program pads and/or switch them on / off. Returns a short summary. */
 function applyPadsReply(block) {
   const j = parseJSONLoose(block.startsWith('{') ? block : `{${block}}`);
@@ -5229,6 +5564,7 @@ function mp3TapUpdate() {
     const proc = ctx.createScriptProcessor(4096, 2, 2);
     proc.onaudioprocess = (e) => {
       const l = e.inputBuffer.getChannelData(0), r = e.inputBuffer.numberOfChannels > 1 ? e.inputBuffer.getChannelData(1) : l;
+      if (mp3.paused) return; // ⏸ paused song: the recording pauses too
       for (const sink of [mp3.rec, mp3.seg]) if (sink) sink.worker.postMessage({ type: 'data', l: l.slice(), r: r.slice() });
     };
     node.connect(proc);
@@ -5338,4 +5674,4 @@ function songMp3(sg) {
 }
 
 // handy for debugging from the browser console
-window.strudelAI = { ws, normalizeSheet, playSong, songMp3, loadPads, songPads, transposeProgression, sectionCode, getForms: () => songForms, getFavorites: () => favorites, loadFavorites, getPads: () => pads, mySongs, activeSong, songFromJSON, songToJSON, mp3, session, pads, padsState, keysState, noteOn, noteOff, setPad, docks, rec, replay, startReplay, recordingForShare, viz, checkScales, checkSounds, prepareCode, evaluateCode, dryRun, hum, transcribe, ensureSliders, setlist, setl };
+window.strudelAI = { ws, mixer, groupFaders, normalizeSheet, playSong, songMp3, loadPads, songPads, transposeProgression, sectionCode, getForms: () => songForms, getFavorites: () => favorites, loadFavorites, getPads: () => pads, mySongs, activeSong, songFromJSON, songToJSON, mp3, session, pads, padsState, keysState, noteOn, noteOff, setPad, docks, rec, replay, startReplay, recordingForShare, viz, checkScales, checkSounds, prepareCode, evaluateCode, dryRun, hum, transcribe, ensureSliders, setlist, setl };

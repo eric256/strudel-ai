@@ -20,6 +20,7 @@
       <button id="vizBtn" title="Show / hide the visualizer">📊<span class="lbl"> Viz</span></button>
       <button id="keysBtn" title="Show / hide the keyboard (play live, record a part)">🎹<span class="lbl"> Keys</span></button>
       <button id="padsBtn" title="Show / hide the 4×4 sound pad">🔲<span class="lbl"> Pads</span></button>
+      <button id="mixerBtn" title="Mixer: every part with volume, 3-band EQ, mute and solo">🎚<span class="lbl"> Mixer</span></button>
       <button id="consoleBtn" title="Console: follow what the AI is writing, the checks and fixes, and any errors">🖥<span class="lbl"> Console</span></button>
       <span class="ws-menu-wrap"><button id="layoutBtn" title="Panels: open or close chat, songs, station, the playing song, visualizer, keys, pads and console — or reset the layout">▦<span class="lbl"> Panels</span></button>
         <div id="layoutMenu" class="share-pop layout-menu" hidden></div></span>
@@ -101,6 +102,13 @@
         </div>
       </div>
       <div class="options">
+        <label class="chat-target" title="What the chat works on: the code in the editor (the section playing now), the whole song (its sections, chords, parts — every section, from the next bar), or the pads. auto: the code, or the song / pads when your message is about them.">🎯
+          <select id="chatTarget">
+            <option value="auto">auto</option>
+            <option value="code">🎛 code in the editor</option>
+            <option value="song">🎵 whole song</option>
+            <option value="pads">🔲 pads</option>
+          </select></label>
         <span class="muted small" id="aiSummary" title="Change in ⚙ Settings → AI"></span>
         <span class="spacer"></span>
         <button id="clearChat" class="link">clear chat</button>
@@ -166,10 +174,12 @@
         <div id="stationNow" class="on-air" hidden></div>
         <div class="sl-buttons"><span class="spacer"></span><button class="link log-dl" title="Download every song played this session as a text file">⬇ played this session</button></div>
         <div id="stationStatus" class="songs"></div>
-        <div id="stationSongView" class="song-view" hidden></div>
       </section>
       <section id="songPanel" class="panel tab">
         <div id="nowEmpty" class="now-empty muted">Nothing is playing. Start a song in 🎵 Songs or a 📻 Station and it shows up here, with its sections and progress.</div>
+        <div id="nowTransport" class="now-transport" hidden>
+          <button id="nowPause" title="Pause the song where it is — section and bar — and resume it from there later (▶ Play resumes too)">⏸ Pause</button>
+        </div>
         <div id="nowSongView" class="song-view" hidden></div>
       </section>
       <section id="viz-dock" class="panel dock">
@@ -245,6 +255,15 @@
             <small class="muted">A pattern (e.g. <code>s("hh*8").gain(0.5)</code>) is added to the music as its own labelled line while the pad is on. <code>all(x =&gt; x.lpf(400))</code> or <code>setcpm(140/4)</code> lines work too.</small>
           </div>
         </div>
+      </section>
+      <section id="mixer-dock" class="panel dock">
+        <div class="viz-bar">
+          <b>🎚 Mixer</b>
+          <span class="muted small">volume = each part's fader in the code · EQ: low / mid / high shelf, ±12 dB · double-click a control to reset it</span>
+          <span class="spacer"></span>
+          <button id="mixerFlat" class="link" title="Set every EQ back to flat">flat EQ</button>
+        </div>
+        <div id="mixerStrips" class="mx-strips"></div>
       </section>
       <section id="console-dock" class="panel dock">
         <div class="viz-bar">

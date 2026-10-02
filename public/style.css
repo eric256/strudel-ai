@@ -568,3 +568,39 @@ body.ws-resizing { user-select: none; }
 .pads-body { flex-wrap: wrap; }
 .pad-editor { flex: 1 1 260px; }
 .pads-grid { flex: 1 1 200px; }
+
+/* station: the song's buttons in the On air box and in a picked row */
+.song-tools { display: flex; flex-direction: column; gap: 6px; margin-top: 6px; }
+.song-tools .sv-toolbar { margin: 0; }
+.open-now { align-self: flex-start; font-size: 12px; color: var(--accent-2); border-color: #1f6b58; }
+
+/* 🎚 mixer: one channel strip per part — name, M / S, then EQ (H M L) beside the volume fader */
+.mx-strips { flex: 1; min-height: 0; display: flex; gap: 6px; padding: 6px 10px 8px; overflow: auto; align-items: stretch; }
+.mx-strip {
+  flex: 0 0 auto; display: grid; grid-template-columns: auto auto; grid-template-rows: auto auto minmax(70px, 1fr);
+  column-gap: 6px; row-gap: 4px; justify-items: center; padding: 5px 6px 4px; min-width: 96px;
+  border: 1px solid var(--border); border-top: 3px solid var(--c, var(--accent)); border-radius: 6px; background: var(--panel-2);
+}
+.mx-strip.master { border-top-color: var(--text); margin-left: 6px; min-width: 64px; grid-template-columns: auto; }
+.mx-strip.silenced { opacity: .5; }
+.mx-strip.pending .mx-ms button { animation: pulse .35s ease-in-out infinite alternate; }
+.mx-name { grid-column: 1 / -1; font: 600 12px/16px var(--mono); max-width: 110px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--c, var(--text)); }
+.mx-ms { grid-column: 1 / -1; display: flex; gap: 4px; min-height: 22px; }
+.mx-ms button { font: 700 11px var(--mono); padding: 1px 7px; }
+.mx-ms .m.on { background: #5a2030; border-color: var(--danger); color: #fff; }
+.mx-ms .s.on { background: #5a4a10; border-color: #ffd166; color: #fff; }
+.mx-eq { display: flex; gap: 1px; align-self: stretch; }
+.mx-strip.master .mx-eq { display: none; }
+.mx-eq-b { display: flex; flex-direction: column; align-items: center; font: 10px var(--mono); color: var(--muted); }
+.mx-v { writing-mode: vertical-lr; direction: rtl; width: 16px; margin: 0; accent-color: var(--c, var(--accent)); }
+.mx-eq .mx-v { flex: 1; min-height: 44px; }
+.mx-eq .mx-v:disabled { opacity: .3; }
+.mx-fader { display: flex; flex-direction: column; align-items: center; gap: 2px; align-self: stretch; }
+.mx-vol { flex: 1; min-height: 44px; width: 20px; }
+.mx-val { font: 10px var(--mono); color: var(--muted); }
+.mx-addfader { font-size: 11px; padding: 2px 6px; margin-top: 8px; }
+.mx-empty { align-self: center; padding: 0 10px; max-width: 320px; }
+.now-transport { display: flex; gap: 8px; align-items: center; }
+#nowPause { font-weight: 600; min-width: 110px; }
+#nowPause.on { color: var(--accent-2); border-color: var(--accent-2); }
+.sv-stopped { color: var(--muted); font-size: 11px; border: 1px solid var(--border); border-radius: 8px; padding: 0 6px; }
