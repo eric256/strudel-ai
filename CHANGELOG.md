@@ -2,6 +2,13 @@
 
 The version is in `package.json`. Bump it when you release. Open pages also notice *any* redeploy through the build id, which is a hash of the app files, even if the version wasn't bumped.
 
+## 1.30.1
+- **Fewer songs written block by block:**
+  - When the AI's part library is missing some parts, it's asked for just those, which are added to what it wrote, instead of rewriting everything.
+  - The song sheet and the parts each get one more try (3).
+  - Parts written as labels (`bass_main: …`) are taken as consts.
+- **Block-written songs show their instruments:** if a song still falls back, each section in 🎶 Now playing shows its tempo and its instruments (the labelled parts in its code), with a short name instead of the AI's instruction text. The full instruction is in the tooltip.
+
 ## 1.30.0
 - **Readable song code:** lines are wrapped to about 150 characters (sliders count for their width).
   - Method chains break before a method, indented two spaces.

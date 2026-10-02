@@ -3183,7 +3183,7 @@ async function writeSongSheet(song, signal) {
     (prev ? `The previous song was ${prev.bpm} bpm, ${normMeter(prev.meter)}, in ${prev.key}; this one should flow from it (a related key or a nearby tempo is nice).\n` : '') +
     `\n${formsForRequest(choice)}\n\nWrite the song sheet JSON.`;
   let lastErr;
-  for (let attempt = 0; attempt < 2; attempt++) {
+  for (let attempt = 0; attempt < 3; attempt++) {
     song.phase = 'writing the song sheet';
     const text = await requestLLM({ mode: 'sheet', messages: [{ role: 'user', content: msg }], signal, label: `“${song.title}” sheet` });
     try {
@@ -3256,13 +3256,21 @@ async function writeSongLibrary(song, signal, { fix = null, prev = null } = {}) 
   let lastErr;
   // the parts step only needs the sounds the sheet chose (a fraction of the full list → far fewer tokens)
   const sounds = await partsCatalog(sh);
-  for (let attempt = 0; attempt < 2; attempt++) {
-    song.phase = fix ? 'fixing the parts' : 'writing the parts';
-    const text = await requestLLM({ mode: 'library', messages: [{ role: 'user', content }], signal, sounds, label: `“${song.title}” parts${fix ? ' fix' : ''}` });
+  let partial = null; // a library that only lacked some consts: the next reply adds just those
+  for (let attempt = 0; attempt < 3; attempt++) {
+    song.phase = fix ? 'fixing the parts' : partial ? 'writing the missing parts' : 'writing the parts';
+    const text = await requestLLM({ mode: 'library', messages: [{ role: 'user', content }], signal, sounds, label: `“${song.title}” parts${fix ? ' fix' : partial ? ' (missing)' : ''}` });
     let lib = extractCode(text);
     let err = null;
     if (!lib) err = 'no ```javascript code block in the reply';
     else {
+      // parts written as labels ("bass_main: …") are meant as consts
+      lib = lib.replace(/^([A-Za-z_$][\w$]*):(?!:)\s*/gm, (m, n) => (libraryIds(sh).includes(n) ? `const ${n} = ` : m));
+      // the missing consts were asked for: add them to what we had (a repeated one keeps the first version)
+      if (partial) {
+        const extra = lib.split(/\n(?=\s*const\s)/).filter((d) => { const id = d.match(/^\s*const\s+([\w$]+)/)?.[1]; return !id || !definesId(partial, id); });
+        lib = `${partial}\n${extra.join('\n')}`;
+      }
       // the app owns the tempo line
       lib = `${tempoLine(sh.bpm, sh.meter)}\n` + lib.replace(/^\s*setcp[ms]\([^)]*\)\s*;?\s*$/gm, '').trim();
       const missing = libraryIds(sh).filter((id) => !definesId(lib, id));
@@ -3278,6 +3286,16 @@ async function writeSongLibrary(song, signal, { fix = null, prev = null } = {}) 
     if (!err) { clog('ok', `✓ “${song.title}” parts checked and test-played`); return wrapCode(lib); }
     lastErr = err;
     clog('warn', `✗ “${song.title}” parts: ${err}`);
+    // only some consts are missing: ask for just those (much shorter than the whole library again)
+    const missing = lib ? libraryIds(sh).filter((id) => !definesId(lib, id)) : [];
+    if (lib && missing.length && missing.length < libraryIds(sh).length && !syntaxError(lib)) {
+      partial = lib;
+      content = `${base}\n\nTHE LIBRARY SO FAR (keep it as it is):\n\`\`\`javascript\n${lib}\n\`\`\`\n` +
+        `It is missing these consts: ${missing.join(', ')}. Reply with ONE \`\`\`javascript block that defines ONLY the missing consts, ` +
+        'in the same style, sounds and key, fitting the parts above.';
+      continue;
+    }
+    partial = null;
     content = `${base}\n\nYOUR PREVIOUS LIBRARY:\n\`\`\`javascript\n${lib || ''}\n\`\`\`\nIt can't be used: ${err}${/scale/i.test(err) ? '\n' + scaleHelp() : ''}\nReturn the corrected COMPLETE library.`;
   }
   throw new Error(`no usable part library (${lastErr})`);
@@ -3627,6 +3645,15 @@ function songToolbarHTML(sg, live) {
     </div>`;
 }
 
+/** A short name for a block-written section: "intro", "verse 2" … from its instruction, else "section n". */
+function shortPrompt(prompt, j) {
+  const p = String(prompt || '').trim();
+  const m = p.match(/^\s*(intro|verse|pre-?chorus|chorus|hook|bridge|breakdown|break|build|drop|outro|interlude|solo|groove|[AB]\b)[\w\s'-]{0,10}?(?=[:—–,.(-]|\s{2}|$)/i);
+  if (m) return m[0].trim();
+  const words = p.split(/\s+/).slice(0, 3).join(' ');
+  return words.length > 2 ? `${words}…` : `section ${j + 1}`;
+}
+
 /** The song sheet and the sections of one song, with live status and jump buttons. */
 function songViewHTML(sg, live) {
   if (!sg) return '';
@@ -3662,7 +3689,9 @@ function songViewHTML(sg, live) {
       const i = setlist.steps.indexOf(st);
       const queued = i >= 0 && setlist.jumpTarget === i && st.status !== 'armed' && st.status !== 'playing';
       const sec = st.section;
-      const parts = sec ? sec.play.map((x) => `<span class="chip part" style="--c:${vizColor(x.part)}">${esc(x.part)}${x.variant !== 'main' ? `<small>.${esc(st.fillStep && fillPart(sh)?.id === x.part ? 'fill' : x.variant)}</small>` : st.fillStep && fillPart(sh)?.id === x.part ? '<small>.fill</small>' : ''}${x.enter && !st.fillStep ? `<small title="${{ in: 'comes in halfway through', out: 'drops out halfway through', alt: '2 bars on, 2 bars off' }[x.enter]}">@${x.enter}</small>` : ''}</span>`).join('') : '';
+      // a section written block by block (no song sheet): its instruments are the labelled parts in its code
+      const blockParts = !sec && st.code ? [...new Set(patternLines(st.code).filter((r) => !/^pad\d+$/.test(r.base)).map((r) => r.base))] : [];
+      const parts = !sec ? blockParts.map((b) => `<span class="chip part" style="--c:${vizColor(b)}">${esc(b)}</span>`).join('') : sec.play.map((x) => `<span class="chip part" style="--c:${vizColor(x.part)}">${esc(x.part)}${x.variant !== 'main' ? `<small>.${esc(st.fillStep && fillPart(sh)?.id === x.part ? 'fill' : x.variant)}</small>` : st.fillStep && fillPart(sh)?.id === x.part ? '<small>.fill</small>' : ''}${x.enter && !st.fillStep ? `<small title="${{ in: 'comes in halfway through', out: 'drops out halfway through', alt: '2 bars on, 2 bars off' }[x.enter]}">@${x.enter}</small>` : ''}</span>`).join('');
       // mark tempo / key changes against the section before (the first one shows the song's tempo)
       const bpm = tempos[j], prevBpm = j ? tempos[j - 1] : null;
       const moves = [
@@ -3670,7 +3699,9 @@ function songViewHTML(sg, live) {
         j > 0 && shifts[j] !== shifts[j - 1] ? `key ${shifts[j] ? signed(shifts[j]) : 'home'}` : '',
       ].filter(Boolean).join(' · ');
       const moveTitle = j === 0 ? 'The song’s tempo' : `Changes here: ${prevBpm && bpm !== prevBpm ? `tempo ${prevBpm} → ${bpm} bpm ` : ''}${shifts[j] !== shifts[j - 1] ? `key ${signed(shifts[j - 1])} → ${signed(shifts[j])} semitones` : ''}`;
-      const name = `${esc(st.prompt)}${sec && !st.fillStep ? ` <span class="sv-chords">${esc(sec.chords)}</span>` : ''}${moves ? ` <span class="sv-move${j === 0 ? ' first' : ''}" title="${esc(moveTitle)}">${esc(moves)}</span>` : ''}`;
+      // block sections: a short name (the instruction's first words), the whole instruction as a tooltip
+      const label = sec ? esc(st.prompt) : `<span title="${esc(st.prompt)}">${esc(shortPrompt(st.prompt, j))}</span>`;
+      const name = `${label}${sec && !st.fillStep ? ` <span class="sv-chords">${esc(sec.chords)}</span>` : ''}${moves ? ` <span class="sv-move${j === 0 ? ' first' : ''}" title="${esc(moveTitle)}">${esc(moves)}</span>` : ''}`;
       return `<details class="step ${st.status}${queued ? ' queued' : ''}${st.fillStep ? ' fill' : ''}" data-j="${j}">
         <summary><span class="ico">${queued ? '⏭' : STATUS_ICON[st.status] || ''}</span>
           <span class="bars">${st.bars}</span><span class="prompt">${name}${parts ? `<span class="sv-parts">${parts}</span>` : ''}</span>
