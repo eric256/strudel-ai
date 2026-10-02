@@ -143,6 +143,31 @@ try {
     expect(s.master === 'dub' && s.chorus === 8, JSON.stringify(s));
   });
 
+  await step('a song that can\'t be written is marked ✗ with ↻ Try again (no block-by-block fallback)', async () => {
+    const before = log.filter((x) => x.kind === 'code').length;
+    await ev(() => { const d = document; d.getElementById('chatTarget').value = 'new'; d.getElementById('input').value = 'FAILSHEET a doomed song'; d.getElementById('chat-form').requestSubmit(); });
+    await p.waitForFunction(() => strudelAI.queue.songs.some((s) => s.status === 'failed'), null, { timeout: 40000 });
+    expect(log.filter((x) => x.kind === 'code').length === before, 'the song was written block by block');
+    const k = await ev(() => strudelAI.queue.songs.findIndex((s) => s.status === 'failed'));
+    await ev(() => strudelAI.ws.open('songs'));
+    await ev((k) => document.querySelector(`#setStatus [data-k="${k}"]`)?.click(), k);
+    await p.waitForTimeout(400);
+    expect(await ev(() => !!document.querySelector('#setStatus [data-act="retry"]')), 'no ↻ Try again button');
+    await ev(() => document.querySelector('#setStatus [data-act="retry"]').click());
+    await p.waitForFunction((k) => strudelAI.queue.songs[k].status === 'playing', k, { timeout: 40000 });
+  });
+
+  await step('an old block-format song (saved before song sheets) still loads and plays', async () => {
+    await ev(() => {
+      const sg = strudelAI.songFromJSON({ format: 'strudel-ai-song', title: 'Old Blocks', steps: [
+        { bars: 2, prompt: 'intro', code: 'setcpm(120/4)\npads: note("c3 e3").s("triangle").gain(0.2)' },
+        { bars: 2, prompt: 'groove', code: 'setcpm(120/4)\ndrums: note("c5*4").s("square").decay(0.05).sustain(0).gain(0.3)' }] });
+      strudelAI.playSong(sg);
+    });
+    await p.waitForFunction(() => strudelAI.queue.songs.some((s) => s.title === 'Old Blocks' && s.status === 'playing'), null, { timeout: 20000 });
+    await p.waitForFunction(() => /^▶ Old Blocks/.test(document.getElementById('nowLine').textContent), null, { timeout: 5000 });
+  });
+
   await step('settings: forms and bands editors open', async () => {
     await ev(() => document.querySelector('.bands-edit').click());
     await p.waitForTimeout(300);

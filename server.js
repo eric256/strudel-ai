@@ -7,7 +7,7 @@ import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
-import { SYSTEM_PROMPT, SETLIST_PROMPT, SONGS_PROMPT, SHEET_PROMPT, LIBRARY_PROMPT } from './prompt.js';
+import { SYSTEM_PROMPT, SONGS_PROMPT, SHEET_PROMPT, LIBRARY_PROMPT } from './prompt.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const env = process.env;
@@ -293,7 +293,7 @@ app.delete('/api/favorites/:id', (req, res) => {
 });
 
 // The built-in system prompts, so the settings can show them and users can edit their own copies
-const PROMPTS = { code: SYSTEM_PROMPT, setlist: SETLIST_PROMPT, songs: SONGS_PROMPT, sheet: SHEET_PROMPT, library: LIBRARY_PROMPT };
+const PROMPTS = { code: SYSTEM_PROMPT, songs: SONGS_PROMPT, sheet: SHEET_PROMPT, library: LIBRARY_PROMPT };
 app.get('/api/prompts', (_req, res) => {
   res.set('Cache-Control', 'no-cache');
   res.json(PROMPTS);
@@ -343,9 +343,6 @@ app.post('/api/chat', async (req, res) => {
   // Inject the live editor contents into the latest user turn so the model always edits the real code.
   if (mode === 'songs' || mode === 'sheet' || mode === 'library') {
     // song planning / song sheet / part library: the client sends the full request, no editor code
-  } else if (mode === 'setlist' && history.length) {
-    const last = history[history.length - 1];
-    last.content = `CURRENT CODE (starting point):\n\`\`\`javascript\n${code}\n\`\`\`\n\nSET DESCRIPTION: ${last.content}`;
   } else if (history.length && history[history.length - 1].role === 'user') {
     const last = history[history.length - 1];
     last.content =

@@ -197,7 +197,7 @@ Turn them off in ⚙ Settings → General → 🎨 part visuals; the section pla
    - **Fills:** the drums' *fill* variant plays in the last bar before a chorus or drop. The fill and the drop's downbeat cut in hard; everything else uses the *fade* setting.
    - **Your changes stay:** fader positions and mute/solo carry over from one section to the next.
    - **Repairs:** if a section fails when it's about to play, the parts are fixed with the error and the song's remaining sections are re-arranged. The old music keeps playing meanwhile.
-   - **Fallback:** if no usable sheet or library comes back, that song is written block by block the old way.
+   - **If it fails:** the sheet and the parts each get 3 tries. If they still fail, the song is started over once from a fresh sheet. If that fails too, the song is marked ✗: the set or station moves on, and **↻ Try again** in the song's row writes it from scratch and plays it next. Songs are no longer written block by block. Songs saved in that older format still load, play and repair themselves.
 
 ### 🎼 Song forms
 A form lists a song's sections with their lengths, e.g. `intro 4, verse 8, pre-chorus 4, chorus 8, …, outro 4`.
@@ -296,7 +296,7 @@ Edit them like any pads; they're saved with the song. **↩ my pads** goes back 
   - auto-apply and auto-fix.
 
   The line under the chat shows the current model and temperature. Click it to jump here.
-- **📝 Prompts:** read the built-in system prompts the AI gets for each job: chat edits, song sheets, song parts, inventing songs, and fallback blocks.
+- **📝 Prompts:** read the built-in system prompts the AI gets for each job: chat edits, song sheets, song parts and inventing songs.
   - Edit any of them. Your version is saved in the browser and sent instead of the built-in one; the list of loaded sounds is still appended.
   - **reset to built-in** undoes your changes.
 - **🎼 Song forms:** edit, add and delete forms (see *Song forms* above).

@@ -959,7 +959,7 @@ function syntaxError(code) {
 
 /**
  * Stream a completion. onUpdate({content, thinking}) is called as tokens arrive.
- * mode: 'code' (edit the given code) | 'setlist' (write a setlist)
+ * mode: 'code' (edit the given code) | 'songs' | 'sheet' | 'library' (the song writer's steps)
  */
 async function requestLLM({ messages, code = '', mode = 'code', onUpdate, signal, edited = false, label = '', sounds = null, onError = null, fixing = false }) {
   try { return await requestLLMLogged({ messages, code, mode, onUpdate, signal, edited, label, sounds, fixing }); }
@@ -1642,17 +1642,6 @@ const SECTION_GUIDE =
   'beat, fills) instead of only stacking new layers on the same groove.';
 const autoAdvance = () => !engine.hold;
 
-function parseSetlist(text) {
-  return text
-    .split('\n')
-    .map((l) => l.trim())
-    .filter((l) => l && !l.startsWith('#'))
-    .map((l) => {
-      const m = l.match(/^(\d+(?:\.\d+)?)\s*(?:bars?)?\s*[|:,-]\s*(.+)$/i);
-      return m ? { bars: Number(m[1]), prompt: m[2].trim() } : { bars: 8, prompt: l };
-    })
-    .map((s) => ({ ...s, code: null, status: 'waiting', error: null }));
-}
 
 async function generateStep(i) {
   const step = engine.steps[i];
@@ -1961,17 +1950,6 @@ function stopSetlist() {
   engine.steps.forEach((s) => { if (s.status === 'generating' || s.status === 'armed') s.status = 'waiting'; });
 }
 
-/** Ask the LLM for song blocks ("bars | instruction" lines) from a description. */
-async function writeBlocks(idea, code, signal) {
-  const text = await requestLLM({ messages: [{ role: 'user', content: idea }], code, mode: 'setlist', signal });
-  const lines = stripThinking(text)
-    .replace(/```[a-z]*\n?|```/g, '')
-    .split('\n')
-    .map((l) => l.replace(/^\s*[-*\d.)]*\s*(?=\d+\s*(bars?)?\s*\|)/i, '').trim())
-    .filter((l) => /^\d+(\.\d+)?\s*(bars?)?\s*\|/.test(l));
-  if (!lines.length) throw new Error('model did not return song blocks in "bars | instruction" format');
-  return lines;
-}
 
 const STATUS_ICON = { waiting: '·', generating: '…', ready: '✓', armed: '⏱', playing: '▶', failed: '✗', done: '✔', skipped: '↷' };
 /** Armed blocks become "playing" once their bar arrives (the song views render from these states). */
@@ -3113,21 +3091,28 @@ function repairSong(song, err) {
 
 /** Write (or reuse) a song's blocks and append them to the engine. */
 /** Sheet → library → arranged steps; null when that fails (the song is then written block by block). */
+/**
+ * Sheet → library → arranged sections. When that fails, the song is started over once from a fresh sheet (the sheet
+ * and the parts each already had 3 tries); a second failure throws: the song is marked failed (✗, with ↻ Try again)
+ * and the set / station moves on. (Songs are no longer written block by block.)
+ */
 async function sheetSteps(song) {
   song.status = 'writing';
-  try {
-    song.sheet = await writeSongSheet(song, queue.abort.signal);
-    song.library = await writeSongLibrary(song, queue.abort.signal);
-    song.phase = null;
-    const steps = arrangeSong(song);
-    song.pads = songPads(song);
-    return steps;
-  } catch (e) {
-    if (e.name === 'AbortError') throw e;
-    song.sheet = song.sheet || null;
-    song.library = null;
-    clog('warn', `“${song.title}”: ${e.message} — writing it block by block instead`);
-    return null;
+  for (let round = 1; ; round++) {
+    try {
+      song.sheet = await writeSongSheet(song, queue.abort.signal);
+      song.library = await writeSongLibrary(song, queue.abort.signal);
+      song.phase = null;
+      const steps = arrangeSong(song);
+      song.pads = songPads(song);
+      return steps;
+    } catch (e) {
+      if (e.name === 'AbortError') throw e;
+      song.sheet = null;
+      song.library = null;
+      if (round >= 2) { song.phase = null; throw new Error(`“${song.title}” couldn't be written: ${e.message}`); }
+      clog('warn', `“${song.title}”: ${e.message} — starting the song over from a new sheet`);
+    }
   }
 }
 
@@ -3138,21 +3123,9 @@ async function appendSong(k) {
   if (song.blocks?.length) {
     // already written (loop / jump back): reuse blocks and their code
     steps = song.blocks.map((b) => ({ ...b, status: b.code ? 'ready' : 'waiting', startedAt: undefined, genPromise: undefined, error: null }));
-  } else if ((steps = await sheetSteps(song))) {
-    // song sheet → part library → sections arranged by the app
   } else {
-    song.status = 'writing';
-    song.phase = 'writing blocks one by one';
-    const prev = [...engine.steps].reverse().find((st) => st.code)?.code || getCode();
-    const lines = await writeBlocks(
-      `Song "${song.title}": ${song.desc}\n` +
-        'Write the blocks for this whole song: roughly 48–96 bars in total, starting with an intro and ending with an outro ' +
-        'that can hand over to the next song. First line states tempo and key. Include sections that take parts away ' +
-        'and sections that switch up the beat, not only ones that add layers.',
-      prev,
-      queue.abort.signal,
-    );
-    steps = parseSetlist(lines.join('\n'));
+    // song sheet → part library → sections arranged by the app
+    steps = await sheetSteps(song);
   }
   steps.forEach((st, j) => Object.assign(st, { song, songPos: j, songLen: steps.length, songStart: j === 0 }));
   song.blocks = steps;
@@ -3214,7 +3187,7 @@ async function feedLoop() {
     } catch (e) {
       if (e.name === 'AbortError' || !queue.running) return;
       const sg = queue.songs[queue.nextSong - 1];
-      if (sg && sg.status === 'writing') { sg.status = 'failed'; sg.error = e.message; }
+      if (sg && sg.status === 'writing') { sg.status = 'failed'; sg.error = e.message; sg.phase = null; songsChanged(); }
       clog('error', `${queue.mode === 'station' ? 'Station' : 'Set list'}: ${e.message} (try ${failures + 1}/5)`);
       failures++;
       if (failures >= 5) { warnUser(`${queue.mode === 'station' ? 'Station' : 'Set list'} stopped: the AI failed 5 times in a row (last: ${e.message})`); addMsg('info', `■ ${queue.mode === 'station' ? 'station' : 'set'} stopped — see ⚠ in the status bar`); stopSet(); return; }
@@ -3292,6 +3265,14 @@ function stopSet(stopEngine = true) {
   document.title = 'Strudel AI';
 }
 
+/** ↻ Try again: a song that couldn't be written is written from scratch and plays next. */
+function retrySong(sg) {
+  const k = queue.songs.indexOf(sg);
+  if (k < 0) return;
+  Object.assign(sg, { status: 'waiting', error: null, phase: null, sheet: null, library: null, blocks: null, firstStep: null, autoTitle: sg.autoTitle });
+  songsChanged();
+  jumpToSong(k, queue.mode || 'set');
+}
 function jumpToSong(k, from = 'set') {
   const mode = queue.running ? queue.mode : 'set';
   if (!queue.running) return startSet(from, { at: k, keepSongs: true });
@@ -3350,7 +3331,11 @@ function songToolbarHTML(sg, live) {
   const sh = sg.sheet;
   const isCurrent = live && queue.songs[queue.current] === sg;
   const complete = sg.blocks?.length && sg.blocks.every((b) => b.code) && !sg.phase;
-  if (!complete) return '';
+  if (!complete) {
+    return sg.status === 'failed' && !sg.phase
+      ? `<div class="sv-toolbar"><button data-act="retry" title="${esc(`Write this song again from scratch${sg.error ? ` (last time: ${sg.error})` : ''}`)}">↻ Try again</button></div>`
+      : '';
+  }
   const mine = isMine(sg);
   const canPlay = complete && !(isCurrent);
   const btn = (act, label, title) => `<button data-act="${act}" title="${esc(title)}">${label}</button>`;
@@ -3603,6 +3588,7 @@ for (const id of ['editSongView', 'nowSongView']) {
 function songAction(act, sg, btn, view) {
   if (act === 'play') { if (queue.songs.includes(sg) && queue.mode) jumpToSong(queue.songs.indexOf(sg), queue.mode); else playSong(sg); }
   else if (act === 'edit') openSongEditor(sg);
+  else if (act === 'retry') retrySong(sg);
   else if (act === 'edit-save') saveSongEditor($('editForm').querySelector('.sv-edit'), songEdit.sg || sg);
   else if (act === 'edit-cancel') { ws.close('edit'); songEdit.sg = null; songsChanged(); renderSongs(); }
   else if (act === 'save') addToMySongs(sg);
@@ -6008,7 +5994,7 @@ function debugContext() {
   const chat = state.history.slice(-8).map((m) => `--- ${m.role}\n${String(m.content).slice(0, 1500)}`).join('\n');
   return {
     app, 'now': now,
-    'song sheet': sg?.sheet ? safe(() => JSON.stringify(rawSheet(sg.sheet), null, 1)) : '',
+    'song sheet': sg?.sheet ? safe(() => JSON.stringify(rawSheet(sg.sheet), null, 1)) : sg ? `(none: “${sg.title}” is a block-format song — its sections are in the code)` : '',
     'song parts code': sg?.library || '',
     'code in the editor': safe(() => getCode()),
     'recent chat (last 8 messages)': chat,
