@@ -7,7 +7,7 @@ import { MASTER_STYLES, STYLE_NAMES, normStyle } from '../master.js';
 import { esc } from '../lib/util.js';
 import { soundRegistry } from './sound-check.js';
 import { openSettings } from './settings.js';
-import { $, load, queue, save } from '../app.js';
+import { $, load, save } from '../app.js';
 export let bands;
 
 let bandIdx = 0;
@@ -17,7 +17,8 @@ export const bandsForRequest = (choice) => bandsRequest(bands, choice);
 export const normalizeSheet = (raw, choice = 'auto', opts = {}) => normalizeSheetWith(raw, choice, { ...opts, forms: songForms, bands });
 /** A song's master style: its own, else its band's, else one that fits its form, else clean. */
 export const songStyle = (sg) => normStyle(sg?.sheet?.master) || normStyle(findBand(sg?.sheet?.band)?.master) || normStyle(sg?.sheet?.form) || 'clean';
-export const bandChoice = () => $(queue.mode === 'station' ? 'stationBand' : 'setBand')?.value || 'auto';
+/** The band for a song: the 📻 Station's for its songs, the 🎵 Songs one for the others. */
+export const bandChoice = (song) => $(song?.from === 'station' ? 'stationBand' : 'setBand')?.value || 'auto';
 function renderBandSelects() {
   for (const id of ['setBand', 'stationBand']) {
     const el = $(id);

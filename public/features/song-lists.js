@@ -12,22 +12,27 @@ import { patternLines } from '../lib/labels.js';
 import { fillPart } from '../lib/sheet.js';
 import { SEC_START } from '../lib/arrange.js';
 import { onceAFrame } from '../lib/events.js';
-import { jumpToSong, retrySong, stopSet } from './song-writer.js';
-import { $, STATUS_ICON, addMsg, cps, engine, fmtTime, isPlaying, jumpTo, nowCycle, player, queue, save, saved, setHold, showPanel, stopSetlist, ws } from '../app.js';
+import { jumpToSong, retrySong } from './song-writer.js';
+import { addToPlaylist, renderPlaylist, sessionSongs } from './playlist.js';
+import { currentStation } from './stations.js';
+import { $, STATUS_ICON, addMsg, cps, engine, fmtTime, isPlaying, jumpTo, nowCycle, player, queue, setHold, showPanel, ws } from '../app.js';
 // ---------------------------------------------------------------------------
 // 🎵 Song lists and song views: the Songs and Station panels, 🎶 Now playing and the section progress bars.
 // ---------------------------------------------------------------------------
+/** 📻 Start puts the picked station on air (or switches to it); ■ Stop is for the station on air. */
 export function updateSetButtons() {
-  const set = queue.running && queue.mode === 'set', st = queue.running && queue.mode === 'station';
-  void set;
-  $('stationStart').disabled = st; $('stationStop').disabled = !st;
+  const on = queue.station, picked = currentStation();
+  const same = on && on.name === picked.name && on.theme === picked.theme;
+  $('stationStart').disabled = !!same;
+  $('stationStart').textContent = on && !same ? '📻 Switch to this station' : '📻 Start station';
+  $('stationStop').disabled = !on;
 }
 
 const SONG_ICON = { waiting: '·', writing: '✎', ready: '✓', playing: '▶', done: '✔', failed: '✗' };
 let lastSongsKey = '';
 /** Something in the song lists changed: re-render them on the next frame. */
 export function songsChanged() { lastSongsKey = ''; player.emit('songs'); }
-export const songSel = { set: null, station: null }; // index of the song shown in each tab's song view
+export const songSel = { set: null }; // the song whose buttons are open in 🎵 Songs: an index in This session, or 'mine:k' / 'fav:k'
 
 export function songMeta(sg) {
   const sh = sg.sheet;
@@ -50,7 +55,7 @@ function songsHTML(songs, live, sel, { tools = false } = {}) {
       <span class="ico">${SONG_ICON[sg.status] || '·'}</span>
       <div class="body"><div class="t">${k + 1}. ${esc(sg.title)}</div><div class="d">${esc(sg.desc)}</div>
         ${meta ? `<div class="meta">${esc(meta)}</div>` : ''}${sg.error ? `<span class="err-icon" title="${esc(sg.error)}">⚠</span>` : ''}${toolbar}</div>
-      <button class="jump" data-song="${k}" title="Switch to this song">⏭ go</button>
+      <button class="jump" data-song="${k}" title="Play this song now (it joins the 📃 Playlist)">▶</button>
     </div>`;
   }).join('') + (live && queue.planning ? '<div class="song writing"><span class="ico">✎</span><div class="body"><div class="d">planning the next songs…</div></div></div>' : '');
 }
@@ -69,7 +74,9 @@ export function songToolbarHTML(sg, live) {
   const canPlay = complete && !(isCurrent);
   const btn = (act, label, title) => `<button data-act="${act}" title="${esc(title)}">${label}</button>`;
   return `<div class="sv-toolbar">
-      ${canPlay ? btn('play', '▶ Play', 'Play this song from the start (already written — no AI needed)') : ''}
+      ${canPlay ? btn('play', '▶ Play', 'Play this song from the start now (already written — no AI needed)') : ''}
+      ${canPlay ? btn('next', '⤴ Play next', 'Play this song after the one playing now (📃 Playlist)') : ''}
+      ${canPlay ? btn('queue', '＋ Playlist', 'Add this song to the end of the 📃 Playlist') : ''}
       ${sh && sg.library ? btn('edit', songEdit.sg === sg ? '✎ editing…' : '✎ Edit', 'Open this song in the ✎ Edit song panel: sections, chords, parts and their code (or ask the chat)') : ''}
       ${btn('fav', favOf(sg) ? '★ favorite' : '☆ Favorite', favOf(sg) ? 'A favorite on this server — click to remove it from the shared list' : 'Add to ★ Favorites: everyone on this server sees it, and it survives restarts')}
       ${mine ? '' : btn('save', '📁 Save to My songs', 'Copy this song into 📁 My songs, where you can edit it, keep it and export it')}
@@ -202,30 +209,34 @@ export let nowSong = null; // the last song that started playing
 export const setNowSong = (sg) => { nowSong = sg; };
 export function renderSongs() {
   // Songs tab: the running/last set (until the text is edited), otherwise a preview of the text
-  const setSongs = queue.mode === 'set' ? queue.songs : [];
-  const stationSongs = queue.mode === 'station' ? queue.songs : [];
-  const now = queue.mode === 'station' ? queue.songs[queue.current] : null;
+  const setSongs = sessionSongs;
+  const stationSongs = queue.songs.filter((sg, k) => k > queue.current && sg.from === 'station');
+  const now = queue.station && queue.running ? queue.songs[queue.current] : null;
   const pick = (tab, list) => {
     if (typeof songSel[tab] === 'string') return null; // a My songs entry is open
     // the station's playing song is in the On air box (and 🎶 Now playing): only an explicit pick opens a row
     const k = songSel[tab]; // only an explicit pick opens a row's buttons (the playing song is in 🎶 Now playing)
     return k != null && list[k] ? k : null;
   };
-  const selSet = pick('set', setSongs), selSt = pick('station', stationSongs);
+  const selSet = pick('set', setSongs), selSt = null;
   const setView = viewedSong('set');
   const stepKey = (sg) => sg?.blocks?.map((b) => b.status + (b.code ? b.code.length : 0) + (b.error || '')).join() || '';
-  const key = JSON.stringify([queue.running, !!engine.paused, nowSong?.title, stepKey(nowSong), queue.songs.map((x) => x.phase || x.status).join(), queue.mode, queue.planning, now?.title, selSet, selSt, engine.hold, engine.jumpTarget, queue.current,
+  const key = JSON.stringify([queue.running, !!engine.paused, nowSong?.title, stepKey(nowSong), queue.songs.map((x) => `${x.title}:${x.phase || x.status}`).join(), queue.station?.name, queue.planning, now?.title, selSet, selSt, engine.hold, engine.jumpTarget, queue.current,
     ...[setSongs, stationSongs].map((l) => l.map((sg) => [sg.title, sg.status, sg.phase, sg.bars, sg.blocks?.filter((b) => b.code).length, sg.error, !!sg.sheet, sg.shareUrl])),
     stepKey(setView), stepKey(stationSongs[selSt]), stepKey(queue.songs[queue.current]), songSel.set, songEdit.sg?.title, padsState.owner?.title, padsState.follow,
     mySongs.map((sg) => [sg.title, sg.bars, queue.songs[queue.current] === sg]), mp3.seg?.sg?.title || '', mp3.takes.length, mp3.want.size,
     favorites.map((f) => [f.id, queue.songs[queue.current] === f.song])]);
   if (key === lastSongsKey) return;
   lastSongsKey = key;
-  $('setStatus').innerHTML = setSongs.length ? songsHTML(setSongs, queue.running && queue.mode === 'set', selSet, { tools: true })
+  $('setStatus').innerHTML = setSongs.length ? songsHTML(setSongs, queue.running, selSet, { tools: true })
     : '<div class="muted small">No songs yet — in 💬 Chat pick 🎯 <b>✨ new song</b> and describe one, or play a favorite or one of My songs.</div>';
   $('mySongs').innerHTML = myListHTML();
   $('favSongs').innerHTML = favListHTML();
-  $('stationStatus').innerHTML = songsHTML(stationSongs, queue.running && queue.mode === 'station', selSt, { tools: true });
+  $('stationStatus').innerHTML = queue.station
+    ? `<div class="muted small">📃 ${stationSongs.length} of its songs coming up in the <button class="link" data-open-playlist>Playlist ↗</button>${queue.planning ? ' — planning more…' : ''}</div>`
+    : '<div class="muted small">Start a station and it adds its songs to the end of the 📃 Playlist; the songs already there play first. ■ Stop only stops it adding songs.</div>';
+  updateSetButtons();
+  renderPlaylist();
   // 🎶 Now playing: the playing song — or, once it's over, the last one that played (stopped)
   // while a set or station is still writing its first song, show that song (with what's being written)
   const preparing = queue.running && !queue.songs[queue.current] ? queue.songs.find((x) => ['writing', 'waiting', 'ready'].includes(x.status)) : null;
@@ -246,18 +257,20 @@ export function renderSongs() {
     for (const d of el.querySelectorAll('details')) if (open.has(d.dataset.j ?? 'lib')) d.open = true;
   }
   updateSectionProgress();
-  const onAir = queue.mode === 'station' && queue.running;
+  const onAir = !!queue.station;
   $('stationNow').hidden = !onAir;
   if (onAir) {
     $('stationNow').innerHTML = now
       ? `📻 <b>On air:</b> ${esc(now.title)}<div class="d">${esc(now.desc)}</div><div class="song-tools">${songToolbarHTML(now, true)}${NOW_LINK}${sharedLinkHTML(now)}</div>`
-      : '📻 <b>Warming up…</b><div class="d">the agent is planning and writing the first song</div>';
+      : `📻 <b>${esc(queue.station.name || 'Station')} on air</b><div class="d">${queue.running && queue.songs[queue.current] ? `its songs follow “${esc(queue.songs[queue.current].title)}” and the others in the 📃 Playlist` : 'the agent is planning and writing the first song'}</div>`;
   }
 }
 
 /** Toolbar actions in a song view. */
 export function songAction(act, sg, btn, view) {
-  if (act === 'play') { if (queue.songs.includes(sg) && queue.mode) jumpToSong(queue.songs.indexOf(sg), queue.mode); else playSong(sg); }
+  if (act === 'play') { const k = queue.songs.indexOf(sg); if (k > queue.current) jumpToSong(k); else playSong(sg); }
+  else if (act === 'next') addToPlaylist(sg, { at: 'next' });
+  else if (act === 'queue') addToPlaylist(sg, { at: 'end' });
   else if (act === 'edit') openSongEditor(sg);
   else if (act === 'retry') retrySong(sg);
   else if (act === 'edit-save') saveSongEditor($('editForm').querySelector('.sv-edit'), songEdit.sg || sg);
@@ -280,10 +293,7 @@ export function viewedSong(tab) {
     const [kind, k] = songSel.set.split(':');
     return (kind === 'fav' ? favorites[Number(k)]?.song : mySongs[Number(k)]) || null;
   }
-  const list = tab === 'station' ? (queue.mode === 'station' ? queue.songs : [])
-    : queue.mode === 'set' ? queue.songs : [];
-  const k = songSel[tab] ?? (queue.running && queue.mode === tab && queue.current >= 0 ? queue.current : null);
-  return k != null ? list[k] : null;
+  return tab === 'set' && songSel.set != null ? sessionSongs[songSel.set] || null : null;
 }
 
 /** Share a finished song: its sheet, parts and every arranged section, playable without the AI. */
@@ -317,22 +327,18 @@ async function shareSong(sg, btn) {
 
 /** A shared whole song: load it into the Songs tab, ready to play without any AI calls. */
 export function loadSharedSong(s) {
-  try {
-    const song = songFromJSON(s);
-    loadSongIntoSet(song);
-    songSel.set = 0;
-    showPanel('songs');
-    return song;
-  } catch { /* older share format below */ }
-  const song = {
-    title: s.title || 'shared song', desc: s.desc || '', status: 'ready', sheet: s.sheet || null, library: s.library || null,
-    blocks: s.steps.map((st) => ({ bars: st.bars, prompt: st.prompt, code: st.code, fade: st.fade ?? undefined, fillStep: st.fillStep, section: st.section || undefined, status: 'ready', error: null })),
-  };
-  song.bars = song.blocks.reduce((a, b) => a + b.bars, 0);
-  song.firstStep = song.blocks[0];
-  stopSet(); stopSetlist();
-  Object.assign(queue, { mode: 'set', songs: [song], current: -1, nextSong: 0, textDirty: false });
-  songSel.set = 0;
+  let song;
+  try { song = songFromJSON(s); }
+  catch { // older share format
+    song = {
+      title: s.title || 'shared song', desc: s.desc || '', status: 'ready', sheet: s.sheet || null, library: s.library || null,
+      blocks: s.steps.map((st) => ({ bars: st.bars, prompt: st.prompt, code: st.code, fade: st.fade ?? undefined, fillStep: st.fillStep, section: st.section || undefined, status: 'ready', error: null })),
+    };
+    song.bars = song.blocks.reduce((a, b) => a + b.bars, 0);
+    song.firstStep = song.blocks[0];
+  }
+  loadSongIntoSet(song);
+  songSel.set = sessionSongs.indexOf(song);
   songsChanged();
   showPanel('songs');
   return song;
@@ -357,17 +363,18 @@ export function setup() {
     for (const e of ['section', 'song', 'transport', 'songs']) player.on(e, soon);
     setInterval(renderSongs, 1000);
   }
-  for (const id of ['setStatus', 'stationStatus']) {
-    const tab = id === 'stationStatus' ? 'station' : 'set';
+  $('stationStatus').addEventListener('click', (e) => { if (e.target.closest('[data-open-playlist]')) showPanel('playlist'); });
+  for (const id of ['setStatus']) {
+    const tab = 'set';
     $(id).addEventListener('click', (e) => {
       const b = e.target.closest('.jump[data-song]');
-      if (b) { jumpToSong(Number(b.dataset.song), tab); return; }
+      if (b) { addToPlaylist(sessionSongs[Number(b.dataset.song)], { at: 'now' }); return; }
       if (e.target.closest('[data-open-now]')) { showPanel('song'); return; }
       // a song's toolbar inside its row (station list)
       const act = e.target.closest('[data-act]');
       const tools = e.target.closest('.song-tools');
       if (tools) {
-        const sg = queue.songs[Number(tools.closest('.song[data-k]')?.dataset.k)];
+        const sg = sessionSongs[Number(tools.closest('.song[data-k]')?.dataset.k)];
         if (act && sg) songAction(act.dataset.act, sg, act, tools);
         else if (e.target.closest('.sv-copy') && sg?.shareUrl) navigator.clipboard?.writeText(sg.shareUrl).then(() => { e.target.textContent = '✓ Copied'; }, () => {});
         return;
@@ -401,6 +408,4 @@ export function setup() {
     });
   }
 
-  if (saved.setLoop !== undefined) $('setLoop').checked = saved.setLoop;
-  $('setLoop').onchange = () => save({ setLoop: $('setLoop').checked });
 }

@@ -1,8 +1,9 @@
 // Feature module split out of app.js (see the section comments below).
 import { addNewDefaults } from './forms.js';
 import { esc } from '../lib/util.js';
-import { startSet, stopSet } from './song-writer.js';
-import { $, addMsg, cancelPending, load, save, saved } from '../app.js';
+import { startStation, stopStation } from './song-writer.js';
+import { updateSetButtons } from './song-lists.js';
+import { $, load, save, saved } from '../app.js';
 let stations, stationIdx;
 // --- saved stations
 const DEFAULT_STATIONS = [
@@ -35,7 +36,7 @@ export function setup() {
   save({ stations });
   stationIdx = Math.min(load().stationIdx ?? 0, stations.length - 1);
   renderStations();
-  for (const id of ['stationSelect', 'stationEditSelect']) $(id).onchange = () => { stationIdx = Number($(id).value); saveStations(); renderStations(); };
+  for (const id of ['stationSelect', 'stationEditSelect']) $(id).onchange = () => { stationIdx = Number($(id).value); saveStations(); renderStations(); updateSetButtons(); };
   for (const id of ['stationName', 'stationTheme']) {
     $(id).oninput = () => {
       stations[stationIdx] = { name: $('stationName').value.trim(), theme: $('stationTheme').value.trim() };
@@ -55,6 +56,6 @@ export function setup() {
   };
   if (saved.stationAhead) $('stationAhead').value = saved.stationAhead;
   $('stationAhead').onchange = () => save({ stationAhead: $('stationAhead').value });
-  $('stationStart').onclick = () => startSet('station');
-  $('stationStop').onclick = () => { stopSet(); cancelPending(true); addMsg('info', '■ station stopped'); };
+  $('stationStart').onclick = () => startStation(currentStation());
+  $('stationStop').onclick = () => stopStation();
 }

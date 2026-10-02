@@ -30,9 +30,10 @@ import { setup as setup_chat } from './features/chat.js';
 import { songForms, setup as setup_forms } from './features/forms.js';
 import { bands, normalizeSheet, setup as setup_bands } from './features/bands.js';
 import { partVisuals } from './features/part-visuals.js';
-import { stopSet, repairSong, startSet, jumpToSong } from './features/song-writer.js';
+import { stopSet, repairSong, startPlaylist, jumpToSong } from './features/song-writer.js';
 import { songsChanged, nowSong, viewedSong, setup as setup_song_lists } from './features/song-lists.js';
 import { setup as setup_stations } from './features/stations.js';
+import { addToPlaylist, sessionSongs, setup as setup_playlist } from './features/playlist.js';
 // Strudel AI — browser app
 /**
  * Element by id. Remembered once found, so panels keep working when the layout engine takes them out of the
@@ -796,6 +797,7 @@ const PANELS = [
   { id: 'chat', title: 'Chat', icon: '💬', el: $('chatTab'), area: 'right' },
   { id: 'songs', title: 'Songs', icon: '🎵', el: $('setTab'), area: 'right' },
   { id: 'station', title: 'Station', icon: '📻', el: $('stationTab'), area: 'right' },
+  { id: 'playlist', title: 'Playlist', icon: '📃', el: $('playlistPanel'), area: 'right' },
   { id: 'song', title: 'Now playing', icon: '🎶', el: $('songPanel'), area: 'right' },
   { id: 'edit', title: 'Edit song', icon: '✎', el: $('editPanel'), area: 'right' },
   { id: 'viz', title: 'Visualizer', icon: '📊', el: $('viz-dock'), area: 'bottom' },
@@ -828,6 +830,9 @@ try {
   document.addEventListener('scroll', unscroll, true);
   window.addEventListener('scroll', () => { if (window.scrollX || window.scrollY) window.scrollTo(0, 0); });
 }
+// layouts saved before the 📃 Playlist existed: add it once, as a tab beside Chat / Songs / Station
+if (!ws.isOpen('playlist') && !saved.playlistAdded) ws.open('playlist', { activate: false });
+save({ playlistAdded: true });
 /** Bring a panel to the front (opening it if it's closed). */
 export const showPanel = (id) => ws.open(id);
 // the ▦ Panels menu: open / close any panel, reset the layout
@@ -1246,6 +1251,27 @@ export function appendSteps(steps) {
   pumpGeneration();
 }
 
+/**
+ * The playlist changed after the song playing now: take back the sections of later songs that were already queued in
+ * the engine (not the playing song's own, and not one that is about to switch in). Returns the song the engine's
+ * last kept section belongs to, so the feed loop carries on after it.
+ */
+export function dropQueuedSongs(current) {
+  let cut = engine.steps.length;
+  for (let i = engine.steps.length - 1; i >= 0; i--) {
+    const st = engine.steps[i];
+    if (['playing', 'armed', 'done'].includes(st.status) || !st.song || st.song === current) break;
+    cut = i;
+  }
+  if (cut < engine.steps.length) {
+    engine.steps.splice(cut);
+    engine.playIndex = Math.min(engine.playIndex, cut);
+    engine.genIndex = Math.min(engine.genIndex, cut);
+    songsChanged();
+  }
+  return engine.steps[engine.steps.length - 1]?.song || null;
+}
+
 /** Remove blocks that haven't started yet (after the playing/armed one). */
 export function dropUpcomingSteps() {
   let keep = engine.steps.length;
@@ -1346,17 +1372,12 @@ export function createSongFromChat(text) {
   const [song] = parseSongs(text.replace(/\n+/g, ' '));
   if (!song) return;
   if (!/[|–—:]\s/.test(text)) { song.title = 'New song'; song.autoTitle = true; } // the AI names it with the song sheet
-  if (queue.running) {
-    const at = queue.current < 0 ? queue.songs.length : queue.current + 1; // nothing playing yet: after the songs being written
-    queue.songs.splice(at, 0, song);
-    if (queue.nextSong > at) queue.nextSong = at; // write it before the songs that were queued after it
-    addMsg('info', `✨ “${song.title}” — writing it now; it plays after “${queue.songs[queue.current]?.title || 'this song'}” (⏭ to skip there)`);
-  } else {
-    Object.assign(queue, { mode: 'set', songs: [...(queue.mode === 'set' ? queue.songs : []), song], current: -1, nextSong: 0 });
-    startSet('set', { at: queue.songs.length - 1, keepSongs: true });
-    queue.single = false;
-    addMsg('info', `✨ “${song.title}” — writing it now; it starts as soon as its first section is ready`);
-  }
+  song.from = 'chat';
+  const playingNow = queue.running && queue.songs[queue.current];
+  addToPlaylist(song, { at: 'next' });
+  addMsg('info', playingNow
+    ? `✨ “${song.title}” — writing it now; it plays after “${playingNow.title}” (⏭ to skip there)`
+    : `✨ “${song.title}” — writing it now; it starts as soon as its first section is ready`);
   // back to working on the (new) song
   $('chatTarget').value = 'auto';
   save({ chatTarget: 'auto' });
@@ -1367,13 +1388,17 @@ export function createSongFromChat(text) {
 
 /** ⏭ the next song of the set list or station. */
 function nextSong() {
-  if (!queue.running) { addMsg('info', '⏭ nothing to skip to — start a set in 🎵 Songs or a 📻 Station'); return; }
   if (engine.paused) engine.paused = null;
   const k = queue.current + 1;
-  if (queue.songs[k]) { addMsg('info', `⏭ next: “${queue.songs[k].title}”`); jumpToSong(k, queue.mode); }
-  else if (queue.mode === 'station') addMsg('info', '⏭ the next song is still being planned — it plays as soon as it is written');
-  else if ($('setLoop').checked && queue.songs[0]) jumpToSong(0, queue.mode);
-  else addMsg('info', '⏭ this is the last song of the set');
+  if (!queue.running) {
+    if (queue.songs[k]) startPlaylist({ at: k });
+    else addMsg('info', '⏭ nothing to skip to — add songs to the 📃 Playlist, or start a 📻 Station');
+    return;
+  }
+  if (queue.songs[k]) { addMsg('info', `⏭ next: “${queue.songs[k].title}”`); jumpToSong(k); }
+  else if (queue.station) addMsg('info', '⏭ the station is still planning the next song — it plays as soon as it is written');
+  else if ($('setLoop').checked && queue.songs[0]) jumpToSong(0);
+  else addMsg('info', '⏭ this is the last song of the playlist');
 }
 /** ⏮ restart the song — or, within its first bars, go back to the previous song (like a music player). */
 function prevSong() {
@@ -1382,8 +1407,8 @@ function prevSong() {
   const cur = queue.songs[queue.current];
   const first = cur?.firstStep;
   const intoSong = first?.startedAt != null ? nowCycle() - first.startedAt : Infinity;
-  if ((intoSong < 4 || !cur) && queue.current > 0) { addMsg('info', `⏮ back to “${queue.songs[queue.current - 1].title}”`); jumpToSong(queue.current - 1, queue.mode); }
-  else if (cur) { addMsg('info', `⏮ “${cur.title}” from the start`); jumpToSong(queue.current, queue.mode); }
+  if ((intoSong < 4 || !cur) && queue.current > 0) { addMsg('info', `⏮ back to “${queue.songs[queue.current - 1].title}”`); jumpToSong(queue.current - 1); }
+  else if (cur) { addMsg('info', `⏮ “${cur.title}” from the start`); jumpToSong(queue.current); }
 }
 $('nextSong').onclick = nextSong;
 $('prevSong').onclick = prevSong;
@@ -1478,19 +1503,24 @@ setTimeout(applyMasterGain, 500);
 // the AI while the previous song plays, then fed into the song-blocks engine.
 // A station is an agent that keeps inventing new songs for a theme.
 // ---------------------------------------------------------------------------
+/**
+ * The 📃 Playlist: the songs that played (before `current`), the one playing, and the ones coming up. Songs get here
+ * from 💬 Chat (✨ new song), from 🎵 Songs (＋ Playlist / ⤴ Play next / ▶ Play) and from a 📻 Station on air, which keeps
+ * adding songs to the end while the ones already written play.
+ */
 export const queue = {
   running: false,
-  mode: null,          // 'set' | 'station'
-  songs: [],           // { title, desc, status, blocks, firstStep, error }
+  songs: [],           // { title, desc, status, blocks, firstStep, error, from: 'chat' | 'station' | 'you', station }
   nextSong: 0,         // next song to append to the engine
   current: -1,         // index of the song playing now
   forceJump: null,     // song index the user picked
   abort: null,
-  station: null,       // { name, theme }
+  station: null,       // the station on air: { name, theme } — it adds songs to the playlist; null = none
+  planning: false,     // the station is asking the AI for its next songs
 };
 
 /** This session's songs as "title | description" lines (shared with a link). */
-export const setListText = () => (queue.mode === 'set' ? queue.songs.map((sg) => `${sg.title} | ${sg.desc}`).join('\n') : '');
+export const setListText = () => queue.songs.map((sg) => `${sg.title} | ${sg.desc}`).join('\n');
 export function parseSongs(text) {
   return text
     .split('\n')
@@ -1522,6 +1552,7 @@ export const atSectionStart = (code, bar) => wrapCode(partVisuals(SECTION_START_
 // (features/part-visuals.js)
 // (features/song-writer.js)
 setup_song_lists(); // features/song-lists.js
+setup_playlist(); // features/playlist.js
 setup_stations(); // features/stations.js
 setup_visualizer(); // features/visualizer.js
 // ---------------------------------------------------------------------------
@@ -1703,4 +1734,4 @@ export function applyPadsReply(block) {
 
 setup_mp3(); // features/mp3.js
 // (features/debug.js)
-window.strudelAI = { player, debugReport: () => debugReport(debugContext()), ws, mixer, mixerChannels, master, masterChain, getBands: () => bands, normalizeSheet, playSong, songMp3, loadPads, songPads, transposeProgression, sectionCode, getForms: () => songForms, getFavorites: () => favorites, loadFavorites, getPads: () => pads, mySongs, activeSong, songFromJSON, songToJSON, mp3, session, pads, padsState, keysState, noteOn, noteOff, setPad, docks, rec, replay, startReplay, recordingForShare, viz, checkScales, checkSounds, prepareCode, evaluateCode, dryRun, hum, transcribe, ensureSliders, engine, queue, setlist: engine, setl: queue };
+window.strudelAI = { player, sessionSongs, addToPlaylist, debugReport: () => debugReport(debugContext()), ws, mixer, mixerChannels, master, masterChain, getBands: () => bands, normalizeSheet, playSong, songMp3, loadPads, songPads, transposeProgression, sectionCode, getForms: () => songForms, getFavorites: () => favorites, loadFavorites, getPads: () => pads, mySongs, activeSong, songFromJSON, songToJSON, mp3, session, pads, padsState, keysState, noteOn, noteOff, setPad, docks, rec, replay, startReplay, recordingForShare, viz, checkScales, checkSounds, prepareCode, evaluateCode, dryRun, hum, transcribe, ensureSliders, engine, queue, setlist: engine, setl: queue };

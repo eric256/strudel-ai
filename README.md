@@ -224,8 +224,23 @@ A band is a line-up of instruments (`role: sound — what it plays`) plus a mast
 **Create a song in the chat:** in 💬 Chat pick 🎯 **✨ new song** and describe it, e.g. *"dreamy synthwave at 100 bpm with a big hook"* (or *"Night Drive | synthwave, 100 bpm, A minor, slow build, big chorus"* to name it yourself). The AI names it, writes it, and it plays as soon as its first section is ready. If a song is already playing, the new one plays next (⏭ skips to it). The chat then goes back to *auto*, which works on the song that's playing.
 
 The **🎵 Songs** panel is a simple list:
-- **This session:** the songs created or played so far, with their status (✎ writing, ✓ ready, ▶ playing, ✔ played). Click one for its buttons: ✎ Edit, ☆ Favorite, 📁 Save to My songs, 🔲 Song pads, MP3, JSON, 🔗 Link. **⏭ go** jumps to it. **loop** starts over at the first song after the last. **form for new songs** picks the song form (*auto* fits each song's genre).
-- **★ Favorites** and **📁 My songs** below it work the same way: click a song for its buttons, or ▶ to play it.
+- **This session:** the songs created, opened or played so far, with their status (✎ writing, ✓ ready, ▶ playing, ✔ played).
+  - Click one for its buttons: ▶ Play, ⤴ Play next, ＋ Playlist, ✎ Edit, ☆ Favorite, 📁 Save to My songs, 🔲 Song pads, MP3, JSON and 🔗 Link.
+  - **▶** on the row plays it now.
+  - **form for new songs** picks the song form (*auto* fits each song's genre).
+- **★ Favorites** and **📁 My songs** below it work the same way.
+
+### 📃 Playlist
+Every song plays from the **📃 Playlist**. It shows what played, the song playing now (with its section) and what's coming up. Songs get there three ways:
+- from 💬 Chat (✨ new song plays next);
+- from 🎵 Songs, ★ Favorites and 📁 My songs: **▶ Play** plays now, **⤴ Play next** puts it after the current song, **＋ Playlist** adds it to the end;
+- from a 📻 Station on air, which adds its songs to the end.
+
+The playlist plays and writes ahead at the same time: while one song plays, the next is written in the background. For each upcoming song:
+- **▶** plays it now (from the next bar line, once its first section is written);
+- **⤴** plays it next, **↑ ↓** move it, **✕** removes it, and **↻** rewrites a song that failed.
+
+Played songs have **↺** to queue them again. **clear upcoming** empties the queue, and the song playing plays on. **🔁 loop** starts over after the last song, except while a station is adding songs. ⏭ / ⏮ in the transport move through the playlist. ■ stops the music, and the station too.
 
 A song's sheet and sections show in two places only:
 - **🎶 Now playing:** the song that's playing, with live progress.
@@ -236,7 +251,7 @@ A song's sheet and sections show in two places only:
   - Songs in My songs are saved; for other songs, 📁 Save to My songs keeps the edit.
   - Closing the panel ends editing.
 
-**🔗 Link** shares a whole written song: its sheet, its parts code and every arranged section. Opening the link puts it in the Songs panel, ready to play exactly as written, with no AI calls. When a set (without loop) or a single song finishes, the music stops after the last section.
+**🔗 Link** shares a whole written song: its sheet, its parts code and every arranged section. Opening the link puts it in the Songs panel (This session), ready to play exactly as written, with no AI calls. When the playlist runs out (without loop or a station), the music stops after the last section.
 
 ### 📁 My songs, ★ Favorites and portable songs
 Every finished song has a toolbar:
@@ -275,9 +290,12 @@ Edit them like any pads; they're saved with the song. **↩ my pads** goes back 
 
 ### 📻 Station
 - **Setup:** pick or create a station: a name and a theme, e.g. *"late-night lo-fi with jazzy chords, 70–90 bpm, rainy city mood"*. Stations are saved in the browser, and three examples are included.
-- **How the agent runs:** **📻 Start station** starts an agent that keeps the queue filled with **songs ahead** (1–3) planned songs. It asks the AI for new songs that fit the theme, aren't in the recently played list, and flow from the last one (related keys and tempos, an energy arc). Then it writes and plays them like a set list, endlessly.
-- **What you see:** the **On air** box shows the current song with its buttons (favorite, save, song pads, MP3, JSON, link) and **🎶 Now playing ↗**, which opens the song's sheet, sections and progress in the Now playing panel. The list shows what's played, playing and coming up. Click a song to get its buttons. **⏭ go**, hold and Alt+1…9 work as in the Songs tab.
-- If the AI fails 5 times in a row, the station stops itself.
+- **📻 Start station** puts it on air: an agent adds its songs to the end of the 📃 Playlist. It keeps **keep ahead** (1–3) songs coming up, asking the AI for new songs that fit the theme, aren't in the recently played list, and flow from the last one (related keys and tempos, an energy arc).
+- **Nothing stops when it starts:** the song playing and the songs already in the playlist play first, while the station's songs are written in the background.
+- **■ Stop** only stops it adding songs. The songs it already wrote stay in the playlist and play; the ones it had only named are dropped.
+- **Switch station:** pick another one and press **📻 Switch to this station**. Its songs follow the ones already queued.
+- **What you see:** the **On air** box shows the current song with its buttons and **🎶 Now playing ↗**, and how many of the station's songs are coming up.
+- If the AI fails 5 times in a row, the playlist stops itself.
 
 ## About
 

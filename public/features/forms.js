@@ -2,7 +2,7 @@
 import { DEFAULT_FORMS, OLD_DEFAULT_FORMS, OLD_FORM_SECTIONS, findIn, formBars, formsForRequest as formsRequest, parseFormSections } from '../lib/forms.js';
 import { esc } from '../lib/util.js';
 import { openSettings } from './settings.js';
-import { $, load, queue, save } from '../app.js';
+import { $, load, save } from '../app.js';
 export let songForms;
 // ---------------------------------------------------------------------------
 // Song forms: the order and length of a song's sections. Users can edit and add
@@ -24,7 +24,8 @@ let formIdx = 0;
 const findForm = (name) => findIn(songForms, name);
 export const formsForRequest = (choice) => formsRequest(songForms, choice);
 
-export const formChoice = () => $(queue.mode === 'station' ? 'stationForm' : 'setForm')?.value || 'auto';
+/** The form for a song: the 📻 Station's for its songs, the 🎵 Songs one for the others. */
+export const formChoice = (song) => $(song?.from === 'station' ? 'stationForm' : 'setForm')?.value || 'auto';
 
 function renderFormSelects() {
   for (const id of ['setForm', 'stationForm']) {

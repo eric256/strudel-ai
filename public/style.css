@@ -636,3 +636,25 @@ body.hydra-on .code-bar { background: color-mix(in srgb, var(--panel-2) 80%, tra
 #masterBypass.on { color: #ffd166; }
 .master-chip { border-color: #7c5cff; }
 .chip.bad { border-color: var(--danger); color: var(--danger); }
+
+/* 📃 Playlist */
+#playlistPanel { display: flex; flex-direction: column; min-height: 0; }
+.pl-bar { display: flex; align-items: center; gap: 10px; padding: 6px 10px; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+.playlist { flex: 1; min-height: 0; overflow: auto; padding: 4px 8px 10px; }
+.pl-head { font: 600 11px/1 var(--mono); color: var(--muted); text-transform: uppercase; letter-spacing: .05em; margin: 10px 2px 4px; }
+.pl-row { display: flex; align-items: center; gap: 8px; padding: 5px 6px; border-radius: 6px; border: 1px solid transparent; }
+.pl-row:hover { background: #1a1d26; }
+.pl-row .ico { width: 16px; text-align: center; color: var(--muted); flex-shrink: 0; }
+.pl-row .body { flex: 1; min-width: 0; }
+.pl-row .t { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pl-row .meta { font-size: 11px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pl-row .meta.bad { color: var(--danger); }
+.pl-src { font: 400 10px var(--mono); color: var(--muted); margin-left: 4px; }
+.pl-row.now { border-color: var(--accent); background: #1c1830; }
+.pl-row.now .ico { color: var(--accent-2); }
+.pl-row.played { opacity: .55; }
+.pl-row.writing .ico { color: #ffd166; }
+.pl-row.failed .ico { color: var(--danger); }
+.pl-btns { display: flex; gap: 2px; flex-shrink: 0; }
+.pl-btns button { padding: 1px 6px; font-size: 12px; min-width: 24px; }
+.pl-empty { padding: 6px 4px; }
