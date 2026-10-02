@@ -5,9 +5,10 @@
 // into the code as .mask("…") patterns, so it keeps looping.
 // (split out of app.js: start-up code runs in setup(), called from app.js)
 import { isMine, saveMySongs } from './song-library.js';
-import { esc, oneLine } from '../lib/util.js';
+import { oneLine } from '../lib/util.js';
 import { $, addMsg, beatCycles, docks, evaluateCode, getCode, isPlaying, load, mirror, nextBoundary, nowCycle, queue, save, saved, setupDock, switchCycle } from '../app.js';
 import { songsChanged } from './song-lists.js';
+import { html, render } from '../html.js';
 export let pads, padsState;
 let myPads;
 const DEFAULT_PADS = [
@@ -102,12 +103,12 @@ export function renderPads() {
   const key = JSON.stringify([pads, padsState.edit, padsState.sel, [...padsState.pending.keys()], pads.map((_, i) => padIsOn(i, code))]);
   if (key === renderPads.key) return;
   renderPads.key = key;
-  $('padsGrid').innerHTML = pads.map((p, i) => {
+  render(html`${pads.map((p, i) => {
     const on = padIsOn(i, code);
-    return `<button class="pad${on ? ' on' : ''}${padsState.pending.has(i) ? ' pending' : ''}${padsState.sel === i && padsState.edit ? ' selected' : ''}" data-i="${i}"
-      style="--pc:${esc(p.color || '#7c5cff')}" title="${esc(`${p.label} · ${p.mode}\n${p.code}`)}">
-      <span class="pad-label">${esc(p.label || `pad ${i + 1}`)}</span><span class="pad-mode">${p.mode === 'toggle' ? '' : p.mode}</span></button>`;
-  }).join('');
+    return html`<button class="pad${on ? ' on' : ''}${padsState.pending.has(i) ? ' pending' : ''}${padsState.sel === i && padsState.edit ? ' selected' : ''}" data-i=${i}
+      style="--pc:${p.color || '#7c5cff'}" title="${p.label} · ${p.mode}\n${p.code}">
+      <span class="pad-label">${p.label || `pad ${i + 1}`}</span><span class="pad-mode">${p.mode === 'toggle' ? '' : p.mode}</span></button>`;
+  })}`, $('padsGrid'));
 }
 /** "once": on at the next boundary, off one bar later. */
 export async function padOnce(i, lineText = null) {

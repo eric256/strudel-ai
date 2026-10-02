@@ -99,6 +99,17 @@ try {
     await p.waitForFunction(() => document.querySelector('strudel-editor').editor.repl.scheduler.started && !strudelAI.engine.paused, null, { timeout: 5000 });
   });
 
+  await step('templates: titles are text (escaped), and an opened section stays open while the view updates', async () => {
+    await ev(() => { const sg = strudelAI.queue.songs[strudelAI.queue.current]; window.__realTitle = sg.title; sg.title = '<img src=x onerror="window.__xss=1">Bold'; strudelAI.player.emit('songs'); });
+    await p.waitForTimeout(400);
+    const esc = await ev(() => ({ xss: !!window.__xss, img: !!document.querySelector('#nowSongView .sv-head img, #playlist img'), text: document.querySelector('#nowSongView .sv-head b').textContent }));
+    await ev(() => { strudelAI.queue.songs[strudelAI.queue.current].title = window.__realTitle; strudelAI.player.emit('songs'); });
+    expect(!esc.xss && !esc.img && esc.text.startsWith('<img'), `not escaped: ${JSON.stringify(esc)}`);
+    await ev(() => { const d = document.querySelector('#nowSongView details.step'); d.open = true; window.__det = d; });
+    await p.waitForTimeout(2500); // several renders (events + the 1 s safety render)
+    expect(await ev(() => window.__det.isConnected && window.__det.open), 'the opened section was rebuilt or closed');
+  });
+
   await step('the mixer shows every part', async () => {
     await ev(() => strudelAI.ws.open('mixer'));
     await p.waitForTimeout(800);

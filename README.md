@@ -609,6 +609,11 @@ Code layout:
   - `queue`: the songs of the Songs list or the Station, which feed their sections to the engine.
 
   The player announces `section`, `song`, `transport` (playing / paused / stopped) and `songs` (the lists changed) events. Now playing, the transport bars, the progress bars, the song lists, the mixer, the master and the chat target react to them.
+- `public/html.js`: the HTML templates, [lit-html](https://lit.dev/docs/libraries/standalone-templates/), served from `/vendor/lit-html` (no build step). Panels render with ``render(html`…`, container)``. Values are escaped automatically, event handlers can attach in the template, and a re-render only touches what changed. Two rules:
+  - an element the app updates by hand (a progress label, a fader's dB value) has no template values inside it;
+  - a rendered container is never written with `innerHTML`.
+
+  `renderOptions(select, items)` fills a `<select>`.
 - `public/features/`: the features. Each module imports what it needs from `app.js` and from the other modules. The code that ran at start-up is in its `setup()`, which `app.js` calls in the original order.
   - AI: `llm.js` (the AI client and its costs), `chat.js` (a chat turn), `sound-check.js` (sound, soundfont, scale and slider checks)
   - songs:

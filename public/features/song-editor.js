@@ -6,7 +6,7 @@ import { definesId, libraryIds } from '../lib/sheet.js';
 import { patternLines } from '../lib/labels.js';
 import { wrapCode } from '../format.js';
 import { isMine, saveMySongs } from './song-library.js';
-import { esc, signed } from '../lib/util.js';
+import { signed } from '../lib/util.js';
 import { arrangeSong, carryLiveState, sectionCode } from '../lib/arrange.js';
 import { loadPads, padsState } from './pads.js';
 import { STYLE_NAMES } from '../master.js';
@@ -16,6 +16,7 @@ import { prepareCode } from './sound-check.js';
 import { songsChanged, renderSongs } from './song-lists.js';
 import { syntaxError } from './llm.js';
 import { testLibrary } from './song-writer.js';
+import { html } from '../html.js';
 // --- editing a song: re-arranged by the app (no AI), live if it's playing
 export function rawSheet(sh) {
   return {
@@ -107,18 +108,20 @@ export function openSongEditor(sg) {
   songsChanged();
   renderSongs();
 }
-export function songEditorHTML(sg) {
+/** The ✎ Edit song form for a song (its fields are filled in as .value, so re-rendering after ✓ apply updates them). */
+export function songEditorTemplate(sg) {
   const r = rawSheet(sg.sheet);
-  return `<div class="sv-edit">
-    <div class="sv-edit-row"><label>title <input data-f="title" value="${esc(sg.title)}" /></label><label>bpm <input data-f="bpm" type="number" min="50" max="200" value="${r.bpm}" /></label><label>meter <select data-f="meter">${METERS.map((m) => `<option${m === r.meter ? ' selected' : ''}>${m}</option>`).join('')}</select></label><label>scale <input data-f="scale" value="${esc(r.scale)}" /></label><label title="The master style: the mastering on the whole song (tweak it live in 🎛 Master)">master <select data-f="master">${STYLE_NAMES.map((n) => `<option${n === r.master ? ' selected' : ''}>${n}</option>`).join('')}</select></label></div>
+  const sections = r.sections.map((x) => `${x.name} | ${x.bars} | ${x.chords} | ${x.play.join(', ')}${x.shift || x.bpm ? ` | ${[x.shift ? `key ${signed(x.shift)}` : '', x.bpm ? `${x.bpm} bpm` : ''].filter(Boolean).join(', ')}` : ''}`).join('\n');
+  return html`<div class="sv-edit">
+    <div class="sv-edit-row"><label>title <input data-f="title" .value=${sg.title} /></label><label>bpm <input data-f="bpm" type="number" min="50" max="200" .value=${String(r.bpm)} /></label><label>meter <select data-f="meter">${METERS.map((m) => html`<option ?selected=${m === r.meter}>${m}</option>`)}</select></label><label>scale <input data-f="scale" .value=${r.scale} /></label><label title="The master style: the mastering on the whole song (tweak it live in 🎛 Master)">master <select data-f="master">${STYLE_NAMES.map((n) => html`<option ?selected=${n === r.master}>${n}</option>`)}</select></label></div>
     <label>chords — <span class="muted">one per line: <code>name: Am F C G</code></span>
-      <textarea data-f="chords" rows="3">${esc(Object.entries(r.chords).map(([k, v]) => `${k}: ${v}`).join('\n'))}</textarea></label>
+      <textarea data-f="chords" rows="3" .value=${Object.entries(r.chords).map(([k, v]) => `${k}: ${v}`).join('\n')}></textarea></label>
     <label>sections — <span class="muted">one per line: <code>name | bars | chords | parts (part or part.variant)</code>, optionally <code>| key +2, 106 bpm</code></span>
-      <textarea data-f="sections" rows="${Math.min(14, r.sections.length + 1)}">${esc(r.sections.map((x) => `${x.name} | ${x.bars} | ${x.chords} | ${x.play.join(', ')}${x.shift || x.bpm ? ` | ${[x.shift ? `key ${signed(x.shift)}` : '', x.bpm ? `${x.bpm} bpm` : ''].filter(Boolean).join(', ')}` : ''}`).join('\n'))}</textarea></label>
+      <textarea data-f="sections" rows=${Math.min(14, r.sections.length + 1)} .value=${sections}></textarea></label>
     <label>parts — <span class="muted">one per line: <code>name | role | sound | variants</code></span>
-      <textarea data-f="parts" rows="${Math.min(8, r.parts.length + 1)}">${esc(r.parts.map((p) => `${p.name} | ${p.role} | ${p.sound} | ${p.variants.join(', ')}`).join('\n'))}</textarea></label>
+      <textarea data-f="parts" rows=${Math.min(8, r.parts.length + 1)} .value=${r.parts.map((p) => `${p.name} | ${p.role} | ${p.sound} | ${p.variants.join(', ')}`).join('\n')}></textarea></label>
     <label>parts code — <span class="muted">a <code>const name_variant = …</code> for every part.variant the sections use (harmonic parts take <code>(prog)</code>)</span>
-      <textarea data-f="library" rows="10" spellcheck="false">${esc(sg.library)}</textarea></label>
+      <textarea data-f="library" rows="10" spellcheck="false" .value=${sg.library}></textarea></label>
     <div class="sl-buttons"><button data-act="edit-save">✓ apply</button><button data-act="edit-cancel" class="link">cancel</button><span class="sv-edit-msg muted small"></span></div>
     <div class="muted small">Or ask the chat: “make the chorus 16 bars”, “add a breakdown before the last chorus”, “give the bass a funkier line”.</div>
   </div>`;
@@ -140,6 +143,7 @@ export async function saveSongEditor(el, sg) {
       shift: Number(moves.match(/key\s*([+-]?\d+)/i)?.[1]) || 0, bpm: Number(moves.match(/(\d+)\s*bpm/i)?.[1]) || 0 };
   });
   const msg = el.querySelector('.sv-edit-msg');
+  msg.classList.remove('bad'); // (the form keeps its DOM between renders)
   msg.textContent = 'checking…';
   const title = v('title').trim();
   const err = await applySongEdit(sg, raw, v('library'));

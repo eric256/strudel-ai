@@ -4,10 +4,10 @@ import { BAND_ROLES, DEFAULT_BANDS, bandsForRequest as bandsRequest, parseInstru
 import { findIn } from '../lib/forms.js';
 import { normalizeSheet as normalizeSheetWith } from '../lib/sheet.js';
 import { MASTER_STYLES, STYLE_NAMES, normStyle } from '../master.js';
-import { esc } from '../lib/util.js';
 import { soundRegistry } from './sound-check.js';
 import { openSettings } from './settings.js';
 import { $, load, save } from '../app.js';
+import { html, render, renderOptions } from '../html.js';
 export let bands;
 
 let bandIdx = 0;
@@ -23,16 +23,15 @@ function renderBandSelects() {
   for (const id of ['setBand', 'stationBand']) {
     const el = $(id);
     const keep = el.value || load()[id] || 'auto';
-    el.innerHTML = '<option value="auto">auto (fits the genre)</option>' + bands.map((b) => `<option value="${esc(b.name)}">${esc(b.name)} · ${esc(normStyle(b.master) || 'clean')}</option>`).join('');
-    el.value = keep === 'auto' || findBand(keep) ? keep : 'auto';
+    renderOptions(el, [{ value: 'auto', label: 'auto (fits the genre)' }, ...bands.map((b) => ({ value: b.name, label: `${b.name} · ${normStyle(b.master) || 'clean'}` }))],
+      keep === 'auto' || findBand(keep) ? keep : 'auto');
   }
 }
 function saveBands() { save({ bands }); renderBandSelects(); }
 export function renderBandsEditor() {
   bandIdx = Math.max(0, Math.min(bandIdx, bands.length - 1));
-  $('bandSelect').innerHTML = bands.map((b, i) => `<option value="${i}">${esc(b.name || 'untitled')}</option>`).join('');
-  $('bandSelect').value = String(bandIdx);
-  $('bandMaster').innerHTML = STYLE_NAMES.map((n) => `<option value="${n}">${n} — ${esc(MASTER_STYLES[n].desc)}</option>`).join('');
+  renderOptions($('bandSelect'), bands.map((b, i) => ({ value: i, label: b.name || 'untitled' })), bandIdx);
+  renderOptions($('bandMaster'), STYLE_NAMES.map((n) => ({ value: n, label: `${n} — ${MASTER_STYLES[n].desc}` })), null);
   const b = bands[bandIdx] || { name: '', use: '', master: 'clean', instruments: '' };
   $('bandName').value = b.name;
   $('bandUse').value = b.use;
@@ -44,9 +43,10 @@ async function renderBandPreview() {
   const inst = parseInstruments($('bandInstruments').value);
   const reg = await soundRegistry().catch(() => null);
   const known = (snd) => !reg || reg[snd.toLowerCase()] || Object.keys(reg).some((k) => k.startsWith(snd.toLowerCase() + '_'));
-  $('bandPreview').innerHTML = inst.length
-    ? inst.map((i) => `<span class="chip${BAND_ROLES.includes(i.role) && known(i.sound) ? '' : ' bad'}" title="${esc(i.desc)}${known(i.sound) ? '' : ' — this sound is not loaded'}${BAND_ROLES.includes(i.role) ? '' : ' — unknown role'}"><b>${esc(i.role)}</b> ${esc(i.sound)}</span>`).join('') + `<div class="muted small">${inst.length} instruments · master ${esc($('bandMaster').value)}</div>`
-    : '<span class="muted small">no instruments yet</span>';
+  render(inst.length
+    ? html`${inst.map((i) => html`<span class="chip${BAND_ROLES.includes(i.role) && known(i.sound) ? '' : ' bad'}" title="${i.desc}${known(i.sound) ? '' : ' — this sound is not loaded'}${BAND_ROLES.includes(i.role) ? '' : ' — unknown role'}"><b>${i.role}</b> ${i.sound}</span>`)}
+      <div class="muted small">${inst.length} instruments · master ${$('bandMaster').value}</div>`
+    : html`<span class="muted small">no instruments yet</span>`, $('bandPreview'));
 }
 
 /** Start-up: the statements that ran here when this was part of app.js (called from app.js at the same point). */
@@ -66,7 +66,7 @@ export function setup() {
       b.use = $('bandUse').value.trim();
       b.master = $('bandMaster').value;
       b.instruments = $('bandInstruments').value;
-      if (id === 'bandName') $('bandSelect').options[bandIdx].textContent = b.name || 'untitled';
+      if (id === 'bandName') renderOptions($('bandSelect'), bands.map((x, i) => ({ value: i, label: x.name || 'untitled' })), bandIdx);
       if (id === 'bandInstruments' || id === 'bandMaster') renderBandPreview();
       saveBands();
     };

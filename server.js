@@ -116,6 +116,8 @@ app.use('/vendor/dockview', express.static(path.join(__dirname, 'node_modules/do
 // Hydra (video synth) for the visualizer's 🌀 hydra backgrounds — served locally instead of from unpkg
 app.use('/vendor/hydra', express.static(path.join(__dirname, 'node_modules/hydra-synth/dist'), { maxAge: '7d' }));
 // MP3 encoder for recordings (runs in a Web Worker in the browser)
+// lit-html: the HTML templates of the panels (served locally, no build step)
+app.use('/vendor/lit-html', express.static(path.join(__dirname, 'node_modules/lit-html'), { maxAge: '7d' }));
 app.use('/vendor/lamejs', express.static(path.join(__dirname, 'node_modules/lamejs'), { maxAge: '7d' }));
 // app files: always revalidate, so a new build is picked up on the next load
 app.use(express.static(PUBLIC_DIR, { setHeaders: (res) => res.set('Cache-Control', 'no-cache') }));

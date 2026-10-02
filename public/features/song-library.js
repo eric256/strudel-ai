@@ -6,10 +6,10 @@ import { addSessionSong, addToPlaylist } from './playlist.js';
 import { APP_VERSION } from './share.js';
 import { arrangeSong } from '../lib/arrange.js';
 import { JAM_ARP, JAM_LEAD, padProg, songPads } from './song-pads.js';
-import { esc } from '../lib/util.js';
 import { $, LOG_JSON_MARK, addMsg, clog, queue, showPanel, warnUser } from '../app.js';
 import { normalizeSheet } from './bands.js';
-import { songSel, songsChanged, renderSongs, sharedLinkHTML, songAction, songMeta, songToolbarHTML } from './song-lists.js';
+import { songSel, songsChanged, renderSongs, sharedLinkTemplate, songAction, songMeta, songToolbarTemplate } from './song-lists.js';
+import { html, nothing, repeat } from '../html.js';
 
 export let mySongs;
 const SONG_FORMAT = 'strudel-ai-song';
@@ -82,18 +82,18 @@ export function addToMySongs(sg) {
   clog('ok', `📁 “${copy.title}” saved to My songs`);
   return copy;
 }
-export function myListHTML() {
-  if (!mySongs.length) return '<div class="muted small">No songs yet — save one from a set or station (☆ / → My songs), or import a .json file.</div>';
-  return mySongs.map((sg, k) => {
+export function myListTemplate() {
+  if (!mySongs.length) return html`<div class="muted small">No songs yet — save one from a set or station (☆ / → My songs), or import a .json file.</div>`;
+  return repeat(mySongs, (sg) => sg, (sg, k) => {
     const sel = songSel.set === `mine:${k}`;
     const playing = queue.running && queue.songs[queue.current] === sg;
-    return `<div class="song mine ${playing ? 'playing' : 'ready'}${sel ? ' selected' : ''}" data-mine="${k}" title="Show, edit or play this song">
+    return html`<div class="song mine ${playing ? 'playing' : 'ready'}${sel ? ' selected' : ''}" data-mine=${k} title="Show, edit or play this song">
       <span class="ico">${playing ? '▶' : '♪'}</span>
-      <div class="body"><div class="t">${esc(sg.title)}</div><div class="meta">${esc(songMeta(sg))}</div>${sel ? `<div class="song-tools">${songToolbarHTML(sg, false)}${sharedLinkHTML(sg)}</div>` : ''}</div>
-      <button class="jump" data-mine-play="${k}" title="Play this song (no AI needed)">▶</button>
-      <button class="link" data-mine-del="${k}" title="Remove from My songs">🗑</button>
+      <div class="body"><div class="t">${sg.title}</div><div class="meta">${songMeta(sg)}</div>${sel ? html`<div class="song-tools">${songToolbarTemplate(sg, false)}${sharedLinkTemplate(sg)}</div>` : nothing}</div>
+      <button class="jump" data-mine-play=${k} title="Play this song (no AI needed)">▶</button>
+      <button class="link" data-mine-del=${k} title="Remove from My songs">🗑</button>
     </div>`;
-  }).join('');
+  });
 }
 /** A song opened from a link or a file: listed in 🎵 Songs → This session, ready to play or queue. */
 export function loadSongIntoSet(song) {
@@ -146,18 +146,18 @@ export async function toggleFavorite(sg) {
   } catch (e) { warnUser(`Favorite failed: ${e.message}`); }
   renderSongs();
 }
-export function favListHTML() {
-  if (!favorites.length) return '<div class="muted small">No favorites yet — ★ a song you like and everyone on this server will see it here.</div>';
-  return favorites.map((f, k) => {
+export function favListTemplate() {
+  if (!favorites.length) return html`<div class="muted small">No favorites yet — ★ a song you like and everyone on this server will see it here.</div>`;
+  return repeat(favorites, (f) => f, (f, k) => {
     const sg = f.song;
     const sel = songSel.set === `fav:${k}`;
     const playing = queue.running && queue.songs[queue.current] === sg;
-    return `<div class="song fav ${playing ? 'playing' : 'ready'}${sel ? ' selected' : ''}" data-fav="${k}" title="Show or play this song">
+    return html`<div class="song fav ${playing ? 'playing' : 'ready'}${sel ? ' selected' : ''}" data-fav=${k} title="Show or play this song">
       <span class="ico">${playing ? '▶' : '★'}</span>
-      <div class="body"><div class="t">${esc(sg.title)}</div><div class="meta">${esc(songMeta(sg))}</div>${sel ? `<div class="song-tools">${songToolbarHTML(sg, false)}${sharedLinkHTML(sg)}</div>` : ''}</div>
-      <button class="jump" data-fav-play="${k}" title="Play this song (no AI needed)">▶</button>
+      <div class="body"><div class="t">${sg.title}</div><div class="meta">${songMeta(sg)}</div>${sel ? html`<div class="song-tools">${songToolbarTemplate(sg, false)}${sharedLinkTemplate(sg)}</div>` : nothing}</div>
+      <button class="jump" data-fav-play=${k} title="Play this song (no AI needed)">▶</button>
     </div>`;
-  }).join('');
+  });
 }
 
 /** Start-up: the statements that ran here when this was part of app.js (called from app.js at the same point). */
