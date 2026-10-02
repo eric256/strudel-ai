@@ -2,6 +2,19 @@
 
 The version is in `package.json`. Bump it when you release. Open pages also notice *any* redeploy through the build id, which is a hash of the app files, even if the version wasn't bumped.
 
+## 1.32.0
+- **Refactor, part 1:** the song engine's logic moved out of `app.js` into small modules in `public/lib/`: music theory, scale names, labels, forms, bands, song sheets and arranging. They have no DOM and no app state, so they are unit-tested in Node (`test/song.test.mjs`, 15 new tests). Nothing changes for users.
+- **Browser smoke test** (`npm run smoke`, also in CI): starts the app with a mock AI and checks, in Chromium:
+  - chat, writing a new song with a band, and playback;
+  - Now playing, the mixer, the master chain and ✎ Edit song;
+  - the settings editors, stop, and that no page errors occur.
+- **Fixed:** in ✎ Edit song (and in chat edits), sections were cut to 16 bars and choruses to 4, even though the editor allows up to 32. Your own edits now keep their lengths. The limits still apply to songs the AI writes.
+- **Hygiene:**
+  - Settings are read from browser storage once and kept in memory, and still stay in sync with other tabs and backup restores.
+  - `hydra-synth` is now a declared dependency.
+  - The update notice also notices changes to files in subfolders.
+  - Unused code was removed.
+
 ## 1.31.2
 - **Favicon:** the browser tab, bookmarks and popped-out panels show the app's icon, three mixer faders in the purple-to-teal accent. It comes as an SVG with PNG fallbacks (32 px, plus 180 px for the iOS home screen) and a web manifest, so the app can be installed with its own icon.
 

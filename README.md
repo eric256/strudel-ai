@@ -564,11 +564,26 @@ Use ≥ 8k context. Small models hallucinate function names more often — auto-
 ```bash
 npm ci
 npm run check     # syntax check
-npm test          # unit tests (hum → melody pipeline)
+npm test          # unit tests: song engine, music theory, code wrapping, hum → melody
+npm run smoke     # the whole app in Chromium with a mock AI (needs Playwright: npm i --no-save playwright && npx playwright install chromium)
 LLAMACPP_URL=http://localhost:8080 npm start   # http://localhost:3000
 ```
 
-CI runs the checks, the tests, a server smoke test and a Docker build on every push and pull request.
+Code layout:
+- `server.js`: the web server, the AI providers, share links and favorites. `prompt.js`: the AI's system prompts.
+- `public/app.js`: the browser app (UI, playback, the song engine's AI steps).
+- `public/lib/`: the song engine's pure logic, with no DOM and no app state, so it is unit-tested in Node:
+  - `music.js`: chords, transposing, meters, tempo
+  - `scales.js`: scale-name repair
+  - `labels.js`: labelled pattern lines
+  - `forms.js` and `bands.js`: forms and bands
+  - `sheet.js`: song-sheet checks and repair
+  - `arrange.js`: section code and arrangement
+  - `util.js`: small helpers
+- `public/master.js` (master chain and styles), `format.js` (code wrapping), `hum.js` (humming), `workspace.js` (panels), `sounds.js` (sound guide).
+- `test/`: unit tests (`*.test.mjs`) and the browser smoke test (`smoke/`).
+
+CI runs the checks, the unit tests, a server check, the browser smoke test and a Docker build on every push and pull request.
 Every push to `main` publishes `ghcr.io/eric256/strudel-ai:latest`, and every `v*` tag publishes a versioned image.
 To release: bump `version` in `package.json`, add a `CHANGELOG.md` entry, then `git tag vX.Y.Z && git push --tags`.
 

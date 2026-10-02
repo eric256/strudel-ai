@@ -1,13 +1,14 @@
 {
   "name": "strudel-ai",
-  "version": "1.31.2",
+  "version": "1.32.0",
   "description": "Strudel live-coding REPL with an AI chat co-pilot (llama.cpp / OpenWebUI)",
   "main": "server.js",
   "type": "module",
   "scripts": {
     "start": "node server.js",
     "test": "node --test test/*.test.mjs",
-    "check": "node --check server.js && node --check prompt.js && node --check public/app.js && node --check public/hum.js && node --check public/workspace.js && node --check public/format.js && node --check public/master.js && node --check public/sounds.js"
+    "smoke": "node test/smoke/smoke.mjs",
+    "check": "for f in server.js prompt.js public/*.js public/lib/*.js; do node --check $f || exit 1; done"
   },
   "license": "AGPL-3.0-or-later",
   "dependencies": {
@@ -15,6 +16,7 @@
     "@strudel/repl": "1.3.0",
     "dockview-core": "^8.4.0",
     "express": "^5.2.1",
+    "hydra-synth": "^1.4.0",
     "lamejs": "^1.2.1"
   },
   "repository": {
@@ -22,6 +24,6 @@
     "url": "https://github.com/eric256/strudel-ai.git"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=20.1"
   }
 }

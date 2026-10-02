@@ -2,6 +2,14 @@ import { loadDockview, createWorkspace } from './workspace.js';
 import { wrapCode } from './format.js';
 import { createMaster, MASTER_PARAMS, MASTER_DEFAULTS, MASTER_STYLES, STYLE_NAMES, styleParams, normStyle, clampParams, diffParams, stylesForPrompt } from './master.js';
 import { soundGuide } from './sounds.js';
+import { esc, sleep, stripThinking, parseJSONLoose, closest, signed, oneLine, sliderless } from './lib/util.js';
+import { setScales, getScales, colonScale, fixScaleString, scaleHelp } from './lib/scales.js';
+import { HARMONIC_ROLE, transposeProgression, METERS, normMeter, meterBeats, meterSteps, tempoLine, songMeter } from './lib/music.js';
+import { LABEL_LINE, parseLabel, makeLabel, patternLines } from './lib/labels.js';
+import { DEFAULT_FORMS, OLD_DEFAULT_FORMS, OLD_FORM_SECTIONS, parseFormSections, formBars, findIn, formsForRequest as formsRequest } from './lib/forms.js';
+import { DEFAULT_BANDS, BAND_ROLES, parseInstruments, bandsForRequest as bandsRequest } from './lib/bands.js';
+import { normalizeSheet as normalizeSheetWith, fillPart, libraryIds, isFnPart, definesId, partExpr, miniStrings } from './lib/sheet.js';
+import { SEC_START, sectionCode, arrangeSong, carryLiveState } from './lib/arrange.js';
 import { HumRecorder, transcribe, intervalsToSemitones, tonicPc, midiToName, freqToMidi, polyBarsToMini } from './hum.js';
 // Strudel AI — browser app
 /**
@@ -54,8 +62,20 @@ const STORE_KEY = 'strudel-ai:v1';
 // ---------------------------------------------------------------------------
 // Persistence
 // ---------------------------------------------------------------------------
-const load = () => { try { return JSON.parse(localStorage.getItem(STORE_KEY)) || {}; } catch { return {}; } };
-const save = (patch) => { try { localStorage.setItem(STORE_KEY, JSON.stringify({ ...load(), ...patch })); } catch {} };
+// the settings are read from localStorage once and kept in memory; another tab saving them (or a backup being
+// restored) makes this tab read them again
+let store = null;
+const load = () => {
+  if (!store) { try { store = JSON.parse(localStorage.getItem(STORE_KEY)) || {}; } catch { store = {}; } }
+  return { ...store };
+};
+const save = (patch) => {
+  load();
+  Object.assign(store, patch);
+  try { localStorage.setItem(STORE_KEY, JSON.stringify(store)); } catch {}
+};
+const forgetStore = () => { store = null; };
+window.addEventListener('storage', (e) => { if (e.key === STORE_KEY || e.key === null) forgetStore(); });
 const saved = load();
 
 const state = {
@@ -133,13 +153,13 @@ function moreCompletions(context) {
     return { from: m.to - frag.length, options: Object.keys(count).filter((b) => count[b] >= 3).map((b) => ({ label: pretty(b), type: 'text', detail: 'drum machine' })), validFor: /^[\w-]*$/ };
   }
   m = words(/\.scale\(\s*["'`][^"'`]*$/);
-  if (m && SCALES) {
+  if (m && getScales()) {
     const t = (m.text.match(/[A-Ga-g][#b]?\d?:[\w:]*$/) || [''])[0];
     if (!t) return null;
     const colon = t.indexOf(':');
     return {
       from: m.to - (t.length - colon - 1),
-      options: SCALES.map(([name]) => ({ label: colonScale(name), type: 'text', detail: 'scale' })),
+      options: getScales().map(([name]) => ({ label: colonScale(name), type: 'text', detail: 'scale' })),
       validFor: /^[\w:]*$/,
     };
   }
@@ -540,8 +560,6 @@ function installRecorderHook() {
   };
 }
 
-/** Fader moves: compare code with the slider values blanked out. */
-const sliderless = (c) => (c || '').replace(/slider\(\s*[\d.]+/g, 'slider(');
 
 function pollEditor() {
   installRecorderHook();
@@ -794,7 +812,6 @@ document.addEventListener('click', () => { $('layoutMenu').hidden = true; });
 // ---------------------------------------------------------------------------
 // Chat rendering
 // ---------------------------------------------------------------------------
-const esc = (s) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
 
 function renderMarkdownLite(text) {
   return text
@@ -880,7 +897,6 @@ $('clearChat').onclick = () => {
 // ---------------------------------------------------------------------------
 // LLM
 // ---------------------------------------------------------------------------
-const stripThinking = (t) => t.replace(/<think>[\s\S]*?(<\/think>|$)/gi, '').trim();
 
 const CODE_LINE = /^\s*(\$:|_\$:|setcp[ms]\(|stack\(|s\(|sound\(|note\(|n\(|chord\(|samples\(|\.|\/\/|\)|let |const )/;
 
@@ -1107,31 +1123,7 @@ async function soundCatalog() {
   return catalogCache;
 }
 
-function levenshtein(a, b) {
-  if (a === b) return 0;
-  const dp = Array.from({ length: b.length + 1 }, (_, i) => i);
-  for (let i = 1; i <= a.length; i++) {
-    let prev = dp[0];
-    dp[0] = i;
-    for (let j = 1; j <= b.length; j++) {
-      const tmp = dp[j];
-      dp[j] = Math.min(dp[j] + 1, dp[j - 1] + 1, prev + (a[i - 1] === b[j - 1] ? 0 : 1));
-      prev = tmp;
-    }
-  }
-  return dp[b.length];
-}
-const normName = (s) => s.toLowerCase().replace(/(^|\D)0+(\d)/g, '$1$2').replace(/[_\s-]/g, '');
 
-function closest(name, candidates) {
-  const n = normName(name);
-  const exact = candidates.find((c) => normName(c) === n);
-  if (exact) return { best: exact, dist: 0, top: [exact] };
-  const scored = candidates
-    .map((c) => ({ c, d: levenshtein(name.toLowerCase(), c) }))
-    .sort((x, y) => x.d - y.d);
-  return { best: scored[0]?.c, dist: scored[0]?.d ?? 99, top: scored.slice(0, 4).map((x) => x.c) };
-}
 
 function stringArgs(code, fnRegex) {
   const out = [];
@@ -1285,94 +1277,10 @@ const unknownMessage = (unknown) =>
 // colons, e.g. .scale("C:minor:pentatonic"). Models often write
 // "C:minorpentatonic", "C minor pentatonic" or "C:pentatonic minor".
 // ---------------------------------------------------------------------------
-let SCALES = null; // [[name, ...aliases], ...]
-const scalesReady = fetch('/scales.json').then((r) => r.json()).then((j) => (SCALES = j)).catch(() => (SCALES = []));
-const normScale = (s) => s.toLowerCase().replace(/[\s:_-]+/g, '');
-let scaleIndex = null;
-function getScaleIndex() {
-  if (scaleIndex || !SCALES) return scaleIndex;
-  scaleIndex = new Map();
-  for (const [name, ...aliases] of SCALES) {
-    for (const n of [name, ...aliases]) scaleIndex.set(normScale(n), name);
-    // word-order variants, e.g. "pentatonic minor" → "minor pentatonic"
-    const words = name.split(' ');
-    if (words.length === 2) scaleIndex.set(normScale(words[1] + words[0]), name);
-  }
-  return scaleIndex;
-}
-const colonScale = (name) => name.replace(/ /g, ':');
-const TONIC = /^[a-gA-G](?:#|b|s|f)*-?\d*$/;
+// (scale names are checked and repaired in lib/scales.js)
+const scalesReady = fetch('/scales.json').then((r) => r.json()).then(setScales).catch(() => setScales([]));
 
-/** Returns canonical scale name for a (possibly wrong) name, or null. */
-function matchScale(raw) {
-  const idx = getScaleIndex();
-  if (!idx) return null;
-  const n = normScale(raw);
-  if (idx.has(n)) return idx.get(n);
-  let best = null, bestD = 99;
-  for (const [k, v] of idx) {
-    const d = levenshtein(n, k);
-    if (d < bestD) { bestD = d; best = v; }
-  }
-  return bestD <= Math.max(1, Math.floor(n.length / 5)) ? best : null;
-}
 
-/** Fix one .scale("…") mini-notation string. Returns { fixed, corrections, unknown }. */
-function fixScaleString(str) {
-  const corrections = [], unknown = [];
-  const toks = [...str.matchAll(/[A-Za-z0-9#'\-:]+/g)].map((m) => ({ t: m[0], i: m.index, end: m.index + m[0].length }));
-  const edits = [];
-  for (let k = 0; k < toks.length; k++) {
-    const { t, i, end } = toks[k];
-    const c = t.indexOf(':');
-    if (c > 0 && TONIC.test(t.slice(0, c))) {
-      const name = t.slice(c + 1).replace(/:/g, ' ');
-      if (!name) continue; // e.g. "C:<major minor>" – names follow as separate tokens
-      // "C:minor pentatonic" → the following space-separated words may belong to the name
-      let last = k, canon = null;
-      const idx = getScaleIndex();
-      for (let j = Math.min(k + 3, toks.length - 1); j > k; j--) {
-        const words = toks.slice(k, j + 1);
-        if (words.some((w, wi) => wi > 0 && !/^ +$/.test(str.slice(words[wi - 1].end, w.i)))) continue;
-        const joined = [name, ...words.slice(1).map((w) => w.t)].join(' ');
-        if (idx?.has(normScale(joined))) { canon = idx.get(normScale(joined)); last = j; break; }
-      }
-      canon = canon || matchScale(name);
-      if (!canon) { unknown.push(t); continue; }
-      const good = `${t.slice(0, c)}:${colonScale(canon)}`;
-      const orig = str.slice(i, toks[last].end);
-      if (good !== orig) { corrections.push([orig, good]); edits.push([i, toks[last].end, good]); }
-      k = last;
-      continue;
-    }
-    if (TONIC.test(t) && toks[k + 1] && !toks[k + 1].t.includes(':') && /^\s+$/.test(str.slice(end, toks[k + 1].i))) {
-      // "C minor pentatonic" (spaces) → greedily join following words into a scale name
-      let found = null;
-      for (let j = Math.min(k + 4, toks.length - 1); j > k; j--) {
-        const words = toks.slice(k + 1, j + 1);
-        if (words.some((w, wi) => wi > 0 && !/^\s+$/.test(str.slice(words[wi - 1].end, w.i)))) continue;
-        const canon = matchScale(words.map((w) => w.t).join(' '));
-        if (canon) { found = { j, canon }; break; }
-      }
-      if (found) {
-        const good = `${t}:${colonScale(found.canon)}`;
-        corrections.push([str.slice(i, toks[found.j].end), good]);
-        edits.push([i, toks[found.j].end, good]);
-        k = found.j;
-      }
-      continue;
-    }
-    // bare scale-name token after "Tonic:<" (e.g. "C:<major minor>")
-    if (!TONIC.test(t) && /[a-z]/i.test(t) && /[a-g][#bsf]*-?\d*:\s*[<[{][^>\]}]*$/i.test(str.slice(0, i))) {
-      const canon = matchScale(t.replace(/:/g, ' '));
-      if (!canon) unknown.push(t);
-      else if (colonScale(canon) !== t) { corrections.push([t, colonScale(canon)]); edits.push([i, end, colonScale(canon)]); }
-    }
-  }
-  let fixed = str;
-  for (const [a, b, g] of edits.sort((x, y) => y[0] - x[0])) fixed = fixed.slice(0, a) + g + fixed.slice(b);
-  return { fixed, corrections, unknown };
-}
 
 async function checkScales(code) {
   await scalesReady;
@@ -1386,11 +1294,6 @@ async function checkScales(code) {
   return { code: fixedCode, corrections, unknown };
 }
 
-function scaleHelp() {
-  const names = (SCALES || []).map(([n]) => colonScale(n));
-  return 'Scale format: .scale("C:minor:pentatonic") — tonic, colon, then the scale name with spaces replaced by colons. ' +
-    'Valid scale names: ' + names.join(', ') + '.';
-}
 
 
 // ---------------------------------------------------------------------------
@@ -2206,29 +2109,13 @@ soundRegistry(); // install soundfont guard as soon as Strudel has loaded
 // M and S buttons. They toggle Strudel's own syntax — "_$:" mutes a line,
 // "S$:" solos it — and the change switches in exactly on the next beat.
 // ---------------------------------------------------------------------------
-const LABEL_LINE = /^([A-Za-z_$][\w$]*):(?!:)/;
 const barBeat = (at) => {
   const bar = Math.floor(at + 1e-9) + 1;
   const beat = Math.round(((at % 1) + 1) % 1 * 4) + 1;
   return beat === 1 ? `bar ${bar}` : `bar ${bar} beat ${beat}`;
 };
 
-function parseLabel(label) {
-  const muted = label.startsWith('_') || (label.endsWith('_') && label.length > 1);
-  let base = label.replace(/^_+|_+$/g, '');
-  const solo = !muted && base.length > 1 && base.startsWith('S');
-  if (solo) base = base.slice(1);
-  return { muted, solo, base: base || '$' };
-}
-const makeLabel = ({ base, muted, solo }) => (muted ? '_' + base : solo ? 'S' + base : base);
 
-/** Lines that hold a pattern label: [{ line (0-based), label, muted, solo, base }] */
-function patternLines(code) {
-  return code.split('\n').flatMap((text, line) => {
-    const m = text.match(LABEL_LINE);
-    return m ? [{ line, label: m[1], ...parseLabel(m[1]) }] : [];
-  });
-}
 
 const mixerPending = new Map(); // line → cycle at which the toggle takes effect
 
@@ -2750,7 +2637,6 @@ setTimeout(applyMasterGain, 500);
 // the AI while the previous song plays, then fed into the song-blocks engine.
 // A station is an agent that keeps inventing new songs for a theme.
 // ---------------------------------------------------------------------------
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const setl = {
   running: false,
   mode: null,          // 'set' | 'station'
@@ -2781,28 +2667,6 @@ function parseSongs(text) {
 // forms (saved in the browser); the song-sheet request lists them for the AI, and
 // the chosen form's bar counts are enforced on the sheet that comes back.
 // ---------------------------------------------------------------------------
-const DEFAULT_FORMS = [
-  { name: 'pop', use: 'pop, synthwave, funk, disco, indie dance', sections: 'intro 4, verse 8, pre-chorus 4, chorus 4, verse 8, pre-chorus 4, chorus 4, bridge 8, chorus 4, outro 4' },
-  { name: 'verse-chorus', use: 'short pop songs, city pop, synth pop, rock', sections: 'intro 4, verse 8, chorus 4, verse 8, chorus 4, outro 4' },
-  { name: 'edm', use: 'EDM, big room, future bass, dubstep, electro', sections: 'intro 8, build 8, drop 8, breakdown 8, build 4, drop 8, outro 4' },
-  { name: 'house', use: 'house, deep house, tech house, afro house, nu-disco', sections: 'intro 8, groove 8, build 4, drop 8, break 8, build 4, drop 8, outro 8' },
-  { name: 'techno', use: 'techno, minimal, industrial, acid', sections: 'intro 8, groove 8, build 8, peak 8, break 8, peak 8, outro 8' },
-  { name: 'trance', use: 'trance, progressive, psytrance, uplifting', sections: 'intro 8, build 8, breakdown 8, build 4, drop 8, breakdown 4, drop 8, outro 8' },
-  { name: 'drum & bass', use: 'drum & bass, jungle, breakbeat, liquid', sections: 'intro 8, build 4, drop 8, breakdown 8, build 4, drop 8, outro 4' },
-  { name: 'hip hop', use: 'hip hop, trap, boom bap, r&b', sections: 'intro 4, verse 8, hook 4, verse 8, hook 4, bridge 4, hook 4, outro 4' },
-  { name: 'lo-fi', use: 'lo-fi, chillhop, jazz-hop, downtempo, chill', sections: 'intro 4, A 8, A 8, B 8, A 8, outro 4' },
-  { name: 'jazz AABA', use: 'jazz, neo-soul, bossa nova, swing, lounge', sections: 'intro 4, A 8, A 8, B 8, A 8, solo 8, A 8, outro 4' },
-  { name: 'dub', use: 'dub, reggae, dub techno, ska', sections: 'intro 8, riddim 8, dub 8, riddim 8, dub 8, outro 8' },
-  { name: 'chiptune', use: 'chiptune, video game, 8-bit, arcade', sections: 'intro 4, A 8, B 8, A 8, C 8, A 8, outro 4' },
-  { name: 'build & release', use: 'post-rock, cinematic builds, epic, anthems', sections: 'intro 4, build 8, build 8, peak 8, release 8, outro 4' },
-  { name: 'ambient', use: 'ambient, drone, cinematic, meditation, soundscape', sections: 'intro 8, A 8, B 8, A 8, outro 8' },
-  { name: 'short', use: 'quick sketches, jingles, short pieces', sections: 'intro 4, A 8, B 8, A 8, outro 4' },
-  // long forms (about 4 minutes): every section changes something, so they keep moving
-  { name: 'long ballad', use: 'long ballads, power ballads, soul, gospel, slow builds — about 4 minutes', sections: "intro 4, verse 8, verse 8, pre-chorus 4, chorus 4, interlude 4, verse 8, pre-chorus 4, chorus 4, chorus 4, bridge 8, breakdown 4, chorus 4, chorus 4, outro 8" },
-  { name: 'ambient journey', use: 'long ambient, environmental, nature soundscapes, drone, generative, meditation — about 4 minutes', sections: "intro 8, drift 8, A 8, A' 8, swell 8, B 8, B' 8, still 8, return 8, outro 8" },
-];
-// built-ins before v1.19 — anything else new is added for people who already have their own list
-const OLD_DEFAULT_FORMS = ['pop', 'edm', 'drum & bass', 'hip hop', 'lo-fi', 'ambient', 'short'];
 /** Add built-in items the user hasn't seen yet (deleted built-ins stay deleted). */
 function addNewDefaults(list, defaults, kind, oldNames) {
   const st = load();
@@ -2814,8 +2678,6 @@ function addNewDefaults(list, defaults, kind, oldNames) {
   return out;
 }
 let songForms = addNewDefaults(load().songForms, DEFAULT_FORMS, 'forms', OLD_DEFAULT_FORMS);
-// built-in forms whose choruses used to be 8 bars: update them unless the user changed them
-const OLD_FORM_SECTIONS = { 'pop': 'intro 4, verse 8, pre-chorus 4, chorus 8, verse 8, pre-chorus 4, chorus 8, bridge 8, chorus 8, outro 4', 'verse-chorus': 'intro 4, verse 8, chorus 8, verse 8, chorus 8, outro 4', 'hip hop': 'intro 4, verse 8, hook 8, verse 8, hook 8, bridge 4, hook 8, outro 4' };
 for (const f of songForms) {
   const d = DEFAULT_FORMS.find((x) => x.name === f.name);
   if (d && OLD_FORM_SECTIONS[f.name] === f.sections) f.sections = d.sections;
@@ -2823,28 +2685,9 @@ for (const f of songForms) {
 save({ songForms });
 let formIdx = 0;
 
-/** "intro 4, verse 8 …" → [{ name, bars }] */
-function parseFormSections(text) {
-  return String(text || '')
-    .split(/[,\n|→]+/)
-    .map((t) => t.trim())
-    .filter(Boolean)
-    .map((t) => {
-      const m = t.match(/^(.*?)[\s:x×]*(\d+)\s*(?:bars?)?$/i);
-      const name = (m ? m[1] : t).trim() || 'section';
-      return { name, bars: Math.max(1, Math.min(32, m ? Number(m[2]) : 8)) };
-    });
-}
-const formBars = (f) => parseFormSections(f.sections).reduce((a, x) => a + x.bars, 0);
-const findForm = (name) => songForms.find((f) => f.name.toLowerCase() === String(name || '').trim().toLowerCase());
+const findForm = (name) => findIn(songForms, name);
+const formsForRequest = (choice) => formsRequest(songForms, choice);
 
-/** The forms part of a song-sheet request: one fixed form, or all of them to choose from. */
-function formsForRequest(choice) {
-  const line = (f) => `- "${f.name}"${f.use ? ` (for ${f.use})` : ''}: ${parseFormSections(f.sections).map((x) => `${x.name} ${x.bars}`).join(', ')}`;
-  const fixed = choice && choice !== 'auto' ? findForm(choice) : null;
-  if (fixed) return `SONG FORM — use exactly this one (set "form": "${fixed.name}"):\n${line(fixed)}`;
-  return `SONG FORMS — pick the one that fits this song's genre, and set "form" to its name:\n${songForms.map(line).join('\n')}`;
-}
 const formChoice = () => $(setl.mode === 'station' ? 'stationForm' : 'setForm')?.value || 'auto';
 
 function renderFormSelects() {
@@ -2914,55 +2757,16 @@ renderFormSelects();
 // the song-sheet request gives the AI the band's instruments, and the sheet that comes back is held to them (each
 // part takes the band's sound for its role). Auto: the AI picks the band that fits the genre. Editable in ⚙ Settings.
 // ---------------------------------------------------------------------------
-const DEFAULT_BANDS = [
-  { name: 'lo-fi trio', use: 'lo-fi, chillhop, jazz-hop, study beats', master: 'lo-fi', instruments: 'drums: AkaiMPC60 — dusty, laid-back boom-bap kit\nbass: gm_acoustic_bass — round upright bass\nchords: gm_epiano1 — warm Rhodes chords\nmelody: gm_vibraphone — soft mallet hook\ncounter: gm_muted_trumpet — smoky answers to the hook\npad: gm_pad_warm — a soft bed under the chords\nfx: gm_fx_rain — rain-like texture' },
-  { name: 'house crew', use: 'house, deep house, tech house, nu-disco, garage', master: 'house', instruments: 'drums: RolandTR909 — four-on-the-floor kick, open hats, claps\nbass: gm_synth_bass_1 — rolling analog bass\nchords: gm_percussive_organ — offbeat organ stabs\npad: gm_string_ensemble_1 — disco strings\nmelody: gm_epiano2 — glassy hook\ncounter: gm_electric_guitar_muted — funky muted riff' },
-  { name: 'techno rig', use: 'techno, minimal, industrial, acid', master: 'techno', instruments: 'drums: RolandTR909 — driving kick, rides, claps\nperc: RolandTR606 — ticky percussion and toms\nbass: sawtooth — acid bass, filtered\narp: square — hypnotic sequence\npad: gm_pad_sweep — dark filter-swept pad\nfx: white — noise risers and sweeps' },
-  { name: 'synthwave', use: 'synthwave, retrowave, outrun, 80s pop, Italo disco', master: 'synthwave', instruments: 'drums: LinnDrum — big 80s kit\nbass: gm_synth_bass_1 — pulsing eighth-note bass\nchords: gm_pad_poly — polysynth chords\narp: sawtooth — bright arpeggio\nmelody: gm_lead_2_sawtooth — soaring saw lead\ncounter: gm_synth_brass_1 — synth brass answers\npad: gm_synth_strings_1 — string machine' },
-  { name: 'jazz combo', use: 'jazz, swing, bossa nova, neo-soul, lounge', master: 'warm', instruments: 'drums: YamahaRY30 — light kit, brushes feel, ride\nbass: gm_acoustic_bass — walking upright bass\nchords: gm_piano — comping piano\nmelody: gm_tenor_sax — the tune\ncounter: gm_vibraphone — vibes answering the sax\npad: gm_electric_guitar_jazz — soft hollow-body chords' },
-  { name: 'hip hop producer', use: 'hip hop, trap, boom bap, R&B', master: 'hiphop', instruments: 'drums: RolandTR808 — booming kick, snappy snare, rolling hats\nbass: sine — deep 808-style sub\nchords: gm_epiano1 — mellow keys\nmelody: gm_celesta — bell hook\ncounter: gm_pizzicato_strings — plucked answers\npad: gm_string_ensemble_2 — slow strings' },
-  { name: 'drum & bass unit', use: 'drum & bass, jungle, liquid, breakbeat', master: 'dnb', instruments: 'drums: AkaiMPC60 — fast breakbeat kit\nbass: gm_lead_8_bass_lead — heavy reese-style bass\nchords: gm_epiano2 — liquid chords\npad: gm_pad_new_age — shimmering pad\nmelody: gm_lead_6_voice — airy vocal-like lead\nfx: white — risers' },
-  { name: 'pop band', use: 'pop, synth-pop, city pop, funk, disco, indie', master: 'pop', instruments: 'drums: LinnDrum — punchy pop kit\nbass: gm_electric_bass_finger — round electric bass\nchords: gm_electric_guitar_clean — clean rhythm guitar\nmelody: gm_lead_1_square — catchy synth hook\ncounter: gm_glockenspiel — sparkly answers\npad: gm_synth_strings_1 — string pad' },
-  { name: 'rock band', use: 'rock, indie rock, punk, metal, grunge', master: 'rock', instruments: 'drums: AlesisHR16 — rock kit, crashes\nbass: gm_electric_bass_pick — punchy picked bass\nchords: gm_overdriven_guitar — crunchy rhythm guitar\nmelody: gm_distortion_guitar — lead guitar\npad: gm_rock_organ — organ swell' },
-  { name: 'ambient ensemble', use: 'ambient, drone, new age, soundscapes, meditation', master: 'ambient', instruments: 'pad: gm_pad_halo — airy pad\npad: gm_pad_bowed — bowed glass drone\nbass: sine — soft sub\nmelody: gm_kalimba — sparse thumb-piano figure\ncounter: gm_shakuhachi — breathy long notes\nfx: gm_fx_atmosphere — evolving texture\nperc: gm_marimba — soft, sparse wooden hits' },
-  { name: 'cinematic orchestra', use: 'cinematic, film score, epic, orchestral, post-rock', master: 'cinematic', instruments: 'perc: gm_taiko_drum — big drums\nbass: gm_contrabass — low strings\nchords: gm_string_ensemble_1 — orchestral strings\nmelody: gm_french_horn — the theme\ncounter: gm_violin — soaring counter-line\narp: gm_orchestral_harp — harp arpeggios\npad: gm_choir_aahs — choir' },
-  { name: 'dub sound system', use: 'dub, reggae, dub techno, ska', master: 'dub', instruments: 'drums: RolandTR808 — one-drop kit, rimshots\nbass: gm_electric_bass_finger — deep, heavy bass\nchords: gm_drawbar_organ — offbeat skank\nmelody: gm_trombone — the riddim melody\nfx: gm_fx_echoes — echo texture' },
-  { name: 'chip band', use: 'chiptune, 8-bit, video game, arcade', master: 'chiptune', instruments: 'perc: white — noise drums\nbass: triangle — chip bass\narp: square — fast chord arpeggios\nmelody: pulse — chip lead\ncounter: square — second channel' },
-];
-const BAND_ROLES = ['drums', 'perc', 'bass', 'chords', 'pad', 'arp', 'melody', 'counter', 'fx'];
 let bands = addNewDefaults(load().bands, DEFAULT_BANDS, 'bands', []);
 save({ bands });
 let bandIdx = 0;
-/** "drums: RolandTR909 — four on the floor" lines → [{ role, sound, desc }] */
-function parseInstruments(text) {
-  return String(text || '').split('\n').map((l) => l.trim()).filter(Boolean).map((l) => {
-    const m = l.match(/^([a-z]+)\s*:\s*([A-Za-z0-9_]+)\s*(?:[—–-]+\s*(.*))?$/i);
-    return m ? { role: m[1].toLowerCase(), sound: m[2], desc: (m[3] || '').trim() } : null;
-  }).filter(Boolean);
-}
-const findBand = (name) => bands.find((b) => b.name.toLowerCase() === String(name || '').trim().toLowerCase());
+const findBand = (name) => findIn(bands, name);
+const bandsForRequest = (choice) => bandsRequest(bands, choice);
+/** Check and repair a song sheet against the user's forms and bands (lib/sheet.js). */
+const normalizeSheet = (raw, choice = 'auto', opts = {}) => normalizeSheetWith(raw, choice, { ...opts, forms: songForms, bands });
 /** A song's master style: its own, else its band's, else one that fits its form, else clean. */
 const songStyle = (sg) => normStyle(sg?.sheet?.master) || normStyle(findBand(sg?.sheet?.band)?.master) || normStyle(sg?.sheet?.form) || 'clean';
 const bandChoice = () => $(setl.mode === 'station' ? 'stationBand' : 'setBand')?.value || 'auto';
-/** The bands part of a song-sheet request: one fixed band, or all of them to choose from. */
-function bandsForRequest(choice) {
-  const line = (b) => `- "${b.name}"${b.use ? ` (for ${b.use})` : ''} — master "${normStyle(b.master) || 'clean'}":\n${parseInstruments(b.instruments).map((i) => `    ${i.role}: ${i.sound}${i.desc ? ` — ${i.desc}` : ''}`).join('\n')}`;
-  const fixed = choice && choice !== 'auto' ? findBand(choice) : null;
-  if (fixed) return `BAND — write the song for exactly this band (set "band": "${fixed.name}" and "master": "${normStyle(fixed.master) || 'clean'}"); every part uses one of its instruments, with the role given:\n${line(fixed)}`;
-  return `BANDS — if one fits this song's genre, write for it: set "band" to its name, take its master style, and give every part one of its instruments (with the role given). If none fits, set "band": "none" and choose the sounds yourself from the sound guide:\n${bands.map(line).join('\n')}`;
-}
-/** Hold a sheet's parts to its band: a part whose sound isn't the band's for its role gets the band's sound. */
-function enforceBand(parts, band) {
-  const inst = parseInstruments(band.instruments);
-  const used = new Map();
-  for (const p of parts) {
-    const cands = inst.filter((i) => i.role === p.role);
-    if (!cands.length || cands.some((i) => i.sound.toLowerCase() === p.sound.toLowerCase())) continue;
-    const n = used.get(p.role) || 0;
-    used.set(p.role, n + 1);
-    p.sound = cands[n % cands.length].sound;
-  }
-}
 function renderBandSelects() {
   for (const id of ['setBand', 'stationBand']) {
     const el = $(id);
@@ -3036,70 +2840,10 @@ renderBandSelects();
 // drift, and parts that continue from one section to the next are identical (the
 // crossfade keeps them steady).
 // ---------------------------------------------------------------------------
-const MAX_CHORUS_BARS = 4;
-const LIB_START = '// ── parts (shared by every section of this song) ──';
-const SEC_START = '// ── this section ──';
-const HARMONIC_ROLE = /bass|chord|pad|key|arp|harmon|string|piano|organ|guitar/i;
 
-const ident = (x) => {
-  const t = String(x || '').toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
-  return /^[a-z]/.test(t) ? t : 'p_' + (t || 'part');
-};
 
-/** First JSON object in a reply, tolerating fences, comments and trailing commas. */
-function parseJSONLoose(text) {
-  const t = stripThinking(text).replace(/```[a-z]*\n?|```/g, '');
-  const a = t.indexOf('{'), b = t.lastIndexOf('}');
-  if (a < 0 || b <= a) throw new Error('no JSON object in the reply');
-  const body = t.slice(a, b + 1).replace(/^\s*\/\/.*$/gm, '').replace(/,\s*([}\]])/g, '$1');
-  try { return JSON.parse(body); } catch (e) { throw new Error('invalid JSON: ' + e.message); }
-}
 
-// chord qualities Strudel's default voicings know (plus their m / M aliases)
-const CHORD_Q = new Set(['', 'm', '7', 'm7', '^7', 'M7', '9', 'm9', '^9', 'M9', '6', 'm6', '69', 'm69', 'add9', 'madd9',
-  'sus', '7sus', '9sus', 'o', 'o7', 'h7', 'h9', '+', 'aug', '11', 'm11', '13', '7b9', '7#9', '7#11', '7b5', '7#5',
-  'm^7', 'mM7', 'm7b5', '^7#11', '^13', '2', '5']);
-/** "Fmaj7" → "F^7", "Bdim" → "Bo", "Gsus4" → "Gsus", unknown qualities → nearest triad / 7th. */
-function normChord(tok) {
-  const m = tok.match(/^([A-Ga-g])([#b]?)(.*)$/);
-  if (!m) return tok;
-  let q = m[3].replace(/\/.*$/, ''); // no slash chords
-  q = q.replace(/^(maj|Maj|M|Δ)7/, '^7').replace(/^(maj|Maj|M|Δ)9/, '^9').replace(/^(maj|Maj)$/, '')
-    .replace(/^min/, 'm').replace(/^mi(?!n)/, 'm').replace(/^-/, 'm')
-    .replace(/^dim7/, 'o7').replace(/^dim/, 'o').replace(/^ø7?/, 'h7').replace(/^m7b5$/, 'h7')
-    .replace(/^sus[24]$/, 'sus').replace(/^7sus[24]$/, '7sus').replace(/^aug$/, '+');
-  if (!CHORD_Q.has(q)) q = /^m(?!aj)/.test(q) ? (/7/.test(q) ? 'm7' : 'm') : /7/.test(q) ? '7' : '';
-  return m[1].toUpperCase() + m[2] + q;
-}
-/** "Am F C G" / "<Am F C G>" / "Am | F | C | G" → "<Am F C G>" with valid chord symbols. */
-function normProgression(p) {
-  let t = String(p || '').replace(/[|,]/g, ' ').replace(/\s+/g, ' ').trim();
-  if (!t) return null;
-  t = t.replace(/[A-Ga-g][#b]?[^\s\[\]<>@*!~]*/g, normChord);
-  return t.startsWith('<') ? t : `<${t}>`;
-}
-function sectionType(name) {
-  const n = String(name).toLowerCase();
-  if (/pre-?chorus/.test(n)) return 'prechorus';
-  if (/chorus|hook/.test(n)) return 'chorus';
-  if (/drop/.test(n)) return 'drop';
-  if (/break/.test(n)) return 'breakdown';
-  if (/build|rise/.test(n)) return 'build';
-  if (/bridge|^b\b/.test(n)) return 'bridge';
-  if (/intro/.test(n)) return 'intro';
-  if (/outro|end/.test(n)) return 'outro';
-  return 'verse';
-}
 
-/** Validate + repair a song sheet from the model. Throws when it can't be used. */
-const ENTER_MODES = ['in', 'out', 'alt'];
-/** Bars a part plays in a section that brings it in / out: a mask, one step per bar. */
-function enterMask(mode, bars) {
-  if (!mode || bars < 2) return null;
-  const half = Math.floor(bars / 2);
-  const steps = Array.from({ length: bars }, (_, k) => (mode === 'in' ? k >= half : mode === 'out' ? k < half : k % 4 < 2) ? 1 : 0);
-  return `<${steps.join(' ')}>`;
-}
 /** Every part of a section is anchored to the bar the section starts on (set when it's armed), so phrases and chord progressions start on their first bar. */
 const SECTION_START_RE = /^const sectionStart = -?[\d.]+.*$/m;
 // (the finished section is wrapped to about 150 characters a line: see format.js)
@@ -3147,155 +2891,9 @@ function partVisuals(code) {
   }
   return code.slice(0, at) + lines.join('\n');
 }
-const MAX_KEY_SHIFT = 3;      // semitones a section may move away from the song's key
-const MAX_TEMPO_DRIFT = 0.08; // a section's tempo stays within ±8% of the song's
-// usual spellings: major-ish roots Db Eb F# Ab Bb, minor roots C# Eb F# G# Bb
-const ROOT_MAJOR = ['C', 'Db', 'D', 'Eb', 'E', 'F', 'F#', 'G', 'Ab', 'A', 'Bb', 'B'];
-const ROOT_MINOR = ['C', 'C#', 'D', 'Eb', 'E', 'F', 'F#', 'G', 'G#', 'A', 'Bb', 'B'];
-const NOTE_PC = { C: 0, D: 2, E: 4, F: 5, G: 7, A: 9, B: 11 };
-/** Move every chord root (and slash bass) of a progression by n semitones: "<Am F C G>" +2 → "<Bm G D A>". */
-function transposeProgression(prog, n) {
-  if (!n) return prog;
-  return prog.replace(/(^|[\s<\[/])([A-G])([#b]?)(m(?!aj)|o)?/g, (_, pre, l, acc, minor = '') => {
-    const pc = (NOTE_PC[l] + (acc === '#' ? 1 : acc === 'b' ? -1 : 0) + n + 120) % 12;
-    return pre + (minor && pre !== '/' ? ROOT_MINOR : ROOT_MAJOR)[pc] + minor;
-  });
-}
-const signed = (n) => (n > 0 ? `+${n}` : String(n));
-// time signatures: one cycle is one bar; bpm counts the meter's beats (dotted quarters in 6/8, 9/8, 12/8)
-const METERS = ['4/4', '3/4', '6/8', '12/8', '5/4', '7/8', '7/4', '9/8', '2/4'];
-function normMeter(m) {
-  const t = String(m || '').replace(/\s+/g, '').match(/^(\d+)\/(\d+)$/);
-  const k = t ? `${Number(t[1])}/${Number(t[2])}` : '4/4';
-  return METERS.includes(k) ? k : '4/4';
-}
-/** Beats per bar for the tempo line: 4/4 → 4, 3/4 → 3, 6/8 → 2 (dotted quarters), 7/8 → 3.5 (quarters). */
-function meterBeats(m) {
-  const [n, d] = normMeter(m).split('/').map(Number);
-  return d === 8 && n % 3 === 0 ? n / 3 : (n * 4) / d;
-}
-/** Steps per bar for rhythms: the meter's top number. */
-const meterSteps = (m) => Number(normMeter(m).split('/')[0]);
-/** The app's tempo line for a bpm in a meter. */
-const tempoLine = (bpm, meter) => `setcpm(${bpm}/${meterBeats(meter)})`;
-const songMeter = (sg) => normMeter(sg?.sheet?.meter);
 
-function normalizeSheet(raw, choice = 'auto', { enforceForm = true, band: bandPick = null } = {}) {
-  if (!raw || typeof raw !== 'object') throw new Error('the sheet is not an object');
-  const bpm = Math.max(50, Math.min(200, Math.round(Number(raw.bpm) || 100)));
-  // scale: "A:minor" (or derived from "key": "A minor"), checked against the real scale names
-  let scale = String(raw.scale || raw.key || 'C minor').trim().replace(/\s+/, ':');
-  const fixed = fixScaleString(scale);
-  scale = fixed.unknown.length ? 'C:minor' : fixed.fixed;
-  const chords = {};
-  for (const [k, v] of Object.entries(raw.chords || raw.progressions || {})) {
-    const p = normProgression(Array.isArray(v) ? v.join(' ') : v);
-    if (p) chords[ident(k)] = p;
-  }
-  if (!Object.keys(chords).length) throw new Error('no chord progressions');
-  const meter = normMeter(raw.meter || raw.time || raw.timeSignature);
-  const hook = String(raw.hook || '0 2 4 2').replace(/[^0-9~\s\-\[\]<>.*@!_?,:]/g, ' ').replace(/\s+/g, ' ').trim() || '0 2 4 2';
-  const parts = [];
-  for (const p of Array.isArray(raw.parts) ? raw.parts : []) {
-    const id = ident(p.name || p.role);
-    if (parts.some((q) => q.id === id)) continue;
-    const variants = [...new Set(['main', ...(Array.isArray(p.variants) ? p.variants : []).map(ident)])];
-    parts.push({ id, role: String(p.role || '').toLowerCase(), sound: String(p.sound || ''), desc: String(p.desc || p.description || ''), variants });
-  }
-  if (parts.length < 2) throw new Error('fewer than 2 parts');
-  parts.splice(10);
-  const firstChords = Object.keys(chords)[0];
-  const sections = [];
-  for (const sec of Array.isArray(raw.sections) ? raw.sections : []) {
-    const bars = Math.max(1, Math.min(enforceForm ? 16 : 32, Math.round(Number(sec.bars) || 8)));
-    const ck = ident(sec.chords);
-    const play = [];
-    for (const ref of Array.isArray(sec.play) ? sec.play : []) {
-      // "part", "part.variant", optionally "@in" (enters halfway), "@out" (drops out halfway), "@alt" (2 bars on, 2 off)
-      const [name, how] = String(ref).split('@');
-      const [pn, vn] = name.split(/[.:]/);
-      const part = parts.find((q) => q.id === ident(pn));
-      if (!part) continue;
-      const variant = vn && part.variants.includes(ident(vn)) ? ident(vn) : 'main';
-      const enter = ENTER_MODES.includes(String(how || '').trim().toLowerCase()) ? String(how).trim().toLowerCase() : null;
-      if (!play.some((x) => x.part === part.id)) play.push({ part: part.id, variant, ...(enter ? { enter } : {}) });
-    }
-    if (!play.length && sections.length) play.push(...sections[sections.length - 1].play);
-    if (!play.length) play.push({ part: parts[0].id, variant: 'main' });
-    const name = String(sec.name || sec.type || 'section').slice(0, 40);
-    const out = { name, type: sectionType(name), bars, chords: chords[ck] ? ck : firstChords, play };
-    // key and tempo may move a little as the song goes on (a lifted last chorus, a tempo push)
-    // (lenient: "+2", "104 bpm", tempo / key_shift spellings; edits the user asks for may move further)
-    const shift = Math.round(parseFloat(sec.shift ?? sec.transpose ?? sec.key_shift ?? sec.keyShift) || 0);
-    const maxShift = enforceForm ? MAX_KEY_SHIFT : 6;
-    if (shift) out.shift = Math.max(-maxShift, Math.min(maxShift, shift));
-    const sbpm = Math.round(parseFloat(sec.bpm ?? sec.tempo) || 0);
-    if (sbpm) {
-      const lim = Math.max(2, Math.round(bpm * (enforceForm ? MAX_TEMPO_DRIFT : 0.3)));
-      const b2 = Math.max(bpm - lim, Math.min(bpm + lim, sbpm));
-      if (b2 !== bpm) out.bpm = b2;
-    }
-    sections.push(out);
-  }
-  if (sections.length < 2) throw new Error('fewer than 2 sections');
-  // the form decides the section lengths: take its bar counts when the sections line up, otherwise cap them
-  const form = enforceForm ? (choice !== 'auto' && findForm(choice)) || findForm(raw.form) : null;
-  const fsecs = form ? parseFormSections(form.sections) : [];
-  if (fsecs.length === sections.length) sections.forEach((sec, j) => { sec.bars = fsecs[j].bars; });
-  else {
-    const cap = fsecs.length ? Math.max(...fsecs.map((x) => x.bars)) : 16;
-    for (const sec of sections) sec.bars = Math.min(sec.bars, cap);
-  }
-  if (!enforceForm) for (const sec of sections) sec.bars = Math.max(1, Math.min(32, sec.bars));
-  // choruses (and hooks) are short and punchy: never longer than 4 bars
-  for (const sec of sections) if (sec.type === 'chorus') sec.bars = Math.min(sec.bars, MAX_CHORUS_BARS);
-  // the band: its instruments win (when the song is being written), and its master style is the default
-  const band = (bandPick && bandPick !== 'auto' && findBand(bandPick)) || findBand(raw.band);
-  if (band && enforceForm) enforceBand(parts, band);
-  const masterStyle = normStyle(raw.master || raw.masterStyle) || normStyle(band?.master) || normStyle(form?.name || raw.form) || 'clean';
-  const tweaks = raw.masterParams && typeof raw.masterParams === 'object' ? diffParams(styleParams(masterStyle, raw.masterParams), masterStyle) : {};
-  return { form: form?.name || String(raw.form || ''), ...(band ? { band: band.name } : {}), master: masterStyle, ...(Object.keys(tweaks).length ? { masterParams: tweaks } : {}),
-    bpm, meter, key: String(raw.key || scale.replace(':', ' ')), scale, chords, hook, parts, sections };
-}
 
-/** The part that gets the one-bar fill before choruses / drops (drums with a "fill" variant). */
-const fillPart = (sheet) => sheet.parts.find((p) => p.variants.includes('fill') && /drum|perc|beat/i.test(p.role + p.id)) ||
-  sheet.parts.find((p) => p.variants.includes('fill'));
-/** Library const names the sections need (+ the fill variant). */
-function libraryIds(sheet) {
-  const ids = new Set();
-  for (const sec of sheet.sections) for (const x of sec.play) ids.add(`${x.part}_${x.variant}`);
-  const fp = fillPart(sheet);
-  if (fp) ids.add(`${fp.id}_fill`);
-  return [...ids];
-}
-const isFnPart = (lib, id) => new RegExp(`(?:const|let|var)\\s+${id}\\s*=\\s*\\(?\\s*[A-Za-z_$][\\w$]*\\s*\\)?\\s*=>`).test(lib);
-const definesId = (lib, id) => new RegExp(`(?:const|let|var)\\s+${id}\\s*=`).test(lib);
-const partExpr = (lib, id) => (isFnPart(lib, id) ? `${id}(sectionChords)` : id);
 
-/**
- * Strudel's transpiler turns double-quoted (and backtick) strings into mini-notation.
- * The silent test runs plain JS, so do the same: "bd sd" → mini("bd sd").
- */
-function miniStrings(code) {
-  let out = '', i = 0;
-  while (i < code.length) {
-    const c = code[i], d = code[i + 1];
-    if (c === '/' && d === '/') { const e = code.indexOf('\n', i); const j = e < 0 ? code.length : e; out += code.slice(i, j); i = j; continue; }
-    if (c === '/' && d === '*') { const e = code.indexOf('*/', i + 2); const j = e < 0 ? code.length : e + 2; out += code.slice(i, j); i = j; continue; }
-    if (c === '"' || c === "'" || c === '`') {
-      let j = i + 1;
-      while (j < code.length && code[j] !== c) j += code[j] === '\\' ? 2 : 1;
-      const lit = code.slice(i, j + 1);
-      out += c === "'" || (c === '`' && lit.includes('${')) ? lit : `mini(${c === '`' ? JSON.stringify(lit.slice(1, -1)) : lit})`;
-      i = j + 1;
-      continue;
-    }
-    out += c;
-    i++;
-  }
-  return out;
-}
 
 /**
  * Play the library silently (no editor, no scheduler): build every part with every
@@ -3454,55 +3052,7 @@ async function writeSongLibrary(song, signal, { fix = null, prev = null } = {}) 
   throw new Error(`no usable part library (${lastErr})`);
 }
 
-/** Full program for one section: the library, then one labelled group per part. */
-function sectionCode(song, sec, { fill = false } = {}) {
-  const lib = song.library;
-  const fp = fill ? fillPart(song.sheet) : null;
-  const shift = sec.shift || 0;
-  const moves = [shift ? `key ${signed(shift)}` : '', sec.bpm ? `${sec.bpm} bpm` : ''].filter(Boolean).join(' · ');
-  const lines = [
-    `// ${song.title} — ${sec.name}${fill ? ' (fill)' : ''} · ${fill ? 1 : sec.bars} bars · chords: ${sec.chords}${moves ? ` · ${moves}` : ''}`,
-    LIB_START,
-    // a section with its own tempo replaces the song's tempo line
-    (sec.bpm ? lib.replace(/setcp[ms]\([^)]*\)/, tempoLine(sec.bpm, song.sheet.meter)) : lib).trim(),
-    '',
-    SEC_START,
-    `const sectionChords = ${JSON.stringify(transposeProgression(song.sheet.chords[sec.chords], shift))}`,
-    'const sectionStart = 0 // set when the section switches in',
-  ];
-  for (const x of sec.play) {
-    const id = `${x.part}_${fp && x.part === fp.id ? 'fill' : x.variant}`;
-    const part = song.sheet.parts.find((p) => p.id === x.part);
-    // harmonic parts follow the (moved) chords; melodic plain parts (the hook) are moved with them; drums never
-    const lift = shift && !isFnPart(lib, id) && !/drum|perc|beat|fx|noise/i.test(`${part?.role} ${x.part}`) ? `.transpose(${shift})` : '';
-    const mask = fill ? null : enterMask(x.enter, sec.bars);
-    lines.push(`${x.part}: ${partExpr(lib, id)}${lift}${mask ? `.mask("${mask}")` : ''}.postgain(slider(1, 0, 1.5)).late(sectionStart)`);
-  }
-  return lines.join('\n') + '\n';
-}
 
-/** Engine steps for a sheet song: one per section, plus a one-bar fill before choruses / drops. */
-function arrangeSong(song) {
-  const sh = song.sheet;
-  const fp = fillPart(sh);
-  const steps = [];
-  sh.sections.forEach((sec, j) => {
-    const next = sh.sections[j + 1];
-    const wantFill = fp && next && ['chorus', 'drop'].includes(next.type) && sec.bars >= 4 &&
-      sec.play.some((x) => x.part === fp.id) && next.type !== sec.type;
-    const prevFill = steps[steps.length - 1]?.fillStep;
-    steps.push({
-      bars: wantFill ? sec.bars - 1 : sec.bars, prompt: sec.name, section: sec, code: sectionCode(song, sec),
-      status: 'ready', error: null,
-      // land a drop, and the downbeat after a fill, hard; everything else uses the fade setting
-      fade: prevFill || sec.type === 'drop' ? 0 : undefined,
-    });
-    if (wantFill) {
-      steps.push({ bars: 1, prompt: `${sec.name} · fill`, section: sec, fillStep: true, code: sectionCode(song, sec, { fill: true }), status: 'ready', error: null, fade: 0 });
-    }
-  });
-  return steps;
-}
 
 /** A section failed when it was about to play: fix the library and re-arrange the song's unplayed sections. */
 function repairSong(song, err) {
@@ -3519,30 +3069,6 @@ function repairSong(song, err) {
   return song.repairing;
 }
 
-/**
- * When the next section of the same song switches in, keep what the performer changed:
- * fader positions in the parts, group faders, and mute / solo.
- */
-function carryLiveState(prev, next) {
-  const span = (c) => { const a = c.indexOf(LIB_START), b = c.indexOf(SEC_START); return a >= 0 && b > a ? [a, b] : null; };
-  const ps = span(prev), ns = span(next);
-  let out = next;
-  // same parts code (compared as wrapped, without fader values): keep the playing one, with its fader positions
-  const same = (a, b) => sliderless(wrapCode(a)) === sliderless(wrapCode(b));
-  if (ps && ns && same(prev.slice(...ps), next.slice(...ns))) out = next.slice(0, ns[0]) + prev.slice(...ps) + next.slice(ns[1]);
-  if (!ps || !ns) return out;
-  const prevLines = prev.split('\n');
-  const groups = new Map(patternLines(prev).map((r) => [r.base, { ...r, text: prevLines[r.line] }]));
-  return out.split('\n').map((line) => {
-    const m = line.match(LABEL_LINE);
-    const g = m && groups.get(parseLabel(m[1]).base);
-    if (!g) return line;
-    let l = line.replace(LABEL_LINE, makeLabel({ base: g.base, muted: g.muted, solo: g.solo }) + ':');
-    const v = g.text.match(/\.postgain\(slider\(\s*([\d.]+)/);
-    if (v) l = l.replace(/\.postgain\(slider\(\s*[\d.]+/, `.postgain(slider(${v[1]}`);
-    return l;
-  }).join('\n');
-}
 
 /** Write (or reuse) a song's blocks and append them to the engine. */
 /** Sheet → library → arranged steps; null when that fails (the song is then written block by block). */
@@ -3812,7 +3338,6 @@ function songViewHTML(sg, live) {
   if (!sg) return '';
   const sh = sg.sheet;
   const isCurrent = live && setl.songs[setl.current] === sg;
-  const complete = sg.blocks?.length && sg.blocks.every((b) => b.code) && !sg.phase;
   const mine = isMine(sg);
   let h = `<div class="sv-head"><b>${esc(sg.title)}</b>${isCurrent ? ' <span class="sv-live">▶ playing</span>' : ''}${mine ? ' <span class="sv-mine">📁 My songs</span>' : ''}</div>
     <div class="sv-desc">${esc(sg.desc)}</div>`;
@@ -4668,6 +4193,7 @@ $('settingsImport').onchange = async () => {
     if (!st || typeof st !== 'object' || Array.isArray(st)) throw new Error('not a settings file');
     if (!confirm('Replace this browser\'s settings, forms, stations and pads with the ones in this file?')) return;
     localStorage.setItem(STORE_KEY, JSON.stringify(st));
+    forgetStore();
     if (Array.isArray(j.mySongs)) localStorage.setItem(MY_SONGS_KEY, JSON.stringify(j.mySongs));
     saveSession();
     location.reload();
@@ -4678,6 +4204,7 @@ $('settingsImport').onchange = async () => {
 $('settingsReset').onclick = () => {
   if (!confirm('Reset everything this browser has saved (settings, forms, stations, pads, layout and your code)?')) return;
   try { localStorage.removeItem(STORE_KEY); } catch {}
+  forgetStore();
   location.reload();
 };
 
@@ -5533,7 +5060,6 @@ function loadPads(list, owner = null) {
 
 const padN = (i) => i + 1;
 const isStatement = (code) => /^\s*(all|each|setcp[ms]|samples)\s*\(/.test(code);
-const oneLine = (code) => code.replace(/\s*\n\s*/g, ' ').trim();
 const padLineRe = (i) => new RegExp(`^(?:[_S]?pad${padN(i)}:.*|.*// pad${padN(i)}\\s*)$`);
 /**
  * A song-part pad (pad.part) is tied to that part's own line in the section that's playing ("bass: …", "_bass: …" when
@@ -6090,10 +5616,8 @@ function songPads(sg) {
   const prog = padProg(sh);
   const drums = sh.parts.find((p) => /drum|perc|beat/i.test(p.role + p.id));
   const bank = drums && /^[A-Z]/.test(drums.sound) ? `.bank("${drums.sound}")` : '';
-  const scale = sh.scale;
   // rhythms in the song's meter: a 16th-note roll is 16 steps in 4/4, 12 in 3/4, 12 in 6/8
   const steps = meterSteps(sh.meter), roll = /\/8$/.test(normMeter(sh.meter)) ? steps * 2 : steps * 4;
-  const offbeats = Array.from({ length: steps }, (_, k) => (k % 2 ? 'x' : '~')).join(' ');
   // the song's own parts, one pad each: lit while the section plays the part, pressing mutes / unmutes it
   // (or plays it on top when the section doesn't have it); then their extra variants (half-time drums, fills …)
   const partPad = (p, v) => {
