@@ -58,8 +58,8 @@ try {
   await step('a new song is written from the chat and plays (band + master style)', async () => {
     await ev(() => { const b = document.getElementById('setBand'); b.value = 'techno rig'; b.onchange(); });
     await ev(() => { const d = document; d.getElementById('chatTarget').value = 'new'; d.getElementById('input').value = 'BAND dark warehouse techno'; d.getElementById('chat-form').requestSubmit(); });
-    await p.waitForFunction(() => strudelAI.setl.songs[0]?.status === 'playing', null, { timeout: 40000 });
-    const sh = await ev(() => { const s = strudelAI.setl.songs[0]; return { title: s.title, band: s.sheet.band, master: s.sheet.master, pad: s.sheet.parts.find((x) => x.id === 'pad').sound }; });
+    await p.waitForFunction(() => strudelAI.queue.songs[0]?.status === 'playing', null, { timeout: 40000 });
+    const sh = await ev(() => { const s = strudelAI.queue.songs[0]; return { title: s.title, band: s.sheet.band, master: s.sheet.master, pad: s.sheet.parts.find((x) => x.id === 'pad').sound }; });
     expect(sh.title === 'Smoke Signal', `title ${sh.title}`);
     expect(sh.band === 'techno rig' && sh.master === 'techno', `band ${sh.band} / master ${sh.master}`);
     expect(sh.pad === 'gm_pad_sweep', `the band's pad, got ${sh.pad}`);
@@ -72,6 +72,31 @@ try {
     const v = await ev(() => ({ secs: document.querySelectorAll('#nowSongView .sv-sections > *').length, chip: document.querySelector('#nowSongView .master-chip')?.textContent }));
     expect(v.secs >= 4, `sections shown: ${v.secs}`);
     expect(/techno/.test(v.chip || ''), `master chip: ${v.chip}`);
+  });
+
+  await step('player events: sections switch on time and Now playing follows', async () => {
+    await ev(() => { window.__events = []; strudelAI.player.on('*', (e, d) => window.__events.push([e, performance.now(), d?.step?.prompt || d?.song?.title || d?.state || ''])); });
+    // the intro is 4 bars at 120 bpm (8 s): wait for the next section
+    await p.waitForFunction(() => window.__events.some(([e]) => e === 'section'), null, { timeout: 15000 });
+    await p.waitForTimeout(100);
+    const r = await ev(() => {
+      const st = strudelAI.engine.steps.find((x) => x.status === 'playing');
+      const i = strudelAI.engine.steps.indexOf(st);
+      const row = document.querySelector(`#nowSongView .sv-left[data-i="${i}"]`);
+      return { prompt: st?.prompt, row: !!row, text: row?.textContent || '', late: (performance.now() - window.__events.find(([e]) => e === 'section')[1]) };
+    });
+    expect(r.row, `the playing section (${r.prompt}) has no progress row`);
+    expect(/^bar \d+\/\d+/.test(r.text), `progress text: "${r.text}"`);
+  });
+
+  await step('⏸ pause and ▶ resume', async () => {
+    await ev(() => document.getElementById('nowPause').click());
+    await p.waitForTimeout(400);
+    const paused = await ev(() => ({ p: !!strudelAI.engine.paused, playing: document.querySelector('strudel-editor').editor.repl.scheduler.started, ev: window.__events.some(([e, , d]) => e === 'transport' && d === 'paused'), txt: [...document.querySelectorAll('#nowSongView .sv-left')].map((e) => e.textContent).join('|') }));
+    expect(paused.p && !paused.playing && paused.ev, JSON.stringify(paused));
+    expect(/paused at bar/.test(paused.txt), `paused text: ${paused.txt}`);
+    await ev(() => document.getElementById('play').click());
+    await p.waitForFunction(() => document.querySelector('strudel-editor').editor.repl.scheduler.started && !strudelAI.engine.paused, null, { timeout: 5000 });
   });
 
   await step('the mixer shows every part', async () => {
@@ -92,6 +117,17 @@ try {
     expect(peak > 0.01, `no sound through the master (peak ${peak})`);
   });
 
+  await step('⏭ next and ⏮ previous song', async () => {
+    await ev(() => { const d = document; d.getElementById('chatTarget').value = 'new'; d.getElementById('input').value = 'a second song'; d.getElementById('chat-form').requestSubmit(); });
+    await p.waitForFunction(() => strudelAI.queue.songs.length === 2 && strudelAI.queue.songs[1].status === 'ready', null, { timeout: 30000 });
+    await ev(() => document.getElementById('nextSong').click());
+    await p.waitForFunction(() => strudelAI.queue.current === 1, null, { timeout: 15000 });
+    expect(await ev(() => window.__events.some(([e]) => e === 'song')), 'no song event');
+    await ev(() => document.getElementById('prevSong').click());
+    await p.waitForFunction(() => strudelAI.queue.current === 0, null, { timeout: 20000 });
+    await p.waitForFunction(() => /^▶ /.test(document.getElementById('nowLine').textContent), null, { timeout: 3000 });
+  });
+
   await step('✎ Edit song applies changes (a longer chorus, another master style)', async () => {
     await ev(() => document.querySelector('#nowSongView [data-act="edit"]').click());
     await p.waitForTimeout(600);
@@ -103,7 +139,7 @@ try {
       f.querySelector('[data-act="edit-save"]').click();
     });
     await p.waitForFunction(() => /applied/.test(document.querySelector('#editForm .sv-edit-msg')?.textContent || ''), null, { timeout: 15000 });
-    const s = await ev(() => { const sh = strudelAI.setl.songs[0].sheet; return { master: sh.master, chorus: sh.sections.find((x) => x.name === 'chorus').bars }; });
+    const s = await ev(() => { const sh = strudelAI.queue.songs[0].sheet; return { master: sh.master, chorus: sh.sections.find((x) => x.name === 'chorus').bars }; });
     expect(s.master === 'dub' && s.chorus === 8, JSON.stringify(s));
   });
 
@@ -119,7 +155,7 @@ try {
   await step('stop', async () => {
     await ev(() => document.getElementById('stop').click());
     await p.waitForTimeout(500);
-    expect(await ev(() => !strudelAI.setl.running || !document.querySelector('strudel-editor').editor.repl.scheduler.started), 'still playing');
+    expect(await ev(() => !strudelAI.queue.running || !document.querySelector('strudel-editor').editor.repl.scheduler.started), 'still playing');
   });
 
   await step('🐞 the debug log downloads with the problems and context', async () => {

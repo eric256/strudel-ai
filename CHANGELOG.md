@@ -2,6 +2,14 @@
 
 The version is in `package.json`. Bump it when you release. Open pages also notice *any* redeploy through the build id, which is a hash of the app files, even if the version wasn't bumped.
 
+## 1.33.0
+- **Refactor, part 2: the player announces what happens.** Sections starting, songs changing, play / pause / resume / stop and changes to the song lists are now events. The panels update the moment something happens, instead of each checking on its own timer (every 100–300 ms before).
+  - **The switch is marked on time:** the app marks a section as playing exactly when it starts (it used to notice up to 100 ms later). The highlight, transport line, mixer and master's *follow song* change right on the bar line.
+  - **Smooth progress bars:** they move every frame while music plays, and rest when it's stopped. No more stale or blinking bars.
+  - **Lighter:** the song lists, transport, mixer and master now check only once a second as a safety net.
+  - **Clearer code:** the two player objects are renamed after what they are, `engine` (sections) and `queue` (songs). The old names still work in `window.strudelAI`.
+- The browser smoke test also checks that sections switch on time with Now playing following, pause / resume, and ⏭ next / ⏮ previous song.
+
 ## 1.32.0
 - **Refactor, part 1:** the song engine's logic moved out of `app.js` into small modules in `public/lib/`: music theory, scale names, labels, forms, bands, song sheets and arranging. They have no DOM and no app state, so they are unit-tested in Node (`test/song.test.mjs`, 15 new tests). Nothing changes for users.
 - **Browser smoke test** (`npm run smoke`, also in CI): starts the app with a mock AI and checks, in Chromium:
