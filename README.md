@@ -382,6 +382,15 @@ How it works:
 ## Master volume
 The 🔊 fader in the header sets the overall output level (0–150%), and double-clicking it resets it to 100%. It's remembered, and "duck music" while humming lowers it relative to this level.
 
+## Readable code
+
+Song code is wrapped to about **150 characters** a line. A slider counts as about 8 more characters, because it draws a fader in the editor.
+- **Method chains** break before a method, with continuation lines indented two spaces.
+- **A long `stack(…)`** (or any call with several arguments) puts one argument per line, and the chain carries on from the closing bracket: `).bank(…).gain(…)`.
+- **Strings and comments are never broken:** mini-notation stays whole.
+
+The song's parts code, every section as it switches in, and the AI's code from the chat are all wrapped this way, so the code always looks the same.
+
 ## Groups, faders, mute / solo
 
 The AI is told to organise the music into **named groups**, one label per musical role, with related instruments stacked together:
@@ -416,7 +425,7 @@ Every part of the app is a panel in [dockview](https://dockview.dev): the code e
 
 ### 🎶 Now playing and the transport
 
-The transport sits at the top of Now playing and stays visible however small you make the panel:
+The transport sits at the top of Now playing, which stays visible however small you make the panel, and again at the top left of the code:
 
 | Button | What it does |
 |---|---|

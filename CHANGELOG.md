@@ -2,6 +2,14 @@
 
 The version is in `package.json`. Bump it when you release. Open pages also notice *any* redeploy through the build id, which is a hash of the app files, even if the version wasn't bumped.
 
+## 1.30.0
+- **Readable song code:** lines are wrapped to about 150 characters (sliders count for their width).
+  - Method chains break before a method, indented two spaces.
+  - Long `stack(…)` calls put one argument per line, with the chain continuing from the closing bracket.
+  - Strings, mini-notation and comments are never broken.
+  - This applies to parts code, every section and chat code. Part visuals go at the end of each part, even when it's wrapped.
+- **The transport is also at the top left of the code:** ⏮ ▶ ⏸ ■ ⏭ and the "what's playing" line, mirroring 🎶 Now playing.
+
 ## 1.29.0
 - **New songs come from the chat:** 🎯 **✨ new song** in 💬 Chat turns your message into a song. The AI names it and writes it, and it plays next, or right away if nothing is playing. The set-list text box, ▶ Start set, ■ Stop and ✨ Write with AI are gone from the Songs panel.
 - **A simpler Songs panel:** this session's songs, ★ Favorites and 📁 My songs, each a list where clicking a song shows its buttons in place. The song view is gone from this panel.

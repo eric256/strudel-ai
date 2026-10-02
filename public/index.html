@@ -50,6 +50,15 @@
     <!-- dockview fills this; the editor column is laid over the code panel's slot (see workspace.js) -->
     <div class="ws-center">
       <section id="editor-pane">
+      <!-- the transport again, always at the top left of the code (same buttons as 🎶 Now playing) -->
+      <div id="codeBar" class="code-bar">
+        <button data-tp="prevSong" title="Back: restart this song — or, near its start, the previous song">⏮</button>
+        <button data-tp="play" title="Play: resume a paused song, or play the code in the editor (Ctrl+Enter)">▶</button>
+        <button data-tp="nowPause" title="Pause the song where it is (section and bar)">⏸</button>
+        <button data-tp="stop" title="Stop (Ctrl+.)">■</button>
+        <button data-tp="nextSong" title="Skip to the next song">⏭</button>
+        <span id="codeLine" class="np-line muted small"></span>
+      </div>
       <div id="editor-wrap"></div>
       <div id="error-bar" hidden></div>
       <div id="hum-panel" hidden>
