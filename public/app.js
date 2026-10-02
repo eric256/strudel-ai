@@ -1,4 +1,5 @@
 import { dlog, debugReport, debugState } from './debuglog.js'; // first: it catches errors from everything after it
+import './theme.js'; // next: the saved theme applies before anything is drawn
 import { loadDockview, createWorkspace } from './workspace.js';
 import { wrapCode } from './format.js';
 import { MASTER_PARAMS, STYLE_NAMES } from './master.js';
@@ -34,6 +35,7 @@ import { stopSet, repairSong, startPlaylist, jumpToSong } from './features/song-
 import { songsChanged, nowSong, viewedSong, setup as setup_song_lists } from './features/song-lists.js';
 import { setup as setup_stations } from './features/stations.js';
 import { addToPlaylist, sessionSongs, setup as setup_playlist } from './features/playlist.js';
+import { setup as setup_themes } from './features/themes.js';
 import { html, nothing, render, renderOptions } from './html.js';
 // Strudel AI — browser app
 /**
@@ -1574,6 +1576,7 @@ if (load().vizMode) $('vizMode').value = load().vizMode;
 $('vizMode').onchange = () => save({ vizMode: $('vizMode').value });
 setup_hydra(); // features/hydra.js
 setup_settings(); // features/settings.js
+setup_themes(); // features/themes.js
 setup_mixer(); // features/mixer.js
 setup_master_panel(); // features/master-panel.js
 // ---------------------------------------------------------------------------

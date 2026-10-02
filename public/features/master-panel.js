@@ -10,6 +10,7 @@ import { $, clog, docks, isPlaying, load, player, queue, save, scheduler, setupD
 import { nowSong, songsChanged, renderSongs } from './song-lists.js';
 import { songStyle } from './bands.js';
 import { html, render, renderOptions } from '../html.js';
+import { themeColor } from '../theme.js';
 let MASTER_BYPASS, saveMaster;
 
 export const master = { chain: null, style: 'clean', params: null, follow: true, songKey: '', bypass: false, dragging: null, msg: '' };
@@ -103,11 +104,11 @@ function drawMaster() {
   const cv = $('masterBody').querySelector('.ms-spec');
   if (cv) {
     const g = cv.getContext('2d'), w = cv.width, h = cv.height;
-    g.fillStyle = '#0b0c10';
+    g.fillStyle = themeColor('canvas');
     g.fillRect(0, 0, w, h);
-    g.strokeStyle = '#1d2029';
+    g.strokeStyle = themeColor('line');
     for (const f of [100, 1000, 10000]) { const x = (Math.log10(f / 20) / 3) * w; g.beginPath(); g.moveTo(x, 0); g.lineTo(x, h); g.stroke(); }
-    if (on) drawChannelSpectrum(g, chain.analyser, w, h, '#7c5cff');
+    if (on) drawChannelSpectrum(g, chain.analyser, w, h, themeColor('accent'));
   }
   const out = $('masterBody').querySelector('.ms-out');
   if (out) drawMeter(out, on ? levelOf(chain.analyser, master.buf || (master.buf = new Float32Array(2048))) : { rms: 0, peak: 0 });
@@ -115,9 +116,9 @@ function drawMaster() {
   if (gr) {
     const g = gr.getContext('2d'), w = gr.width, h = gr.height;
     const r = on ? chain.reduction() : { glue: 0, limit: 0 };
-    g.fillStyle = '#0b0c10';
+    g.fillStyle = themeColor('canvas');
     g.fillRect(0, 0, w, h);
-    g.fillStyle = '#ffd166';
+    g.fillStyle = themeColor('warn');
     g.fillRect(1, 0, w - 2, Math.min(1, -r.glue / 20) * h); // gain reduction hangs from the top
     const lab = $('masterBody').querySelector('.ms-gr');
     if (lab && (master.grShown = (master.grShown || 0) + 1) % 10 === 0) lab.textContent = on ? `glue ${r.glue.toFixed(1)} dB · limit ${r.limit.toFixed(1)} dB` : '';

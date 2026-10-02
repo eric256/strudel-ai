@@ -221,6 +221,26 @@ try {
     await ev(() => document.getElementById('settingsDlg').close());
   });
 
+  await step('🎨 themes: pick, edit (saves your own), export, import, back to dark', async () => {
+    await ev(() => { document.getElementById('settingsBtn')?.click(); document.querySelector('.settings-tabs [data-sec="setTheme"]').click(); });
+    await p.waitForTimeout(200);
+    expect(await ev(() => document.querySelectorAll('#themeList .th-card').length >= 5), 'no theme cards');
+    await ev(() => [...document.querySelectorAll('#themeList .th-card')].find((b) => /Light/.test(b.textContent)).click());
+    expect(await ev(() => document.documentElement.dataset.theme === 'light' && getComputedStyle(document.body).backgroundColor === 'rgb(238, 240, 244)'), 'light did not apply');
+    expect(await ev(() => getComputedStyle(document.querySelector('.dv-groupview')).backgroundColor === 'rgb(255, 255, 255)'), 'dockview panels did not follow the theme');
+    // change a colour: a built-in theme becomes your own copy
+    await ev(() => { const i = document.querySelector('#themeEditor .th-token[title="--accent"] input'); i.value = '#ff0000'; i.dispatchEvent(new Event('change')); });
+    expect(await ev(() => document.documentElement.dataset.theme.startsWith('user-') && getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() === '#ff0000'), 'the edit did not make a user theme');
+    const [dl] = await Promise.all([p.waitForEvent('download'), ev(() => [...document.querySelectorAll('#themeEditor button')].find((b) => /export/.test(b.textContent)).click())]);
+    const file = await dl.path();
+    expect(JSON.parse(await (await import('node:fs/promises')).readFile(file, 'utf8')).colors.accent === '#ff0000', 'export lacks the colour');
+    await p.setInputFiles('#themeEditor input[type=file]', file);
+    await p.waitForFunction(() => Object.keys(JSON.parse(localStorage.getItem('strudel-ai:v1')).userThemes).length === 2, null, { timeout: 5000 });
+    await ev(() => [...document.querySelectorAll('#themeList .th-card')].find((b) => /^Dark/.test(b.textContent.trim())).click());
+    expect(await ev(() => document.documentElement.dataset.theme === 'dark'), 'dark did not apply');
+    await ev(() => document.getElementById('settingsDlg').close());
+  });
+
   await step('every panel opens (visualizer, keys, pads, console …)', async () => {
     const ids = await ev(() => strudelAI.ws.panels().map((x) => x.id));
     for (const id of ids) { await ev((id) => strudelAI.ws.open(id), id); await p.waitForTimeout(150); }

@@ -4,6 +4,7 @@
 // (split out of app.js: start-up code runs in setup(), called from app.js)
 import { $, cps, inDryRun, isPlaying, nowCycle, scheduler, setPatternQuery } from '../app.js';
 import { toMidi } from './sound-check.js';
+import { themeAlpha, themeColor } from '../theme.js';
 export let viz;
 let VIZ_MODES;
 
@@ -83,13 +84,13 @@ function drawRoll(g, x0, y0, w, h) {
   // bar + beat grid
   for (let b = Math.floor(t0 * 4) / 4; b <= t0 + span; b += 0.25) {
     const bar = Math.abs(b - Math.round(b)) < 1e-6;
-    g.strokeStyle = bar ? '#2f3443' : '#181b23';
+    g.strokeStyle = bar ? themeColor('border') : themeColor('line');
     g.beginPath(); g.moveTo(X(b) + 0.5, y0); g.lineTo(X(b) + 0.5, y0 + h); g.stroke();
-    if (bar && isPlaying()) { g.fillStyle = '#4a5063'; g.font = '10px ui-monospace, monospace'; g.fillText(String(Math.round(b) + 1), X(b) + 3, y0 + 11); }
+    if (bar && isPlaying()) { g.fillStyle = themeColor('faint'); g.font = '10px ui-monospace, monospace'; g.fillText(String(Math.round(b) + 1), X(b) + 3, y0 + 11); }
   }
   const haps = vizHaps().filter((n) => n.e > t0 && n.b < t0 + span);
   if (!haps.length) {
-    g.fillStyle = '#4a5063';
+    g.fillStyle = themeColor('faint');
     g.font = '12px system-ui, sans-serif';
     g.fillText(isPlaying() ? 'nothing playing in this pattern' : 'press ▶ Play to see the music', x0 + 12, y0 + h / 2);
     return;
@@ -113,7 +114,7 @@ function drawRoll(g, x0, y0, w, h) {
   lanes.forEach((name, k) => {
     const y = dy + k * laneH;
     g.globalAlpha = 1;
-    g.fillStyle = k % 2 ? '#101218' : '#0d0f14';
+    g.fillStyle = k % 2 ? themeColor('sunken') : themeColor('canvas');
     g.fillRect(x0, y, w, laneH);
     for (const n of haps) {
       if (n.name !== name) continue;
@@ -122,12 +123,12 @@ function drawRoll(g, x0, y0, w, h) {
       g.fillRect(X(n.b) + 1, y + 1, Math.max(3, Math.min(X(n.e) - X(n.b) - 2, 10)), laneH - 2);
     }
     g.globalAlpha = 0.85;
-    g.fillStyle = '#8b90a0';
+    g.fillStyle = themeColor('muted');
     g.font = `${Math.min(10, laneH)}px ui-monospace, monospace`;
     g.fillText(name, x0 + 3, y + laneH - 2);
   });
   g.globalAlpha = 1;
-  g.strokeStyle = '#ffd166';
+  g.strokeStyle = themeColor('warn');
   g.beginPath(); g.moveTo(X(now) + 0.5, y0); g.lineTo(X(now) + 0.5, y0 + h); g.stroke();
 }
 
@@ -156,7 +157,7 @@ function vizBands(n) {
   }
   return out;
 }
-const vizLabel = (g, text, x, y) => { g.fillStyle = '#4a5063'; g.font = '10px ui-monospace, monospace'; g.fillText(text, x + 4, y + 11); };
+const vizLabel = (g, text, x, y) => { g.fillStyle = themeColor('faint'); g.font = '10px ui-monospace, monospace'; g.fillText(text, x + 4, y + 11); };
 
 function drawSpectrum(g, x0, y0, w, h) {
   const bars = Math.max(16, Math.floor(w / 5));
@@ -190,15 +191,15 @@ function drawScope(g, x0, y0, w, h) {
   const an = vizAnalyser();
   if (!an) return;
   an.getFloatTimeDomainData(viz.wave);
-  g.strokeStyle = '#1d2029';
+  g.strokeStyle = themeColor('line');
   g.beginPath(); g.moveTo(x0, y0 + h / 2); g.lineTo(x0 + w, y0 + h / 2); g.stroke();
-  traceWave(g, viz.wave, zeroCross(viz.wave), x0, y0, w, h, '#20d3a6');
+  traceWave(g, viz.wave, zeroCross(viz.wave), x0, y0, w, h, themeColor('accent-2'));
 }
 function drawStereoScope(g, x0, y0, w, h) {
   if (!vizStereo()) return;
   const s0 = zeroCross(viz.waveL);
-  for (const [buf, y, c, name] of [[viz.waveL, y0, '#20d3a6', 'L'], [viz.waveR, y0 + h / 2, '#7c5cff', 'R']]) {
-    g.strokeStyle = '#1d2029';
+  for (const [buf, y, c, name] of [[viz.waveL, y0, themeColor('accent-2'), 'L'], [viz.waveR, y0 + h / 2, themeColor('accent'), 'R']]) {
+    g.strokeStyle = themeColor('line');
     g.beginPath(); g.moveTo(x0, y + h / 4); g.lineTo(x0 + w, y + h / 4); g.stroke();
     traceWave(g, buf, s0, x0, y, w, h / 2, c);
     vizLabel(g, name, x0, y);
@@ -208,9 +209,9 @@ function drawStereoScope(g, x0, y0, w, h) {
 function drawVectorscope(g, x0, y0, w, h) {
   if (!vizStereo()) return;
   const r = Math.min(w, h) / 2 - 6, cx = x0 + w / 2, cy = y0 + h / 2;
-  g.strokeStyle = '#1d2029';
+  g.strokeStyle = themeColor('line');
   g.beginPath(); g.arc(cx, cy, r, 0, Math.PI * 2); g.moveTo(cx - r, cy); g.lineTo(cx + r, cy); g.moveTo(cx, cy - r); g.lineTo(cx, cy + r); g.stroke();
-  g.fillStyle = 'rgba(32, 211, 166, .55)';
+  g.fillStyle = themeAlpha('accent-2', 0.55);
   const L = viz.waveL, R = viz.waveR;
   for (let i = 0; i < L.length; i += 2) {
     const side = (L[i] - R[i]) * 0.707, mid = (L[i] + R[i]) * 0.707;
@@ -230,7 +231,7 @@ function drawSpectrogram(g, x0, y0, w, h) {
     c = viz.specCanvas = document.createElement('canvas');
     c.width = W; c.height = H;
     const sg = c.getContext('2d');
-    sg.fillStyle = '#0b0c10';
+    sg.fillStyle = themeColor('canvas');
     sg.fillRect(0, 0, W, H);
   }
   const sg = c.getContext('2d');
@@ -238,7 +239,7 @@ function drawSpectrogram(g, x0, y0, w, h) {
   sg.drawImage(c, -step, 0);
   for (let k = 0; k < rows; k++) {
     const v = lv[k];
-    sg.fillStyle = v < 0.02 ? '#0b0c10' : `hsl(${260 - v * 220}, 85%, ${8 + v * 55}%)`;
+    sg.fillStyle = v < 0.02 ? themeColor('canvas') : `hsl(${260 - v * 220}, 85%, ${8 + v * 55}%)`;
     const y = H - ((k + 1) * H) / rows;
     sg.fillRect(W - step, Math.floor(y), step, Math.ceil(H / rows) + 1);
   }
@@ -261,7 +262,7 @@ function drawRadial(g, x0, y0, w, h) {
   }
   g.lineWidth = 1.5;
   viz.analyser.getFloatTimeDomainData(viz.wave);
-  g.strokeStyle = '#e6e8ee';
+  g.strokeStyle = themeColor('text');
   g.beginPath();
   const m = 256, s0 = zeroCross(viz.wave);
   for (let i = 0; i <= m; i++) {
@@ -287,17 +288,17 @@ function drawMeters(g, x0, y0, w, h) {
     viz.peaks[ch] = peak >= hold ? peak : Math.max(peak, hold - (now - (viz.peakT || now)) / 2500);
     const x = x0 + 30 + ch * (bw + 10);
     const grd = g.createLinearGradient(0, y0 + h, 0, y0);
-    grd.addColorStop(0, '#20d3a6'); grd.addColorStop(0.75, '#ffd166'); grd.addColorStop(1, '#ff5c7a');
-    g.fillStyle = '#16181f';
+    grd.addColorStop(0, themeColor('accent-2')); grd.addColorStop(0.75, themeColor('warn')); grd.addColorStop(1, themeColor('danger'));
+    g.fillStyle = themeColor('panel');
     g.fillRect(x, y0 + 4, bw, h - 8);
     g.fillStyle = grd;
     g.fillRect(x, y0 + 4 + (h - 8) * (1 - rms), bw, (h - 8) * rms);
-    g.fillStyle = '#e6e8ee';
+    g.fillStyle = themeColor('text');
     g.fillRect(x, y0 + 4 + (h - 8) * (1 - viz.peaks[ch]), bw, 2);
     vizLabel(g, ch ? 'R' : 'L', x + bw / 2 - 8, y0 + h - 16);
   });
   viz.peakT = now;
-  g.fillStyle = '#4a5063';
+  g.fillStyle = themeColor('faint');
   g.font = '9px ui-monospace, monospace';
   for (const d of [0, -6, -12, -24, -36, -48]) g.fillText(String(d), x0 + 2, y0 + 8 + (h - 8) * (1 - norm(d)));
 }
@@ -347,7 +348,7 @@ export function setup() {
       drawSpectrum(g, sw, 0, sw - 4, h);
       drawVectorscope(g, rest + 4, 0, vw, h);
       drawMeters(g, rest + vw + 12, 0, mw, h);
-      g.strokeStyle = '#1d2029';
+      g.strokeStyle = themeColor('line');
       for (const x of [sw - 2, rest + 2, rest + vw + 8]) { g.beginPath(); g.moveTo(x, 0); g.lineTo(x, h); g.stroke(); }
     },
   };

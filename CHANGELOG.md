@@ -2,6 +2,15 @@
 
 The version is in `package.json`. Bump it when you release. Open pages also notice *any* redeploy through the build id, which is a hash of the app files, even if the version wasn't bumped.
 
+## 1.38.0
+- **🎨 Themes (step 2 of templates → themes → plugins):** ⚙ Settings → 🎨 Theme.
+  - **Built-in themes:** Dark (the old look), Light, High contrast, Synthwave and Studio (warm). Each also picks a matching code editor theme.
+  - **Your own themes:** change any colour with a live preview, or the code editor's theme. Editing a built-in theme saves your copy. Rename or delete your themes.
+  - **⬇ export / ⬆ import** a theme as a `.strudel-theme.json` file.
+  - **Colour tokens:** every colour in `style.css` is now one of 18 theme tokens (`--bg`, `--panel`, `--accent`, `--danger` …), with softer shades mixed from them. The panel layout (dockview) and the canvas drawings (mixer meters, Master graphs, visualizer, hum) follow the theme too.
+  - The theme is saved with your settings and applies before the page is drawn.
+- **Smoke test:** pick a theme, edit it into your own, export and import it (25 steps).
+
 ## 1.37.0
 - **HTML templates (step 1 of templates → themes → plugins):** the panels are now built with [lit-html](https://lit.dev/docs/libraries/standalone-templates/) templates (`public/html.js`, served locally, no build step) instead of HTML strings.
   - **Converted:** 📃 Playlist, 🎵 Songs (This session, ★ Favorites, 📁 My songs), 🎶 Now playing, ✎ Edit song, 📻 Station, 🎚 Mixer, 🎛 Master, 🔲 Pads, 🎹 Keys, the form, band and station editors, the AI model pickers and the ▦ Panels menu.
