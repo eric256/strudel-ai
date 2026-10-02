@@ -403,30 +403,31 @@ bass: note("c2*8").s("sawtooth").lpf(slider(1200, 200, 4000)).gain(slider(0.6, 0
 
 ## Panels and layout
 
-Chat 💬, Songs 🎵, Station 📻, **Now playing** 🎶, Visualizer 📊, Keys 🎹, Pads 🔲 and Console 🖥 are all panels. The code editor stays in the middle; panels dock around it, tab together, or float as windows.
+Every part of the app is a panel in [dockview](https://dockview.dev): the code editor ⌨, Chat 💬, Songs 🎵, Station 📻, **Now playing** 🎶, Visualizer 📊, Keys 🎹, Pads 🔲, Mixer 🎚 and Console 🖥.
 
-- **Tabs:** panels in the same group show as tabs. A panel you open goes into the group that's already in its area, as a new tab.
-- **Move:** drag a tab (one panel) or the empty part of a group's header (the whole group):
-  - onto the middle of another group → it becomes a tab there;
-  - onto the top or bottom quarter of a group on the left or right, or the left or right quarter of one on the top or bottom → it gets its own group next to it;
-  - to an edge of the page → a new group docked on that side (left, right, above or below the code);
-  - anywhere else → a floating window.
+- **Tabs and splits:** drag a tab onto another group to tab it there, or onto any edge of any group to split it. Splits can nest as deeply as you like, and you drag the bars between groups to resize them. A panel you open joins the group its kind already lives in (the tools go below the code, the song panels go on the right).
+- **Right-click a tab** to **maximise** its group, **float** it as a window, or **pop it out** into its own browser window, e.g. the visualizer or mixer on a second screen.
+- **Open / close:** **✕** on a tab closes it, and the header buttons (📊 🎹 🔲 🎚 🖥) toggle their panels. **▦ Panels** lists every panel and has **↺ reset layout**.
+- **Always there:** the code editor and **Now playing** can't be closed. Now playing keeps a group of its own (nothing tabs over it) and never gets shorter than its transport bar.
+- The layout is saved in the browser. dockview is served by this server.
 
-  A highlight shows where it will land.
-- **Floating windows:** drag the header to move one; drag its corner to resize. **⧉** floats a docked group, and **⇲** docks a window back where it came from. Double-clicking a header does the same.
-- **Resize:** drag the bars between the editor and an area, or between two groups. Double-click an area's bar to reset its size.
-- **Open / close:** **✕** on a tab closes it, and the header buttons (📊 🎹 🔲 🖥) toggle their panels. **▦ Panels** lists every panel and has **↺ reset layout**.
-- **Now playing** shows the song that's playing, wherever you are in the app, with its sections, progress and toolbar.
-  - **⏸ Pause** stops the song where it is, at that section and bar, and **▶ Resume** (or ▶ Play) picks it up from that bar. The rest of the song follows as usual. The song's MP3 recording pauses too.
-  - When a song ends and nothing follows, it stays in Now playing marked **■ stopped**, with **▶ Play** to hear it again.
-  - While a set or station is still writing its first song, Now playing shows that song as **✎ being written**.
-- The layout is saved in the browser. The side panel and docks from earlier versions are carried over.
+### 🎶 Now playing and the transport
 
-**🧪 dockview layout (trial):** ⚙ Settings → General → **🧪 layout** → *dockview (trial)* switches to [dockview](https://dockview.dev) as the layout engine (the page reloads).
-- Split groups anywhere, as deeply as you like, and drag tabs to any edge of any group.
-- Right-click a tab to **maximise** its group, **float** it as a window, or **pop it out** into its own browser window, e.g. the visualizer or mixer on a second screen.
-- The code editor is a panel too: it can be moved and maximised, but not closed or popped out.
-- Each engine keeps its own saved layout, so switching back to *built-in* restores yours. dockview is served by this server.
+The transport sits at the top of Now playing and stays visible however small you make the panel:
+
+| Button | What it does |
+|---|---|
+| ⏮ | Restarts the song. Within its first few bars it goes back to the previous song instead, like a music player. |
+| ▶ | Resumes a paused song, or plays the code in the editor (same as **Ctrl+Enter**). |
+| ⏸ | Pauses the song where it is (section and bar), and ▶ picks it up from that bar. The song's MP3 recording pauses too. Your own code just stops. |
+| ■ | Stops everything (**Ctrl+.**). |
+| ⏭ | Skips to the next song of the set or station. A song that isn't written yet plays as soon as it is. |
+
+Next to the buttons, a line says what's happening: ▶ the song and section, ⏸ paused at bar n, ✎ writing, or ■ stopped.
+
+Below the transport is the song itself: its sheet, its sections with live progress, and its toolbar.
+- When a song ends and nothing follows, it stays here marked **■ stopped**, with **▶ Play** to hear it again.
+- While a set or station is still writing its first song, it shows that song as **✎ being written**.
 
 ## Hum a melody 🎤
 
