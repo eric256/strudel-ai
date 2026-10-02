@@ -1,4 +1,5 @@
 import { loadDockview, createWorkspace } from './workspace.js';
+import { wrapCode } from './format.js';
 import { HumRecorder, transcribe, intervalsToSemitones, tonicPc, midiToName, freqToMidi, polyBarsToMini } from './hum.js';
 // Strudel AI — browser app
 /**
@@ -176,7 +177,7 @@ $('partVisuals').onchange = async () => {
   save({ partVisuals: $('partVisuals').checked });
   // the song section playing now gets (or loses) its visuals on the next bar
   const code = getCode();
-  if (isPlaying() && code.includes(SEC_START) && !state.pending) await evaluateCode(partVisuals(code), { at: nextBoundary(1), label: 'part visuals', undo: false });
+  if (isPlaying() && code.includes(SEC_START) && !state.pending) await evaluateCode(wrapCode(partVisuals(code)), { at: nextBoundary(1), label: 'part visuals', undo: false });
 };
 $('autoComplete').onchange = () => { save({ autoComplete: $('autoComplete').checked }); setAutocomplete($('autoComplete').checked); };
 (function waitForEditor(n = 0) {
@@ -1446,7 +1447,7 @@ async function prepareCode(code, { quiet = false, library = false } = {}) {
   if (failed.length && !quiet) {
     addMsg('error', `Couldn't download soundfont(s) ${failed.join(', ')} from felixroos.github.io — they will be silent. Check the browser's internet access.`);
   }
-  return { code: chk.code, error: null, corrections: allCorrections };
+  return { code: wrapCode(chk.code), error: null, corrections: allCorrections };
 }
 
 // Surface runtime sound errors (e.g. "sound xyz not found", soundfont load failures)
@@ -2142,7 +2143,15 @@ function renderTransport() {
     : running ? `✎ ${setl.songs.find((x) => x.status === 'writing')?.title || 'getting the first song ready'}…`
     : playing ? '▶ the code in the editor' : nowSong ? `■ stopped · ${nowSong.title}` : '■ stopped';
   if ($('nowLine').textContent !== line) $('nowLine').textContent = line;
+  // the same transport at the top left of the code
+  for (const b of $('codeBar').querySelectorAll('[data-tp]')) {
+    const twin = $(b.dataset.tp);
+    b.disabled = twin.disabled;
+    b.classList.toggle('on', twin.classList.contains('on'));
+  }
+  if ($('codeLine').textContent !== line) $('codeLine').textContent = line;
 }
+$('codeBar').addEventListener('click', (e) => { const b = e.target.closest('[data-tp]'); if (b && !b.disabled) $(b.dataset.tp).click(); });
 setInterval(renderTransport, 250);
 
 /** Hold: stay on the current section until another one is picked (or hold is released). */
@@ -2957,12 +2966,13 @@ function enterMask(mode, bars) {
 }
 /** Every part of a section is anchored to the bar the section starts on (set when it's armed), so phrases and chord progressions start on their first bar. */
 const SECTION_START_RE = /^const sectionStart = -?[\d.]+.*$/m;
-const atSectionStart = (code, bar) => partVisuals(SECTION_START_RE.test(code) ? code.replace(SECTION_START_RE, `const sectionStart = ${Math.round(bar)} // the bar this section started on`) : code);
+// (the finished section is wrapped to about 150 characters a line: see format.js)
+const atSectionStart = (code, bar) => wrapCode(partVisuals(SECTION_START_RE.test(code) ? code.replace(SECTION_START_RE, `const sectionStart = ${Math.round(bar)} // the bar this section started on`) : code));
 
 // 🎨 Part visuals: each part of a song section gets one of Strudel's inline visuals under its line, in the part's
 // colour, picked by what the part does — drums a punchcard, bass a scrolling piano roll, chords and pads a spiral,
 // melodies a pitch wheel, arps a dense piano roll, fx a scope. (⚙ Settings → General → 🎨 part visuals)
-const PART_VIS_RE = /\.color\('#[0-9a-f]{6}'\)\._(pianoroll|punchcard|spiral|pitchwheel|scope)\(\{[^}]*\}\)\s*$/;
+const PART_VIS_ANY = /\s*\.color\('#[0-9a-f]{6}'\)\s*\._(pianoroll|punchcard|spiral|pitchwheel|scope)\(\{[^}]*\}\)/g;
 function hslHex(css) {
   const m = /hsl\((\d+),\s*(\d+)%,\s*(\d+)%\)/.exec(css);
   if (!m) return '#7c5cff';
@@ -2985,13 +2995,21 @@ function partVisuals(code) {
   const at = code.indexOf(SEC_START);
   if (at < 0) return code;
   const on = $('partVisuals').checked;
-  const tailCode = code.slice(at).split('\n').map((l) => {
-    const m = l.match(LABEL_LINE);
-    if (!m || /^\s*pad\d+:/.test(l)) return l;
-    const bare = l.replace(PART_VIS_RE, '');
-    return on ? `${bare}.color('${hslHex(vizColor(parseLabel(m[1]).base))}').${partVisual(parseLabel(m[1]).base, bare)}` : bare;
-  }).join('\n');
-  return code.slice(0, at) + tailCode;
+  // take the visuals off first (they may sit on a wrapped continuation line), then add them at the end of each part
+  const lines = code.slice(at).replace(PART_VIS_ANY, '').split('\n');
+  for (let i = 0; i < lines.length; i++) {
+    const m = lines[i].match(LABEL_LINE);
+    if (!m || /^\s*pad\d+:/.test(lines[i])) continue;
+    let end = i; // a wrapped part continues on the indented lines below its label
+    while (end + 1 < lines.length && /^\s+\S/.test(lines[end + 1]) && !LABEL_LINE.test(lines[end + 1].trim())) end++;
+    lines[end] = lines[end].trimEnd();
+    if (on) {
+      const base = parseLabel(m[1]).base, whole = lines.slice(i, end + 1).join(' ');
+      lines[end] += `.color('${hslHex(vizColor(base))}').${partVisual(base, whole)}`;
+    }
+    i = end;
+  }
+  return code.slice(0, at) + lines.join('\n');
 }
 const MAX_KEY_SHIFT = 3;      // semitones a section may move away from the song's key
 const MAX_TEMPO_DRIFT = 0.08; // a section's tempo stays within ±8% of the song's
@@ -3257,7 +3275,7 @@ async function writeSongLibrary(song, signal, { fix = null, prev = null } = {}) 
         err = prep.error || testLibrary(lib, sh)?.message || null;
       }
     }
-    if (!err) { clog('ok', `✓ “${song.title}” parts checked and test-played`); return lib; }
+    if (!err) { clog('ok', `✓ “${song.title}” parts checked and test-played`); return wrapCode(lib); }
     lastErr = err;
     clog('warn', `✗ “${song.title}” parts: ${err}`);
     content = `${base}\n\nYOUR PREVIOUS LIBRARY:\n\`\`\`javascript\n${lib || ''}\n\`\`\`\nIt can't be used: ${err}${/scale/i.test(err) ? '\n' + scaleHelp() : ''}\nReturn the corrected COMPLETE library.`;
@@ -3338,7 +3356,9 @@ function carryLiveState(prev, next) {
   const span = (c) => { const a = c.indexOf(LIB_START), b = c.indexOf(SEC_START); return a >= 0 && b > a ? [a, b] : null; };
   const ps = span(prev), ns = span(next);
   let out = next;
-  if (ps && ns && sliderless(prev.slice(...ps)) === sliderless(next.slice(...ns))) out = next.slice(0, ns[0]) + prev.slice(...ps) + next.slice(ns[1]);
+  // same parts code (compared as wrapped, without fader values): keep the playing one, with its fader positions
+  const same = (a, b) => sliderless(wrapCode(a)) === sliderless(wrapCode(b));
+  if (ps && ns && same(prev.slice(...ps), next.slice(...ns))) out = next.slice(0, ns[0]) + prev.slice(...ps) + next.slice(ns[1]);
   if (!ps || !ns) return out;
   const prevLines = prev.split('\n');
   const groups = new Map(patternLines(prev).map((r) => [r.base, { ...r, text: prevLines[r.line] }]));
@@ -5581,7 +5601,7 @@ async function applySongEdit(sg, raw, partsCode = null) {
   const testErr = testLibrary(lib, sheet);
   if (testErr) return `the parts fail when test-played: ${testErr.message}`;
   sg.sheet = sheet;
-  sg.library = lib;
+  sg.library = wrapCode(lib);
   rearrangeSong(sg);
   if (isMine(sg)) saveMySongs();
   lastSongsKey = '';
