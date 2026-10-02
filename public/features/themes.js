@@ -3,7 +3,8 @@
 // editor's theme, and import / export themes as files. Editing a built-in theme saves your version as a new theme.
 // (The themes and the colour tokens themselves: public/theme.js.)
 // ---------------------------------------------------------------------------
-import { html, render, nothing } from '../html.js';
+import { render } from '../html.js';
+import { T } from '../templates/index.js';
 import { TOKENS, BUILTIN_THEMES, allThemes, applyTheme, currentThemeId, isPluginTheme, themeFromJSON, themeToJSON, userThemes } from '../theme.js';
 import { $, addMsg, save } from '../app.js';
 import { download, slug } from './song-library.js';
@@ -58,40 +59,24 @@ async function importTheme(file) {
   } catch (e) { addMsg('error', `Couldn't import the theme: ${e.message}`); }
 }
 
-const swatches = (t) => html`<span class="th-swatches">${['bg', 'panel', 'accent', 'accent-2', 'danger', 'warn', 'text'].map((k) => html`<i style="background:${t.colors?.[k] || 'transparent'}"></i>`)}</span>`;
-
 export function renderThemeSettings() {
   const current = currentThemeId();
-  const themes = allThemes();
-  render(html`${Object.entries(themes).map(([id, t]) => html`
-    <button class="th-card${id === current ? ' on' : ''}" title=${userThemes()[id] ? 'Your theme' : isPluginTheme(id) ? 'From a 🧩 plugin' : 'Built-in theme'} @click=${() => useTheme(id)}>
-      ${swatches(t)}<span class="th-name">${t.name}${id === current ? ' ✓' : ''}</span>
-    </button>`)}`, $('themeList'));
+  render(T.themeCards(Object.entries(allThemes()).map(([id, t]) => ({
+    id, name: t.name, colors: t.colors, current: id === current, kind: userThemes()[id] ? 'yours' : isPluginTheme(id) ? 'plugin' : 'built-in',
+  })), { use: useTheme }), $('themeList'));
   const { id, theme } = editable();
-  render(html`<div class="th-edit">
-    <div class="sl-buttons">
-      <b>Colours</b>
-      ${id ? html`<label>name <input .value=${theme.name} maxlength="40" @change=${(e) => editTheme({ name: e.target.value.trim() || 'My theme' })} /></label>`
-        : html`<span class="muted small">a built-in or plugin theme: changing a colour saves your own copy</span>`}
-      <span class="spacer"></span>
-      <label title="The code editor's colours">editor
-        <select @change=${(e) => editTheme({ editor: e.target.value })}>${EDITOR_THEMES.map((n) => html`<option ?selected=${n === theme.editor}>${n}</option>`)}</select></label>
-    </div>
-    <div class="th-tokens">${TOKENS.map(([k, label]) => {
-      const v = theme.colors[k] || '';
-      const hex = /^#[0-9a-f]{6}$/i.test(v) ? v : null;
-      return html`<label class="th-token" title="--${k}">
-        ${hex ? html`<input type="color" .value=${hex} @input=${(e) => applyTheme({ ...theme, colors: { ...theme.colors, [k]: e.target.value } })} @change=${(e) => editTheme({ colors: { [k]: e.target.value } })} />`
-          : html`<input class="th-text" .value=${v} @change=${(e) => CSS.supports('color', e.target.value) && editTheme({ colors: { [k]: e.target.value } })} />`}
-        <span>${label}</span></label>`;
-    })}</div>
-    <div class="sl-buttons">
-      <button title="Download this theme as a file (to share, or to keep)" @click=${() => download(`${slug(theme.name)}.strudel-theme.json`, themeToJSON(theme))}>⬇ export</button>
-      <label class="button-like" title="Load a theme file (.json)">⬆ import <input type="file" accept=".json,application/json" hidden @change=${(e) => { const f = e.target.files[0]; e.target.value = ''; if (f) importTheme(f); }} /></label>
-      <span class="spacer"></span>
-      ${id ? html`<button class="link" @click=${() => deleteTheme(id)}>delete this theme</button>` : nothing}
-    </div>
-  </div>`, $('themeEditor'));
+  render(T.themeEditor({
+    own: !!id, name: theme.name, editor: theme.editor, editors: EDITOR_THEMES,
+    tokens: TOKENS.map(([key, label]) => { const value = theme.colors[key] || ''; return { key, label, value, hex: /^#[0-9a-f]{6}$/i.test(value) ? value : null }; }),
+  }, {
+    rename: (name) => editTheme({ name }),
+    setEditor: (editor) => editTheme({ editor }),
+    preview: (key, c) => applyTheme({ ...theme, colors: { ...theme.colors, [key]: c } }),
+    setColor: (key, c) => CSS.supports('color', c) && editTheme({ colors: { [key]: c } }),
+    exportTheme: () => download(`${slug(theme.name)}.strudel-theme.json`, themeToJSON(theme)),
+    importFile: importTheme,
+    remove: () => deleteTheme(id),
+  }), $('themeEditor'));
 }
 
 export function setup() {

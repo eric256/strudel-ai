@@ -7,7 +7,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const PUBLIC = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../public');
-const files = ['', 'lib', 'features'].flatMap((d) => fs.readdirSync(path.join(PUBLIC, d)).filter((f) => f.endsWith('.js')).map((f) => path.join(PUBLIC, d, f)));
+const files = ['', 'lib', 'features', 'templates'].flatMap((d) => fs.readdirSync(path.join(PUBLIC, d)).filter((f) => f.endsWith('.js')).map((f) => path.join(PUBLIC, d, f)));
 
 function exportsOf(file) {
   const s = fs.readFileSync(file, 'utf8'), out = new Set();
@@ -43,4 +43,26 @@ test('every feature with start-up code is set up by app.js', () => {
     const name = path.basename(file, '.js').replace(/-/g, '_');
     assert.match(app, new RegExp(`^(await )?setup_${name}\\(\\);`, 'm'), `${path.basename(file)}'s setup() is never called`);
   }
+});
+
+const templateFiles = files.filter((f) => f.includes(`${path.sep}templates${path.sep}`) && !f.endsWith(`${path.sep}index.js`));
+
+test('templates are markup only: they import nothing but html.js, the template registry and lib/', () => {
+  for (const file of templateFiles) {
+    for (const m of fs.readFileSync(file, 'utf8').matchAll(/^import [^;]* from '([^']+)';$/gm)) {
+      assert.ok(['../html.js', './index.js'].includes(m[1]) || m[1].startsWith('../lib/'), `${path.relative(PUBLIC, file)} imports ${m[1]}: templates get their data passed in`);
+    }
+  }
+});
+
+test('every template the app uses (T.name) exists, and every template file is registered', () => {
+  const names = new Set(templateFiles.flatMap((f) => [...exportsOf(f)]));
+  const index = fs.readFileSync(path.join(PUBLIC, 'templates', 'index.js'), 'utf8');
+  for (const f of templateFiles) assert.ok(index.includes(`'./${path.basename(f)}'`), `templates/index.js doesn't import ${path.basename(f)}`);
+  const missing = [];
+  for (const file of files.filter((f) => !f.endsWith(`templates${path.sep}index.js`))) {
+    const code = fs.readFileSync(file, 'utf8').split('\n').filter((l) => !/^\s*(\/\/|\*|\/\*)/.test(l)).join('\n'); // not in comments
+    for (const m of code.matchAll(/\bT\.([A-Za-z_$][\w$]*)\(/g)) if (!names.has(m[1])) missing.push(`${path.relative(PUBLIC, file)}: T.${m[1]}`);
+  }
+  assert.deepEqual(missing, []);
 });

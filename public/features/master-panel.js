@@ -9,7 +9,8 @@ import { isMine, saveMySongs } from './song-library.js';
 import { $, clog, docks, isPlaying, load, player, queue, save, scheduler, setupDock, ws } from '../app.js';
 import { nowSong, songsChanged, renderSongs } from './song-lists.js';
 import { songStyle } from './bands.js';
-import { html, render, renderOptions } from '../html.js';
+import { render, renderOptions } from '../html.js';
+import { T, onTemplatesChange } from '../templates/index.js';
 import { themeColor } from '../theme.js';
 let MASTER_BYPASS, saveMaster;
 
@@ -69,14 +70,8 @@ function masterTick() {
 function renderMasterPanel() {
   renderOptions($('masterStyle'), STYLE_NAMES.map((n) => ({ value: n, label: n, title: MASTER_STYLES[n].desc })), master.style);
   const groups = [...new Set(MASTER_PARAMS.map((d) => d.group))];
-  // built once; syncMasterUI sets the values (the value labels have no template values inside)
-  const ctl = (d) => html`<div class="ms-ctl" title="${d.title} — double-click: the style's value">
-      <input type="range" class="mx-v ms-v" data-k=${d.key} min=${d.min} max=${d.max} step=${d.step} />
-      <span class="ms-val" data-v=${d.key}></span><span class="ms-lbl">${d.label}</span></div>`;
-  render(html`${groups.map((g) => html`<div class="ms-mod"><div class="ms-title">${g}</div><div class="ms-ctls">${MASTER_PARAMS.filter((d) => d.group === g).map(ctl)}</div></div>`)}
-    <div class="ms-mod ms-scope"><div class="ms-title">Output <span class="ms-gr muted"></span></div>
-      <div class="ms-ctls"><canvas class="ms-spec" width="220" height="96" title="Spectrum of the mastered mix"></canvas>
-      <div class="ms-meters"><canvas class="ms-gr-meter" width="8" height="96" title="Glue compressor gain reduction (0 … −20 dB)"></canvas><canvas class="mx-meter ms-out" width="10" height="96" title="Output level"></canvas></div></div></div>`, $('masterBody'));
+  // built once; syncMasterUI sets the values (templates/master.js)
+  render(T.masterPanel(groups.map((g) => ({ name: g, controls: MASTER_PARAMS.filter((d) => d.group === g) }))), $('masterBody'));
   syncMasterUI();
 }
 const fmtMaster = (d, v) => (d.unit === 'dB' ? `${v > 0 ? '+' : ''}${v}` : d.key === 'time' ? `${Math.round(v * 16)}/16` : d.key === 'filter' ? (Math.abs(v) < 0.01 ? 'off' : v < 0 ? `LP ${Math.round(-v * 100)}` : `HP ${Math.round(v * 100)}`) : `${Math.round(v * 100)}`);
@@ -127,6 +122,7 @@ function drawMaster() {
 
 /** Start-up: the statements that ran here when this was part of app.js (called from app.js at the same point). */
 export function setup() {
+  onTemplatesChange(() => { if ($('masterBody').firstChild) renderMasterPanel(); });
   MASTER_BYPASS = { ...MASTER_DEFAULTS, glue: 0 };
   {
     const st = load();

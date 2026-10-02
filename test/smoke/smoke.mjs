@@ -241,7 +241,7 @@ try {
     await ev(() => document.getElementById('settingsDlg').close());
   });
 
-  await step('🧩 plugins: the examples add a panel, button, settings page, theme, band and AI hint; off removes them; installs', async () => {
+  await step('🧩 plugins: the examples add a panel, button, settings page, theme, band and AI hint; off removes them; installs; a template override', async () => {
     await ev(() => { document.getElementById('settingsBtn').click(); document.querySelector('.settings-tabs [data-sec="setPlugins"]').click(); });
     await p.waitForFunction(() => document.querySelectorAll('.plugin-card').length >= 2 && strudelAI.plugins().every((x) => x.id), null, { timeout: 10000 });
     const toggle = (name) => ev((n) => [...document.querySelectorAll('.plugin-card')].find((x) => x.textContent.includes(n)).querySelector('input').click(), name);
@@ -265,14 +265,18 @@ try {
     const fs = await import('node:fs/promises'), os = await import('node:os'), path = await import('node:path');
     const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'plug-'));
     await fs.writeFile(path.join(dir, 'broken.js'), 'export default { id: "broken", setup() { throw new Error("boom"); } };');
-    await fs.writeFile(path.join(dir, 'hello.js'), 'export default { id: "hello", name: "Hello", setup(api) { api.addButton({ icon: "👋", onClick: () => api.message("hello") }); } };');
+    await fs.writeFile(path.join(dir, 'hello.js'), 'export default { id: "hello", name: "Hello", setup(api) { api.addButton({ icon: "👋", onClick: () => api.message("hello") }); '
+      + 'api.overrideTemplate("playlistRow", (original) => (row, act) => api.html`<div class="hello-row">👋 ${original(row, act)}</div>`); } };');
     await p.setInputFiles('#pluginList input[type=file]', path.join(dir, 'broken.js'));
     await p.waitForFunction(() => strudelAI.plugins().some((x) => x.src === 'installed:broken.js' && !x.on && /boom/.test(x.error)), null, { timeout: 5000 });
     await p.setInputFiles('#pluginList input[type=file]', path.join(dir, 'hello.js'));
     await p.waitForFunction(() => strudelAI.plugins().some((x) => x.id === 'hello' && x.on) && document.querySelector('#pluginButtons button')?.textContent === '👋', null, { timeout: 5000 });
+    // its template override shows straight away (the playlist re-renders), wrapping the built-in row
+    await p.waitForFunction(() => document.querySelector('#playlist .hello-row .pl-row'), null, { timeout: 5000 });
     p.once('dialog', (d) => d.accept());
     await ev(() => [...document.querySelectorAll('.plugin-card')].find((x) => x.textContent.includes('Hello')).querySelector('button.link').click());
     await p.waitForFunction(() => !strudelAI.plugins().some((x) => x.id === 'hello') && !document.querySelector('#pluginButtons button'), null, { timeout: 5000 });
+    await p.waitForFunction(() => !document.querySelector('#playlist .hello-row') && document.querySelector('#playlist .pl-row'), null, { timeout: 5000 });
     await ev(() => document.getElementById('settingsDlg').close());
   });
 

@@ -1,6 +1,7 @@
-// HTML templates: lit-html (https://lit.dev/docs/libraries/standalone-templates/), served from /vendor/lit-html.
+// lit-html (https://lit.dev/docs/libraries/standalone-templates/), served from /vendor/lit-html. The app's own
+// templates live in public/templates/ (markup only); the feature modules render them: render(T.name(data), el).
 //
-//   render(html`<li class=${cls} @click=${() => play(sg)}>${sg.title}</li>`, container)
+//   html`<li class=${cls} @click=${() => play(sg)}>${sg.title}</li>`
 //
 // Values are escaped automatically (no esc() needed), event handlers attach in the template, and a re-render only
 // touches what changed, so a list keeps its DOM (open <details>, focus, scroll, canvases) while it updates.

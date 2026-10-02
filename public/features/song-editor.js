@@ -16,7 +16,8 @@ import { prepareCode } from './sound-check.js';
 import { songsChanged, renderSongs } from './song-lists.js';
 import { syntaxError } from './llm.js';
 import { testLibrary } from './song-writer.js';
-import { html } from '../html.js';
+import { nothing, render } from '../html.js';
+import { T } from '../templates/index.js';
 // --- editing a song: re-arranged by the app (no AI), live if it's playing
 export function rawSheet(sh) {
   return {
@@ -108,23 +109,20 @@ export function openSongEditor(sg) {
   songsChanged();
   renderSongs();
 }
-/** The ✎ Edit song form for a song (its fields are filled in as .value, so re-rendering after ✓ apply updates them). */
-export function songEditorTemplate(sg) {
+/** The ✎ Edit song form (templates/song-editor.js) for the song being edited, filled in from its sheet. */
+export function renderSongEditor() {
+  const sg = songEdit.sg;
+  if (!sg?.sheet || !sg.library) { render(nothing, $('editForm')); return; }
   const r = rawSheet(sg.sheet);
-  const sections = r.sections.map((x) => `${x.name} | ${x.bars} | ${x.chords} | ${x.play.join(', ')}${x.shift || x.bpm ? ` | ${[x.shift ? `key ${signed(x.shift)}` : '', x.bpm ? `${x.bpm} bpm` : ''].filter(Boolean).join(', ')}` : ''}`).join('\n');
-  return html`<div class="sv-edit">
-    <div class="sv-edit-row"><label>title <input data-f="title" .value=${sg.title} /></label><label>bpm <input data-f="bpm" type="number" min="50" max="200" .value=${String(r.bpm)} /></label><label>meter <select data-f="meter">${METERS.map((m) => html`<option ?selected=${m === r.meter}>${m}</option>`)}</select></label><label>scale <input data-f="scale" .value=${r.scale} /></label><label title="The master style: the mastering on the whole song (tweak it live in 🎛 Master)">master <select data-f="master">${STYLE_NAMES.map((n) => html`<option ?selected=${n === r.master}>${n}</option>`)}</select></label></div>
-    <label>chords — <span class="muted">one per line: <code>name: Am F C G</code></span>
-      <textarea data-f="chords" rows="3" .value=${Object.entries(r.chords).map(([k, v]) => `${k}: ${v}`).join('\n')}></textarea></label>
-    <label>sections — <span class="muted">one per line: <code>name | bars | chords | parts (part or part.variant)</code>, optionally <code>| key +2, 106 bpm</code></span>
-      <textarea data-f="sections" rows=${Math.min(14, r.sections.length + 1)} .value=${sections}></textarea></label>
-    <label>parts — <span class="muted">one per line: <code>name | role | sound | variants</code></span>
-      <textarea data-f="parts" rows=${Math.min(8, r.parts.length + 1)} .value=${r.parts.map((p) => `${p.name} | ${p.role} | ${p.sound} | ${p.variants.join(', ')}`).join('\n')}></textarea></label>
-    <label>parts code — <span class="muted">a <code>const name_variant = …</code> for every part.variant the sections use (harmonic parts take <code>(prog)</code>)</span>
-      <textarea data-f="library" rows="10" spellcheck="false" .value=${sg.library}></textarea></label>
-    <div class="sl-buttons"><button data-act="edit-save">✓ apply</button><button data-act="edit-cancel" class="link">cancel</button><span class="sv-edit-msg muted small"></span></div>
-    <div class="muted small">Or ask the chat: “make the chorus 16 bars”, “add a breakdown before the last chorus”, “give the bass a funkier line”.</div>
-  </div>`;
+  render(T.songEditor({
+    title: sg.title, bpm: r.bpm, meter: r.meter, meters: METERS, scale: r.scale, master: r.master, masters: STYLE_NAMES,
+    chords: Object.entries(r.chords).map(([k, v]) => `${k}: ${v}`).join('\n'),
+    sections: r.sections.map((x) => `${x.name} | ${x.bars} | ${x.chords} | ${x.play.join(', ')}${x.shift || x.bpm ? ` | ${[x.shift ? `key ${signed(x.shift)}` : '', x.bpm ? `${x.bpm} bpm` : ''].filter(Boolean).join(', ')}` : ''}`).join('\n'),
+    sectionRows: r.sections.length,
+    parts: r.parts.map((p) => `${p.name} | ${p.role} | ${p.sound} | ${p.variants.join(', ')}`).join('\n'),
+    partRows: r.parts.length,
+    library: sg.library,
+  }), $('editForm'));
 }
 export async function saveSongEditor(el, sg) {
   const v = (f) => el.querySelector(`[data-f="${f}"]`).value;

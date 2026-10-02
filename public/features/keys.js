@@ -8,7 +8,8 @@ import { audibleCycle, audioCtx } from './hum-ui.js';
 import { patternLines } from '../lib/labels.js';
 import { $, addMsg, applyQuantized, clog, cps, docks, getCode, load, save, setupDock, showPanel, state, warnUser } from '../app.js';
 import { runTurn, setBusy } from './chat.js';
-import { html, render, renderOptions, repeat } from '../html.js';
+import { render, renderOptions } from '../html.js';
+import { T, onTemplatesChange } from '../templates/index.js';
 export let keysState;
 
 const KEY_LETTERS = { a: 0, w: 1, s: 2, e: 3, d: 4, f: 5, t: 6, g: 7, y: 8, h: 9, u: 10, j: 11, k: 12, o: 13, l: 14, p: 15, ';': 16 };
@@ -59,8 +60,10 @@ function renderKeyboard() {
   for (let m = lo; m <= lo + 24; m++) if (!isBlack(m)) whites.push(m);
   const w = 100 / whites.length;
   const blacks = whites.map((m, i) => [m + 1, i]).filter(([b]) => b <= lo + 24 && isBlack(b));
-  // keyed by note: another octave gets fresh keys (a key held down doesn't carry over)
-  render(html`${repeat(whites.map((m, i) => [m, i]), ([m]) => m, ([m, i]) => html`<div class="key white" data-m=${m} style="left:${i * w}%;width:${w}%"><span>${m % 12 === 0 ? midiToName(m) : ''}</span></div>`)}${repeat(blacks, ([b]) => b, ([b, i]) => html`<div class="key black" data-m=${b} style="left:${(i + 0.68) * w}%;width:${w * 0.64}%"></div>`)}`, $('keysBoard'));
+  render(T.keyboard({
+    whites: whites.map((m, i) => ({ m, left: i * w, width: w, name: m % 12 === 0 ? midiToName(m) : '' })),
+    blacks: blacks.map(([m, i]) => ({ m, left: (i + 0.68) * w, width: w * 0.64 })),
+  }), $('keysBoard'));
   $('keysOct').textContent = keysState.oct;
 }
 
@@ -198,6 +201,7 @@ function keysRecToggle() {
 
 /** Start-up: the statements that ran here when this was part of app.js (called from app.js at the same point). */
 export function setup() {
+  onTemplatesChange(() => renderKeyboard());
   keysState = { oct: Number(load().keysOct) || 4, rec: null, held: new Map(), kbd: new Map(), midiInputs: [], result: null };
   $('keysSound').onchange = () => { save({ keysSound: $('keysSound').value }); showKeysTemplate(); keysCompiled = null; };
   $('keysTemplate').oninput = () => { save({ keysTemplate: $('keysTemplate').value }); keysCompiled = null; };

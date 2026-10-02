@@ -640,7 +640,12 @@ Code layout:
   - `queue`: the songs of the Songs list or the Station, which feed their sections to the engine.
 
   The player announces `section`, `song`, `transport` (playing / paused / stopped) and `songs` (the lists changed) events. Now playing, the transport bars, the progress bars, the song lists, the mixer, the master and the chat target react to them.
-- `public/html.js`: the HTML templates, [lit-html](https://lit.dev/docs/libraries/standalone-templates/), served from `/vendor/lit-html` (no build step). Panels render with ``render(html`…`, container)``. Values are escaped automatically, event handlers can attach in the template, and a re-render only touches what changed. Two rules:
+- `public/templates/`: the HTML of every panel, kept away from the code. Each file covers one panel or feature: `playlist.js`, `songs.js` (song lists, a song's buttons, Now playing), `song-editor.js`, `mixer.js`, `master.js`, `pads.js`, `keys.js`, `editors.js` (band and form previews), `themes.js`, `plugins.js` and `layout.js` (▦ Panels).
+  - **What a template is:** a function. It takes plain data (and the actions its buttons call) and returns markup. The comment above each one lists what it gets.
+  - **Changing the look:** edit a template's markup, classes, labels or tooltips there. The feature module works out the data, so the code doesn't need to change.
+  - **Markup only:** templates import nothing from the app. A test checks this, and also checks that every template the app uses exists.
+  - **The registry:** `templates/index.js` collects the templates as `T`. The app renders with `render(T.playlist(view, actions), el)`. 🧩 Plugins can replace any of them with `api.overrideTemplate` (see [PLUGINS.md](PLUGINS.md)), and panels re-render when that happens.
+- `public/html.js`: [lit-html](https://lit.dev/docs/libraries/standalone-templates/), served from `/vendor/lit-html` (no build step). Values are escaped automatically, event handlers can attach in the template, and a re-render only touches what changed. Two rules:
   - an element the app updates by hand (a progress label, a fader's dB value) has no template values inside it;
   - a rendered container is never written with `innerHTML`.
 

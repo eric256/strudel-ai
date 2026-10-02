@@ -7,7 +7,8 @@ import { MASTER_STYLES, STYLE_NAMES, normStyle } from '../master.js';
 import { soundRegistry } from './sound-check.js';
 import { openSettings } from './settings.js';
 import { $, load, save } from '../app.js';
-import { html, render, renderOptions } from '../html.js';
+import { render, renderOptions } from '../html.js';
+import { T } from '../templates/index.js';
 export let bands;
 
 let bandIdx = 0;
@@ -48,10 +49,13 @@ async function renderBandPreview() {
   const inst = parseInstruments($('bandInstruments').value);
   const reg = await soundRegistry().catch(() => null);
   const known = (snd) => !reg || reg[snd.toLowerCase()] || Object.keys(reg).some((k) => k.startsWith(snd.toLowerCase() + '_'));
-  render(inst.length
-    ? html`${inst.map((i) => html`<span class="chip${BAND_ROLES.includes(i.role) && known(i.sound) ? '' : ' bad'}" title="${i.desc}${known(i.sound) ? '' : ' — this sound is not loaded'}${BAND_ROLES.includes(i.role) ? '' : ' — unknown role'}"><b>${i.role}</b> ${i.sound}</span>`)}
-      <div class="muted small">${inst.length} instruments · master ${$('bandMaster').value}</div>`
-    : html`<span class="muted small">no instruments yet</span>`, $('bandPreview'));
+  render(T.bandPreview({
+    instruments: inst.map((i) => {
+      const ok = BAND_ROLES.includes(i.role), loaded = known(i.sound);
+      return { role: i.role, sound: i.sound, bad: !ok || !loaded, title: `${i.desc}${loaded ? '' : ' — this sound is not loaded'}${ok ? '' : ' — unknown role'}` };
+    }),
+    master: $('bandMaster').value,
+  }), $('bandPreview'));
 }
 
 /** Start-up: the statements that ran here when this was part of app.js (called from app.js at the same point). */

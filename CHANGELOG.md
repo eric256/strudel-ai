@@ -2,6 +2,16 @@
 
 The version is in `package.json`. Bump it when you release. Open pages also notice *any* redeploy through the build id, which is a hash of the app files, even if the version wasn't bumped.
 
+## 1.40.0
+- **HTML templates in their own folder:** every panel's HTML is now in `public/templates/`, separate from the code. There is one file per panel: playlist, songs and Now playing, ✎ Edit song, mixer, master, pads, keys, the settings editors, themes, plugins and ▦ Panels.
+  - **How they work:** each template is a function that gets plain data and actions and returns the markup. The comment above it lists what it gets.
+  - **Editing:** change the look (markup, classes, labels, tooltips) without touching the code.
+  - **Behind it:** the feature modules now work out what to show and pass it in. Templates import nothing from the app, and a test makes sure of it.
+- **🧩 Plugins can change the HTML:** `api.overrideTemplate(name, (original) => newTemplate)` replaces any template, or wraps the original. The panels re-render straight away, and the original comes back when the plugin is turned off. An override that fails falls back to the original. `api.templateNames()` lists the templates.
+- **Tests:**
+  - every template the app uses exists, and templates stay markup-only;
+  - smoke test: a plugin's template override shows in the 📃 Playlist and goes away when the plugin is removed.
+
 ## 1.39.0
 - **🧩 Plugins (step 3 of templates → themes → plugins):** add to the app with small JavaScript files. Manage them in ⚙ Settings → 🧩 Plugins.
   - **What a plugin can add:** panels (they keep their place in the layout), header buttons, ⚙ Settings pages, themes, bands, song forms, stations, sounds and instructions for the AI. It can also follow the player's events (section, song, play / pause / stop).
