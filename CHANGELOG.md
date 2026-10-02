@@ -2,6 +2,9 @@
 
 The version is in `package.json`. Bump it when you release. Open pages also notice *any* redeploy through the build id, which is a hash of the app files, even if the version wasn't bumped.
 
+## 1.27.0
+- **🧪 dockview layout (trial):** ⚙ Settings → General → 🧪 layout → *dockview (trial)* runs every panel in [dockview](https://dockview.dev). It adds nested splits anywhere, plus maximise, float and **pop-out windows** from a tab's right-click menu. The code editor becomes a panel that can be moved but not closed. The layout is saved separately, and *built-in* stays the default.
+
 ## 1.26.1
 - **AI edits of a playing song work:**
   - With the chat on **auto** and a song playing, requests go to the **whole song** (the selector shows "auto → whole song"). Before, the AI edited the section's code and sometimes pasted the song's parts back into the editor, which failed.

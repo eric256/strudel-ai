@@ -110,6 +110,8 @@ app.use(
   '/vendor/strudel',
   express.static(path.join(__dirname, 'node_modules/@strudel/repl/dist'), { maxAge: '7d' }),
 );
+// dockview (trial layout engine, ⚙ Settings → General → 🧪 layout)
+app.use('/vendor/dockview', express.static(path.join(__dirname, 'node_modules/dockview-core/dist'), { maxAge: '7d' }));
 // Hydra (video synth) for the visualizer's 🌀 hydra backgrounds — served locally instead of from unpkg
 app.use('/vendor/hydra', express.static(path.join(__dirname, 'node_modules/hydra-synth/dist'), { maxAge: '7d' }));
 // MP3 encoder for recordings (runs in a Web Worker in the browser)

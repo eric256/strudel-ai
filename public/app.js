@@ -1,4 +1,5 @@
 import { createWorkspace } from './workspace.js';
+import { loadDockview, createDockviewWorkspace } from './workspace-dockview.js';
 import { HumRecorder, transcribe, intervalsToSemitones, tonicPc, midiToName, freqToMidi, polyBarsToMini } from './hum.js';
 // Strudel AI — browser app
 const $ = (id) => document.getElementById(id);
@@ -160,6 +161,11 @@ function setAutocomplete(on) {
 }
 if (saved.autoComplete !== undefined) $('autoComplete').checked = saved.autoComplete;
 if (saved.partVisuals !== undefined) $('partVisuals').checked = saved.partVisuals;
+$('layoutEngine').value = saved.layoutEngine === 'dockview' ? 'dockview' : 'builtin';
+$('layoutEngine').onchange = () => {
+  save({ layoutEngine: $('layoutEngine').value });
+  if (confirm('Reload now to switch the layout engine? (the music stops)')) location.reload();
+};
 $('partVisuals').onchange = async () => {
   save({ partVisuals: $('partVisuals').checked });
   // the song section playing now gets (or loses) its visuals on the next bar
@@ -751,7 +757,17 @@ function migratedLayout() {
   }
   return l;
 }
-const ws = createWorkspace({
+// 🧪 layout engine: the built-in one, or dockview as a trial (⚙ Settings → General); each keeps its own saved layout
+let ws = null;
+if (saved.layoutEngine === 'dockview') {
+  try {
+    const dv = await loadDockview();
+    ws = createDockviewWorkspace({ dv, root: $('workspace'), center: document.querySelector('#workspace .ws-center'), panels: PANELS, saved: saved.dockLayout || null, onSave: (layout) => save({ dockLayout: layout }) });
+  } catch (e) {
+    console.warn('dockview layout failed — using the built-in one', e);
+  }
+}
+ws ||= createWorkspace({
   root: $('workspace'),
   panels: PANELS,
   defaults: DEFAULT_LAYOUT,

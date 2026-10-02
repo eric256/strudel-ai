@@ -422,6 +422,12 @@ Chat 💬, Songs 🎵, Station 📻, **Now playing** 🎶, Visualizer 📊, Keys
   - While a set or station is still writing its first song, Now playing shows that song as **✎ being written**.
 - The layout is saved in the browser. The side panel and docks from earlier versions are carried over.
 
+**🧪 dockview layout (trial):** ⚙ Settings → General → **🧪 layout** → *dockview (trial)* switches to [dockview](https://dockview.dev) as the layout engine (the page reloads).
+- Split groups anywhere, as deeply as you like, and drag tabs to any edge of any group.
+- Right-click a tab to **maximise** its group, **float** it as a window, or **pop it out** into its own browser window, e.g. the visualizer or mixer on a second screen.
+- The code editor is a panel too: it can be moved and maximised, but not closed or popped out.
+- Each engine keeps its own saved layout, so switching back to *built-in* restores yours. dockview is served by this server.
+
 ## Hum a melody 🎤
 
 Hold **🎤 Hold to hum** (or hold the **`** key while the editor isn't focused), hum, and let go.
