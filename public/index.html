@@ -21,6 +21,8 @@
       <button id="keysBtn" title="Show / hide the keyboard (play live, record a part)">🎹<span class="lbl"> Keys</span></button>
       <button id="padsBtn" title="Show / hide the 4×4 sound pad">🔲<span class="lbl"> Pads</span></button>
       <button id="consoleBtn" title="Console: follow what the AI is writing, the checks and fixes, and any errors">🖥<span class="lbl"> Console</span></button>
+      <span class="ws-menu-wrap"><button id="layoutBtn" title="Panels: open or close chat, songs, station, the playing song, visualizer, keys, pads and console — or reset the layout">▦<span class="lbl"> Panels</span></button>
+        <div id="layoutMenu" class="share-pop layout-menu" hidden></div></span>
       <button id="humBtn" class="hum-btn" title="Hold to hum a melody (or hold the ` key); tap to open the hum panel">🎤 Hum</button>
     </div>
     <div class="share-wrap">
@@ -45,114 +47,14 @@
     <button id="aboutBtn" class="icon-btn" title="About Strudel AI: version, recent changes, links" aria-label="About">ⓘ</button>
   </header>
 
-  <main>
-    <section id="editor-pane">
+  <main id="workspace" class="ws">
+    <div class="ws-area ws-col" data-area-box="left" hidden></div>
+    <div class="ws-split v" data-area="left" hidden title="Drag to resize · double-click to reset"></div>
+    <div class="ws-center">
+      <div class="ws-area ws-row" data-area-box="top" hidden></div>
+      <div class="ws-split h" data-area="top" hidden title="Drag to resize · double-click to reset"></div>
+      <section id="editor-pane">
       <div id="editor-wrap"></div>
-      <section id="viz-dock" class="dock dock-bottom" hidden>
-        <div id="vizHandle" class="viz-handle" title="Drag to resize"></div>
-        <div class="viz-bar">
-          <b>📊 Visualizer</b>
-          <select id="vizMode" title="What to show">
-            <optgroup label="Notes">
-              <option value="all">piano roll + spectrum</option>
-              <option value="rollscope">piano roll + oscilloscope</option>
-              <option value="roll">piano roll</option>
-            </optgroup>
-            <optgroup label="Sound">
-              <option value="dashboard">dashboard (scope · spectrum · vector · meters)</option>
-              <option value="scope">oscilloscope</option>
-              <option value="stereo">stereo oscilloscope (L / R)</option>
-              <option value="vector">vectorscope (stereo field)</option>
-              <option value="spectrum">spectrum</option>
-              <option value="spectrogram">spectrogram (waterfall)</option>
-              <option value="radial">radial spectrum</option>
-              <option value="meters">level meters</option>
-            </optgroup>
-          </select>
-          <select id="vizDock" title="Where the visualizer is docked">
-            <option value="bottom">dock: under the code</option>
-            <option value="top">dock: above the code</option>
-            <option value="side">dock: side panel</option>
-          </select>
-          <span class="spacer"></span>
-          <button id="vizClose" class="link" title="Hide">✕</button>
-        </div>
-        <canvas id="vizCanvas"></canvas>
-      </section>
-      <section id="keys-dock" class="dock dock-bottom" hidden>
-        <div id="keysHandle" class="viz-handle" title="Drag to resize"></div>
-        <div class="viz-bar">
-          <b>🎹 Keys</b>
-          <select id="keysSound" title="Instrument the keyboard plays — or “custom” to write your own Strudel line"></select>
-          <input id="keysTemplate" class="keys-template" spellcheck="false" title="Your own Strudel line for the sound. {note} is replaced by the note you play (live) or the notes you recorded." placeholder='note({note}).s("sawtooth").lpf(1200).decay(0.2)' hidden />
-          <label title="How long a live note sounds">len <select id="keysLen"><option value="0.0625">1/16</option><option value="0.125" selected>1/8</option><option value="0.25">1/4</option><option value="0.5">1/2</option><option value="1">1 bar</option></select></label>
-          <label title="Octave">oct <button id="keysDown" class="mini">−</button><span id="keysOct">4</span><button id="keysUp" class="mini">+</button></label>
-          <button id="keysRec" class="rec-btn" title="Record: notes you play while the music runs are captured on the bar grid">⏺ Rec</button>
-          <select id="keysGrid" title="Recording grid"><option value="8">1/8</option><option value="16" selected>1/16</option></select>
-          <label title="Add each recording to the music as soon as you stop recording (play along and layer your own parts)"><input type="checkbox" id="keysAuto" /> auto-add</label>
-          <span id="keysInfo" class="muted small"></span>
-          <span class="spacer"></span>
-          <select id="keysDock" title="Where the keyboard is docked">
-            <option value="bottom">dock: under the code</option><option value="top">dock: above the code</option><option value="side">dock: side panel</option>
-          </select>
-          <button id="keysClose" class="link" title="Hide">✕</button>
-        </div>
-        <div id="keysBoard" class="keyboard"></div>
-        <div id="keysResult" class="keys-result" hidden>
-          <code id="keysMini"></code><span class="spacer"></span>
-          <button id="keysInsert">＋ Insert as a part</button><button id="keysAI">✨ Send to AI</button><button id="keysDiscard" class="link">discard</button>
-        </div>
-      </section>
-      <section id="pads-dock" class="dock dock-bottom" hidden>
-        <div id="padsHandle" class="viz-handle" title="Drag to resize"></div>
-        <div class="viz-bar">
-          <b>🔲 Pads</b> <span id="padsSource" class="muted small"></span>
-          <button id="padsMine" class="link" title="Back to your own pads" hidden>↩ my pads</button>
-          <label class="small" title="Song pads: whenever a new song starts, the dock switches to that song’s pads"><input type="checkbox" id="padsFollow" /> follow song</label>
-          <label title="When a pad switches in">sync <select id="padsSync"><option value="0.25">next beat</option><option value="1">next bar</option></select></label>
-          <button id="padsEdit" title="Program the pads: click a pad to edit its label, code and mode">✎ program</button>
-          <button id="padsRec" class="rec-btn" title="Record: pad changes while the music runs are written into the code as masks, so the performance loops">⏺ Rec</button>
-          <span id="padsInfo" class="muted small"></span>
-          <span class="spacer"></span>
-          <select id="padsDock" title="Where the pads are docked">
-            <option value="bottom">dock: under the code</option><option value="top">dock: above the code</option><option value="side">dock: side panel</option>
-          </select>
-          <button id="padsClose" class="link" title="Hide">✕</button>
-        </div>
-        <div class="pads-body">
-          <div id="padsGrid" class="pads-grid"></div>
-          <div id="padEditor" class="pad-editor" hidden>
-            <label class="field">Label <input id="padLabel" maxlength="24" /></label>
-            <label class="field">Strudel code <textarea id="padCode" rows="3" spellcheck="false" placeholder='s("bd*4").bank("RolandTR909")'></textarea></label>
-            <div class="sl-buttons">
-              <label>mode <select id="padMode">
-                <option value="toggle">toggle (on / off)</option>
-                <option value="hold">hold (while pressed)</option>
-                <option value="once">once (one bar)</option>
-              </select></label>
-              <label>color <input type="color" id="padColor" /></label>
-              <span class="spacer"></span>
-              <button id="padTest" title="Play this pad once">▶ test</button>
-              <button id="padDone">done</button>
-            </div>
-            <small class="muted">A pattern (e.g. <code>s("hh*8").gain(0.5)</code>) is added to the music as its own labelled line while the pad is on. <code>all(x =&gt; x.lpf(400))</code> or <code>setcpm(140/4)</code> lines work too.</small>
-          </div>
-        </div>
-      </section>
-      <section id="console-dock" class="dock dock-bottom" hidden>
-        <div id="consoleHandle" class="viz-handle" title="Drag to resize"></div>
-        <div class="viz-bar">
-          <b>🖥 Console</b>
-          <label title="Show the AI's text as it is written"><input type="checkbox" id="consoleStream" checked /> live AI text</label>
-          <button id="consoleClear" class="link">clear</button>
-          <span class="spacer"></span>
-          <select id="consoleDock" title="Where the console is docked">
-            <option value="bottom">dock: under the code</option><option value="top">dock: above the code</option><option value="side">dock: side panel</option>
-          </select>
-          <button id="consoleClose" class="link" title="Hide">✕</button>
-        </div>
-        <div id="consoleLog" class="console-log"></div>
-      </section>
       <div id="error-bar" hidden></div>
       <div id="hum-panel" hidden>
         <div class="hum-head">
@@ -178,16 +80,39 @@
         </div>
       </div>
     </section>
+      <div class="ws-split h" data-area="bottom" hidden title="Drag to resize · double-click to reset"></div>
+      <div class="ws-area ws-row" data-area-box="bottom" hidden></div>
+    </div>
+    <div class="ws-split v" data-area="right" hidden title="Drag to resize · double-click to reset"></div>
+    <div class="ws-area ws-col" data-area-box="right" hidden></div>
+    <div class="ws-float"></div>
+    <div class="ws-hint" hidden></div>
+  </main>
 
-    <div id="resizer" title="Drag to resize · double-click to reset"></div>
-
-    <aside id="chat-pane">
-      <nav class="tabs">
-        <button class="active" data-tab="chatTab">Chat</button>
-        <button data-tab="setTab">🎵 Songs</button>
-        <button data-tab="stationTab">📻 Station</button>
-      </nav>
-      <div id="setTab" class="tab" hidden>
+  <!-- the panels; the workspace moves each into its tab group (closed ones wait here) -->
+  <div id="panel-store" hidden>
+      <section id="chatTab" class="panel tab">
+      <div id="messages">
+        <div class="msg system">
+          Describe the music you want and the AI will rewrite the code live.<br />
+          Try: <em>“dark techno at 128 bpm”</em>, <em>“add a jazzy chord progression”</em>,
+          <em>“make the hats swing”</em>, <em>“drop everything but the bass”</em>.<br />
+          <small>Changes switch in on the bar line (see “switch on” at the top). Click anywhere once to enable audio. Ctrl+Enter in the editor re-evaluates your own edits.</small>
+        </div>
+      </div>
+      <div class="options">
+        <span class="muted small" id="aiSummary" title="Change in ⚙ Settings → AI"></span>
+        <span class="spacer"></span>
+        <button id="clearChat" class="link">clear chat</button>
+      </div>
+      <form id="chat-form">
+        <textarea id="input" rows="2" placeholder="Make it groovier… (Enter to send, Shift+Enter for newline)"></textarea>
+        <div class="send-col">
+          <button id="send" type="submit">Send</button>
+        </div>
+      </form>
+      </section>
+      <section id="setTab" class="panel tab">
         <p class="hint"><b>Songs</b> — one song per line: <code>title | description</code> (style, tempo, key, mood…).
           For each song the AI writes a <b>song sheet</b> (chords, hook, parts, form) and the parts once; the app then arranges the
           sections from them, so choruses repeat and the song stays in key. The next song is written while the current one plays.
@@ -218,8 +143,8 @@
         </div>
         <div id="mySongs" class="songs"></div>
         <div id="setSongView" class="song-view" hidden></div>
-      </div>
-      <div id="stationTab" class="tab" hidden>
+      </section>
+      <section id="stationTab" class="panel tab">
         <p class="hint"><b>Station</b> — give it a theme and it runs on its own: an AI agent keeps inventing new songs for the theme,
           writes their blocks and code ahead of time, and plays them one after another.</p>
         <div class="station-row">
@@ -242,30 +167,95 @@
         <div class="sl-buttons"><span class="spacer"></span><button class="link log-dl" title="Download every song played this session as a text file">⬇ played this session</button></div>
         <div id="stationStatus" class="songs"></div>
         <div id="stationSongView" class="song-view" hidden></div>
-      </div>
-      <div id="chatTab" class="tab">
-      <div id="messages">
-        <div class="msg system">
-          Describe the music you want and the AI will rewrite the code live.<br />
-          Try: <em>“dark techno at 128 bpm”</em>, <em>“add a jazzy chord progression”</em>,
-          <em>“make the hats swing”</em>, <em>“drop everything but the bass”</em>.<br />
-          <small>Changes switch in on the bar line (see “switch on” at the top). Click anywhere once to enable audio. Ctrl+Enter in the editor re-evaluates your own edits.</small>
+      </section>
+      <section id="songPanel" class="panel tab">
+        <div id="nowEmpty" class="now-empty muted">Nothing is playing. Start a song in 🎵 Songs or a 📻 Station and it shows up here, with its sections and progress.</div>
+        <div id="nowSongView" class="song-view" hidden></div>
+      </section>
+      <section id="viz-dock" class="panel dock">
+        <div class="viz-bar">
+          <b>📊 Visualizer</b>
+          <select id="vizMode" title="What to show">
+            <optgroup label="Notes">
+              <option value="all">piano roll + spectrum</option>
+              <option value="rollscope">piano roll + oscilloscope</option>
+              <option value="roll">piano roll</option>
+            </optgroup>
+            <optgroup label="Sound">
+              <option value="dashboard">dashboard (scope · spectrum · vector · meters)</option>
+              <option value="scope">oscilloscope</option>
+              <option value="stereo">stereo oscilloscope (L / R)</option>
+              <option value="vector">vectorscope (stereo field)</option>
+              <option value="spectrum">spectrum</option>
+              <option value="spectrogram">spectrogram (waterfall)</option>
+              <option value="radial">radial spectrum</option>
+              <option value="meters">level meters</option>
+            </optgroup>
+          </select>
+          <span class="spacer"></span>
         </div>
-      </div>
-      <div class="options">
-        <span class="muted small" id="aiSummary" title="Change in ⚙ Settings → AI"></span>
-        <span class="spacer"></span>
-        <button id="clearChat" class="link">clear chat</button>
-      </div>
-      <form id="chat-form">
-        <textarea id="input" rows="2" placeholder="Make it groovier… (Enter to send, Shift+Enter for newline)"></textarea>
-        <div class="send-col">
-          <button id="send" type="submit">Send</button>
+        <canvas id="vizCanvas"></canvas>
+      </section>
+      <section id="keys-dock" class="panel dock">
+        <div class="viz-bar">
+          <b>🎹 Keys</b>
+          <select id="keysSound" title="Instrument the keyboard plays — or “custom” to write your own Strudel line"></select>
+          <input id="keysTemplate" class="keys-template" spellcheck="false" title="Your own Strudel line for the sound. {note} is replaced by the note you play (live) or the notes you recorded." placeholder='note({note}).s("sawtooth").lpf(1200).decay(0.2)' hidden />
+          <label title="How long a live note sounds">len <select id="keysLen"><option value="0.0625">1/16</option><option value="0.125" selected>1/8</option><option value="0.25">1/4</option><option value="0.5">1/2</option><option value="1">1 bar</option></select></label>
+          <label title="Octave">oct <button id="keysDown" class="mini">−</button><span id="keysOct">4</span><button id="keysUp" class="mini">+</button></label>
+          <button id="keysRec" class="rec-btn" title="Record: notes you play while the music runs are captured on the bar grid">⏺ Rec</button>
+          <select id="keysGrid" title="Recording grid"><option value="8">1/8</option><option value="16" selected>1/16</option></select>
+          <label title="Add each recording to the music as soon as you stop recording (play along and layer your own parts)"><input type="checkbox" id="keysAuto" /> auto-add</label>
+          <span id="keysInfo" class="muted small"></span>
+          <span class="spacer"></span>
         </div>
-      </form>
-      </div>
-    </aside>
-  </main>
+        <div id="keysBoard" class="keyboard"></div>
+        <div id="keysResult" class="keys-result" hidden>
+          <code id="keysMini"></code><span class="spacer"></span>
+          <button id="keysInsert">＋ Insert as a part</button><button id="keysAI">✨ Send to AI</button><button id="keysDiscard" class="link">discard</button>
+        </div>
+      </section>
+      <section id="pads-dock" class="panel dock">
+        <div class="viz-bar">
+          <b>🔲 Pads</b> <span id="padsSource" class="muted small"></span>
+          <button id="padsMine" class="link" title="Back to your own pads" hidden>↩ my pads</button>
+          <label class="small" title="Song pads: whenever a new song starts, the dock switches to that song’s pads"><input type="checkbox" id="padsFollow" /> follow song</label>
+          <label title="When a pad switches in">sync <select id="padsSync"><option value="0.25">next beat</option><option value="1">next bar</option></select></label>
+          <button id="padsEdit" title="Program the pads: click a pad to edit its label, code and mode">✎ program</button>
+          <button id="padsRec" class="rec-btn" title="Record: pad changes while the music runs are written into the code as masks, so the performance loops">⏺ Rec</button>
+          <span id="padsInfo" class="muted small"></span>
+          <span class="spacer"></span>
+        </div>
+        <div class="pads-body">
+          <div id="padsGrid" class="pads-grid"></div>
+          <div id="padEditor" class="pad-editor" hidden>
+            <label class="field">Label <input id="padLabel" maxlength="24" /></label>
+            <label class="field">Strudel code <textarea id="padCode" rows="3" spellcheck="false" placeholder='s("bd*4").bank("RolandTR909")'></textarea></label>
+            <div class="sl-buttons">
+              <label>mode <select id="padMode">
+                <option value="toggle">toggle (on / off)</option>
+                <option value="hold">hold (while pressed)</option>
+                <option value="once">once (one bar)</option>
+              </select></label>
+              <label>color <input type="color" id="padColor" /></label>
+              <span class="spacer"></span>
+              <button id="padTest" title="Play this pad once">▶ test</button>
+              <button id="padDone">done</button>
+            </div>
+            <small class="muted">A pattern (e.g. <code>s("hh*8").gain(0.5)</code>) is added to the music as its own labelled line while the pad is on. <code>all(x =&gt; x.lpf(400))</code> or <code>setcpm(140/4)</code> lines work too.</small>
+          </div>
+        </div>
+      </section>
+      <section id="console-dock" class="panel dock">
+        <div class="viz-bar">
+          <b>🖥 Console</b>
+          <label title="Show the AI's text as it is written"><input type="checkbox" id="consoleStream" checked /> live AI text</label>
+          <button id="consoleClear" class="link">clear</button>
+          <span class="spacer"></span>
+        </div>
+        <div id="consoleLog" class="console-log"></div>
+      </section>
+  </div>
 
 
   <footer id="statusbar">

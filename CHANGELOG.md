@@ -2,6 +2,20 @@
 
 The version is in `package.json`. Bump it when you release. Open pages also notice *any* redeploy through the build id, which is a hash of the app files, even if the version wasn't bumped.
 
+## 1.23.0
+- **Panels and layout:** chat, songs, station, a new **Now playing** panel, the visualizer, keys, pads and console are all panels. They tab together, dock on any side of the code editor, or float as windows. Drag a tab or header to move one: onto another group to tab it, to an edge to dock it, anywhere else to float it. You can resize areas, groups and windows, and **▦ Panels** opens or closes panels and resets the layout. The layout is saved, and earlier dock settings carry over.
+- **More variety in songs:**
+  - Parts get alternate lines (`bass.alt1`, `keys.alt2`), counter-melodies, riffs and a hook harmony, so sections have their own character.
+  - Parts can enter or leave within a section (`riff@in`, `@out`, `@alt`).
+  - Hooks vary in length (1–4 bars) and style.
+- **Time signatures:** songs can be in 3/4, 6/8, 12/8, 5/4 or 7/8 where the genre fits. Tempo lines, crossfades, pad sync and the status bar follow the meter, and the song editor has a meter field.
+- **Sections start on their first bar:** parts and chord progressions are anchored to the bar a section switches in on. Before, a progression could start mid-way.
+- **Section tempo edits through chat apply:** section tempos and key shifts written as text ("104 bpm", "+2") or under other names are read. Changes you ask for may move further (±30% tempo, ±6 semitones). The chat's reply says what the song now does.
+- **No more "non-finite AudioParam" errors:** notes with an invalid value (NaN or infinite gain, cutoff …) are skipped, and the console names the sound and control once. Filter cutoffs below 10 Hz are raised to 10 Hz.
+- **Fixes:**
+  - The section progress bar no longer blinks out when the song view refreshes.
+  - The pad editor stays hidden until you program a pad.
+
 ## 1.22.0
 - **Songs record as they play:** every song is recorded in the background from its first section. When it has played to its end, **⬇ MP3** in its toolbar downloads it. Songs cut short are discarded. Set it in ⚙ Settings → General (🎙 record songs).
   - **🎙 MP3** on a station song no longer stops the station. It records that song the next time it plays from the start.
