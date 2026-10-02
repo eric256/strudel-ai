@@ -1,5 +1,7 @@
 import { loadDockview, createWorkspace } from './workspace.js';
 import { wrapCode } from './format.js';
+import { createMaster, MASTER_PARAMS, MASTER_DEFAULTS, MASTER_STYLES, STYLE_NAMES, styleParams, normStyle, clampParams, diffParams, stylesForPrompt } from './master.js';
+import { soundGuide } from './sounds.js';
 import { HumRecorder, transcribe, intervalsToSemitones, tonicPc, midiToName, freqToMidi, polyBarsToMini } from './hum.js';
 // Strudel AI — browser app
 /**
@@ -370,6 +372,7 @@ async function evaluateCode(code, { at = null, label = '', undo = true, fade = 0
     if (!sch.pattern) sch.pattern = new pat.constructor(() => []);
   };
   window.__mixerTrap?.(); // mixer EQ: route parts to their own orbit
+  window.__masterInstall?.(); // 🎛 master style on the whole mix
   try {
     await m.evaluate();
   } finally {
@@ -492,7 +495,7 @@ setInterval(() => {
     pb.hidden = false;
     pb.textContent = `⏱ ${p.label || 'next change'} at ${barBeat(p.at)} (${secs.toFixed(1)}s)`;
   } else pb.hidden = true;
-  updateStepStates();
+  try { updateStepStates(); } catch {} // the page is still loading (the setlist isn't defined yet)
 }, 100);
 $('pending').onclick = () => { cancelPending(true); addMsg('info', 'pending change cancelled'); };
 
@@ -741,6 +744,7 @@ const PANELS = [
   { id: 'keys', title: 'Keys', icon: '🎹', el: $('keys-dock'), area: 'bottom' },
   { id: 'pads', title: 'Pads', icon: '🔲', el: $('pads-dock'), area: 'bottom' },
   { id: 'mixer', title: 'Mixer', icon: '🎚', el: $('mixer-dock'), area: 'bottom' },
+  { id: 'master', title: 'Master', icon: '🎛', el: $('master-dock'), area: 'bottom' },
   { id: 'console', title: 'Console', icon: '🖥', el: $('console-dock'), area: 'bottom' },
 ];
 let ws;
@@ -2893,6 +2897,125 @@ for (const id of ['setForm', 'stationForm']) $(id).onchange = () => save({ [id]:
 renderFormSelects();
 
 // ---------------------------------------------------------------------------
+// Bands: a line-up of instruments (role, sound, what it plays) and a master style. A song is written for a band:
+// the song-sheet request gives the AI the band's instruments, and the sheet that comes back is held to them (each
+// part takes the band's sound for its role). Auto: the AI picks the band that fits the genre. Editable in ⚙ Settings.
+// ---------------------------------------------------------------------------
+const DEFAULT_BANDS = [
+  { name: 'lo-fi trio', use: 'lo-fi, chillhop, jazz-hop, study beats', master: 'lo-fi', instruments: 'drums: AkaiMPC60 — dusty, laid-back boom-bap kit\nbass: gm_acoustic_bass — round upright bass\nchords: gm_epiano1 — warm Rhodes chords\nmelody: gm_vibraphone — soft mallet hook\ncounter: gm_muted_trumpet — smoky answers to the hook\npad: gm_pad_warm — a soft bed under the chords\nfx: gm_fx_rain — rain-like texture' },
+  { name: 'house crew', use: 'house, deep house, tech house, nu-disco, garage', master: 'house', instruments: 'drums: RolandTR909 — four-on-the-floor kick, open hats, claps\nbass: gm_synth_bass_1 — rolling analog bass\nchords: gm_percussive_organ — offbeat organ stabs\npad: gm_string_ensemble_1 — disco strings\nmelody: gm_epiano2 — glassy hook\ncounter: gm_electric_guitar_muted — funky muted riff' },
+  { name: 'techno rig', use: 'techno, minimal, industrial, acid', master: 'techno', instruments: 'drums: RolandTR909 — driving kick, rides, claps\nperc: RolandTR606 — ticky percussion and toms\nbass: sawtooth — acid bass, filtered\narp: square — hypnotic sequence\npad: gm_pad_sweep — dark filter-swept pad\nfx: white — noise risers and sweeps' },
+  { name: 'synthwave', use: 'synthwave, retrowave, outrun, 80s pop, Italo disco', master: 'synthwave', instruments: 'drums: LinnDrum — big 80s kit\nbass: gm_synth_bass_1 — pulsing eighth-note bass\nchords: gm_pad_poly — polysynth chords\narp: sawtooth — bright arpeggio\nmelody: gm_lead_2_sawtooth — soaring saw lead\ncounter: gm_synth_brass_1 — synth brass answers\npad: gm_synth_strings_1 — string machine' },
+  { name: 'jazz combo', use: 'jazz, swing, bossa nova, neo-soul, lounge', master: 'warm', instruments: 'drums: YamahaRY30 — light kit, brushes feel, ride\nbass: gm_acoustic_bass — walking upright bass\nchords: gm_piano — comping piano\nmelody: gm_tenor_sax — the tune\ncounter: gm_vibraphone — vibes answering the sax\npad: gm_electric_guitar_jazz — soft hollow-body chords' },
+  { name: 'hip hop producer', use: 'hip hop, trap, boom bap, R&B', master: 'hiphop', instruments: 'drums: RolandTR808 — booming kick, snappy snare, rolling hats\nbass: sine — deep 808-style sub\nchords: gm_epiano1 — mellow keys\nmelody: gm_celesta — bell hook\ncounter: gm_pizzicato_strings — plucked answers\npad: gm_string_ensemble_2 — slow strings' },
+  { name: 'drum & bass unit', use: 'drum & bass, jungle, liquid, breakbeat', master: 'dnb', instruments: 'drums: AkaiMPC60 — fast breakbeat kit\nbass: gm_lead_8_bass_lead — heavy reese-style bass\nchords: gm_epiano2 — liquid chords\npad: gm_pad_new_age — shimmering pad\nmelody: gm_lead_6_voice — airy vocal-like lead\nfx: white — risers' },
+  { name: 'pop band', use: 'pop, synth-pop, city pop, funk, disco, indie', master: 'pop', instruments: 'drums: LinnDrum — punchy pop kit\nbass: gm_electric_bass_finger — round electric bass\nchords: gm_electric_guitar_clean — clean rhythm guitar\nmelody: gm_lead_1_square — catchy synth hook\ncounter: gm_glockenspiel — sparkly answers\npad: gm_synth_strings_1 — string pad' },
+  { name: 'rock band', use: 'rock, indie rock, punk, metal, grunge', master: 'rock', instruments: 'drums: AlesisHR16 — rock kit, crashes\nbass: gm_electric_bass_pick — punchy picked bass\nchords: gm_overdriven_guitar — crunchy rhythm guitar\nmelody: gm_distortion_guitar — lead guitar\npad: gm_rock_organ — organ swell' },
+  { name: 'ambient ensemble', use: 'ambient, drone, new age, soundscapes, meditation', master: 'ambient', instruments: 'pad: gm_pad_halo — airy pad\npad: gm_pad_bowed — bowed glass drone\nbass: sine — soft sub\nmelody: gm_kalimba — sparse thumb-piano figure\ncounter: gm_shakuhachi — breathy long notes\nfx: gm_fx_atmosphere — evolving texture\nperc: gm_marimba — soft, sparse wooden hits' },
+  { name: 'cinematic orchestra', use: 'cinematic, film score, epic, orchestral, post-rock', master: 'cinematic', instruments: 'perc: gm_taiko_drum — big drums\nbass: gm_contrabass — low strings\nchords: gm_string_ensemble_1 — orchestral strings\nmelody: gm_french_horn — the theme\ncounter: gm_violin — soaring counter-line\narp: gm_orchestral_harp — harp arpeggios\npad: gm_choir_aahs — choir' },
+  { name: 'dub sound system', use: 'dub, reggae, dub techno, ska', master: 'dub', instruments: 'drums: RolandTR808 — one-drop kit, rimshots\nbass: gm_electric_bass_finger — deep, heavy bass\nchords: gm_drawbar_organ — offbeat skank\nmelody: gm_trombone — the riddim melody\nfx: gm_fx_echoes — echo texture' },
+  { name: 'chip band', use: 'chiptune, 8-bit, video game, arcade', master: 'chiptune', instruments: 'perc: white — noise drums\nbass: triangle — chip bass\narp: square — fast chord arpeggios\nmelody: pulse — chip lead\ncounter: square — second channel' },
+];
+const BAND_ROLES = ['drums', 'perc', 'bass', 'chords', 'pad', 'arp', 'melody', 'counter', 'fx'];
+let bands = addNewDefaults(load().bands, DEFAULT_BANDS, 'bands', []);
+save({ bands });
+let bandIdx = 0;
+/** "drums: RolandTR909 — four on the floor" lines → [{ role, sound, desc }] */
+function parseInstruments(text) {
+  return String(text || '').split('\n').map((l) => l.trim()).filter(Boolean).map((l) => {
+    const m = l.match(/^([a-z]+)\s*:\s*([A-Za-z0-9_]+)\s*(?:[—–-]+\s*(.*))?$/i);
+    return m ? { role: m[1].toLowerCase(), sound: m[2], desc: (m[3] || '').trim() } : null;
+  }).filter(Boolean);
+}
+const findBand = (name) => bands.find((b) => b.name.toLowerCase() === String(name || '').trim().toLowerCase());
+/** A song's master style: its own, else its band's, else one that fits its form, else clean. */
+const songStyle = (sg) => normStyle(sg?.sheet?.master) || normStyle(findBand(sg?.sheet?.band)?.master) || normStyle(sg?.sheet?.form) || 'clean';
+const bandChoice = () => $(setl.mode === 'station' ? 'stationBand' : 'setBand')?.value || 'auto';
+/** The bands part of a song-sheet request: one fixed band, or all of them to choose from. */
+function bandsForRequest(choice) {
+  const line = (b) => `- "${b.name}"${b.use ? ` (for ${b.use})` : ''} — master "${normStyle(b.master) || 'clean'}":\n${parseInstruments(b.instruments).map((i) => `    ${i.role}: ${i.sound}${i.desc ? ` — ${i.desc}` : ''}`).join('\n')}`;
+  const fixed = choice && choice !== 'auto' ? findBand(choice) : null;
+  if (fixed) return `BAND — write the song for exactly this band (set "band": "${fixed.name}" and "master": "${normStyle(fixed.master) || 'clean'}"); every part uses one of its instruments, with the role given:\n${line(fixed)}`;
+  return `BANDS — if one fits this song's genre, write for it: set "band" to its name, take its master style, and give every part one of its instruments (with the role given). If none fits, set "band": "none" and choose the sounds yourself from the sound guide:\n${bands.map(line).join('\n')}`;
+}
+/** Hold a sheet's parts to its band: a part whose sound isn't the band's for its role gets the band's sound. */
+function enforceBand(parts, band) {
+  const inst = parseInstruments(band.instruments);
+  const used = new Map();
+  for (const p of parts) {
+    const cands = inst.filter((i) => i.role === p.role);
+    if (!cands.length || cands.some((i) => i.sound.toLowerCase() === p.sound.toLowerCase())) continue;
+    const n = used.get(p.role) || 0;
+    used.set(p.role, n + 1);
+    p.sound = cands[n % cands.length].sound;
+  }
+}
+function renderBandSelects() {
+  for (const id of ['setBand', 'stationBand']) {
+    const el = $(id);
+    const keep = el.value || load()[id] || 'auto';
+    el.innerHTML = '<option value="auto">auto (fits the genre)</option>' + bands.map((b) => `<option value="${esc(b.name)}">${esc(b.name)} · ${esc(normStyle(b.master) || 'clean')}</option>`).join('');
+    el.value = keep === 'auto' || findBand(keep) ? keep : 'auto';
+  }
+}
+function saveBands() { save({ bands }); renderBandSelects(); }
+function renderBandsEditor() {
+  bandIdx = Math.max(0, Math.min(bandIdx, bands.length - 1));
+  $('bandSelect').innerHTML = bands.map((b, i) => `<option value="${i}">${esc(b.name || 'untitled')}</option>`).join('');
+  $('bandSelect').value = String(bandIdx);
+  $('bandMaster').innerHTML = STYLE_NAMES.map((n) => `<option value="${n}">${n} — ${esc(MASTER_STYLES[n].desc)}</option>`).join('');
+  const b = bands[bandIdx] || { name: '', use: '', master: 'clean', instruments: '' };
+  $('bandName').value = b.name;
+  $('bandUse').value = b.use;
+  $('bandMaster').value = normStyle(b.master) || 'clean';
+  $('bandInstruments').value = b.instruments;
+  renderBandPreview();
+}
+async function renderBandPreview() {
+  const inst = parseInstruments($('bandInstruments').value);
+  const reg = await soundRegistry().catch(() => null);
+  const known = (snd) => !reg || reg[snd.toLowerCase()] || Object.keys(reg).some((k) => k.startsWith(snd.toLowerCase() + '_'));
+  $('bandPreview').innerHTML = inst.length
+    ? inst.map((i) => `<span class="chip${BAND_ROLES.includes(i.role) && known(i.sound) ? '' : ' bad'}" title="${esc(i.desc)}${known(i.sound) ? '' : ' — this sound is not loaded'}${BAND_ROLES.includes(i.role) ? '' : ' — unknown role'}"><b>${esc(i.role)}</b> ${esc(i.sound)}</span>`).join('') + `<div class="muted small">${inst.length} instruments · master ${esc($('bandMaster').value)}</div>`
+    : '<span class="muted small">no instruments yet</span>';
+}
+for (const id of ['bandName', 'bandUse', 'bandInstruments', 'bandMaster']) {
+  $(id)[id === 'bandMaster' ? 'onchange' : 'oninput'] = () => {
+    const b = bands[bandIdx];
+    if (!b) return;
+    b.name = $('bandName').value.trim();
+    b.use = $('bandUse').value.trim();
+    b.master = $('bandMaster').value;
+    b.instruments = $('bandInstruments').value;
+    if (id === 'bandName') $('bandSelect').options[bandIdx].textContent = b.name || 'untitled';
+    if (id === 'bandInstruments' || id === 'bandMaster') renderBandPreview();
+    saveBands();
+  };
+}
+$('bandSelect').onchange = () => { bandIdx = Number($('bandSelect').value); renderBandsEditor(); };
+$('bandNew').onclick = () => {
+  bands.push({ name: 'my band', use: '', master: 'clean', instruments: 'drums: RolandTR909 — the beat\nbass: gm_synth_bass_1 — the low end\nchords: gm_epiano1 — the harmony\nmelody: gm_lead_2_sawtooth — the hook' });
+  bandIdx = bands.length - 1;
+  saveBands(); renderBandsEditor(); $('bandName').select();
+};
+$('bandDelete').onclick = () => {
+  if (!bands[bandIdx] || !confirm(`Delete the band “${bands[bandIdx].name}”?`)) return;
+  bands.splice(bandIdx, 1);
+  if (!bands.length) bands = DEFAULT_BANDS.map((b) => ({ ...b }));
+  saveBands(); renderBandsEditor();
+};
+$('bandReset').onclick = () => {
+  for (const d of DEFAULT_BANDS) {
+    const b = findBand(d.name);
+    if (b) Object.assign(b, d); else bands.push({ ...d });
+  }
+  saveBands(); renderBandsEditor();
+};
+for (const b of document.querySelectorAll('.bands-edit')) b.onclick = () => openSettings('setBands');
+for (const id of ['setBand', 'stationBand']) $(id).onchange = () => save({ [id]: $(id).value });
+renderBandSelects();
+
+// ---------------------------------------------------------------------------
 // Song sheets: for the Songs tab and the Station, the AI first plans the whole song
 // as data (tempo, key, chord progressions, hook, parts, form), then writes every
 // part once as a library of named patterns. The app arranges each section from the
@@ -3044,7 +3167,7 @@ const meterSteps = (m) => Number(normMeter(m).split('/')[0]);
 const tempoLine = (bpm, meter) => `setcpm(${bpm}/${meterBeats(meter)})`;
 const songMeter = (sg) => normMeter(sg?.sheet?.meter);
 
-function normalizeSheet(raw, choice = 'auto', { enforceForm = true } = {}) {
+function normalizeSheet(raw, choice = 'auto', { enforceForm = true, band: bandPick = null } = {}) {
   if (!raw || typeof raw !== 'object') throw new Error('the sheet is not an object');
   const bpm = Math.max(50, Math.min(200, Math.round(Number(raw.bpm) || 100)));
   // scale: "A:minor" (or derived from "key": "A minor"), checked against the real scale names
@@ -3113,7 +3236,13 @@ function normalizeSheet(raw, choice = 'auto', { enforceForm = true } = {}) {
   if (!enforceForm) for (const sec of sections) sec.bars = Math.max(1, Math.min(32, sec.bars));
   // choruses (and hooks) are short and punchy: never longer than 4 bars
   for (const sec of sections) if (sec.type === 'chorus') sec.bars = Math.min(sec.bars, MAX_CHORUS_BARS);
-  return { form: form?.name || String(raw.form || ''), bpm, meter, key: String(raw.key || scale.replace(':', ' ')), scale, chords, hook, parts, sections };
+  // the band: its instruments win (when the song is being written), and its master style is the default
+  const band = (bandPick && bandPick !== 'auto' && findBand(bandPick)) || findBand(raw.band);
+  if (band && enforceForm) enforceBand(parts, band);
+  const masterStyle = normStyle(raw.master || raw.masterStyle) || normStyle(band?.master) || normStyle(form?.name || raw.form) || 'clean';
+  const tweaks = raw.masterParams && typeof raw.masterParams === 'object' ? diffParams(styleParams(masterStyle, raw.masterParams), masterStyle) : {};
+  return { form: form?.name || String(raw.form || ''), ...(band ? { band: band.name } : {}), master: masterStyle, ...(Object.keys(tweaks).length ? { masterParams: tweaks } : {}),
+    bpm, meter, key: String(raw.key || scale.replace(':', ' ')), scale, chords, hook, parts, sections };
 }
 
 /** The part that gets the one-bar fill before choruses / drops (drums with a "fill" variant). */
@@ -3176,22 +3305,33 @@ function testLibrary(lib, sheet) {
   return null;
 }
 
+/** The sounds for a song sheet: the full list plus the sound guide (what each sound is good for). */
+async function sheetSounds() {
+  const catalog = await soundCatalog().catch(() => '');
+  const reg = await soundRegistry().catch(() => null);
+  if (!reg) return catalog;
+  const avail = new Set(Object.keys(reg));
+  for (const k of Object.keys(reg)) { const i = k.lastIndexOf('_'); if (i > 0 && reg[k].data?.type === 'sample') avail.add(k.slice(0, i)); }
+  const guide = soundGuide(avail);
+  return guide.length ? `${catalog}\n\nSOUND GUIDE — what the most useful sounds are good for (role · character · genres); pick sounds that fit the genre and each other:\n${guide.join('\n')}` : catalog;
+}
 async function writeSongSheet(song, signal) {
-  const choice = formChoice();
+  const choice = formChoice(), bandPick = bandChoice();
   const prev = setl.songs[setl.songs.indexOf(song) - 1]?.sheet;
   let msg = (song.autoTitle ? `SONG (no title yet — give it one in "title"): ${song.desc}\n` : `SONG: "${song.title}" — ${song.desc}\n`) +
     (prev ? `The previous song was ${prev.bpm} bpm, ${normMeter(prev.meter)}, in ${prev.key}; this one should flow from it (a related key or a nearby tempo is nice).\n` : '') +
-    `\n${formsForRequest(choice)}\n\nWrite the song sheet JSON.`;
+    `\n${formsForRequest(choice)}\n\n${bandsForRequest(bandPick)}\n\nMASTER STYLES — set "master" to the one that fits (the band's, unless the description asks for another):\n${stylesForPrompt()}\n\nWrite the song sheet JSON.`;
+  const sounds = await sheetSounds();
   let lastErr;
   for (let attempt = 0; attempt < 3; attempt++) {
     song.phase = 'writing the song sheet';
-    const text = await requestLLM({ mode: 'sheet', messages: [{ role: 'user', content: msg }], signal, label: `“${song.title}” sheet` });
+    const text = await requestLLM({ mode: 'sheet', messages: [{ role: 'user', content: msg }], signal, label: `“${song.title}” sheet`, sounds });
     try {
       const raw = parseJSONLoose(text);
-      const sh = normalizeSheet(raw, choice);
+      const sh = normalizeSheet(raw, choice, { band: bandPick });
       // a song created from a description gets its name from the songwriter
       if (song.autoTitle && typeof raw.title === 'string' && raw.title.trim()) { song.title = raw.title.trim().slice(0, 60); song.autoTitle = false; }
-      clog('ok', `✓ “${song.title}” sheet: ${sh.form || 'form ?'} · ${sh.bpm} bpm · ${sh.key} · ${sh.sections.length} sections · parts ${sh.parts.map((p) => p.id).join(', ')}`);
+      clog('ok', `✓ “${song.title}” sheet: ${sh.form || 'form ?'}${sh.band ? ` · 🎸 ${sh.band}` : ''} · 🎛 ${sh.master} · ${sh.bpm} bpm · ${sh.key} · ${sh.sections.length} sections · parts ${sh.parts.map((p) => p.id).join(', ')}`);
       return sh;
     } catch (e) {
       lastErr = e;
@@ -3671,6 +3811,7 @@ function songViewHTML(sg, live) {
   if (sh) {
     h += `<div class="sv-grid">
       ${sh.form ? `<span class="k">form</span><span>${esc(sh.form)} · ${sh.sections.length} sections · ${sh.sections.reduce((a, x) => a + x.bars, 0)} bars</span>` : ''}
+      <span class="k">sound</span><span>${sh.band ? `🎸 ${esc(sh.band)} · ` : ''}<span class="chip master-chip" title="${esc(MASTER_STYLES[songStyle(sg)]?.desc || '')} — change it in ✎ Edit or live in 🎛 Master">🎛 ${esc(songStyle(sg))}${sh.masterParams && Object.keys(sh.masterParams).length ? ' <small>+ own mix</small>' : ''}</span></span>
       <span class="k">tempo</span><span>${sh.bpm} bpm · ${normMeter(sh.meter)} · ${esc(sh.key)} <code>${esc(sh.scale)}</code></span>
       <span class="k">chords</span><span>${Object.entries(sh.chords).map(([k, v]) => `<span class="chip"><b>${esc(k)}</b> ${esc(v.replace(/^<|>$/g, ''))}</span>`).join(' ')}</span>
       <span class="k">hook</span><span><code>${esc(sh.hook)}</code></span>
@@ -4485,6 +4626,7 @@ function openSettings(sec = 'setGeneral') {
   for (const b of document.querySelectorAll('.settings-tabs button')) b.classList.toggle('active', b.dataset.sec === sec);
   for (const el of document.querySelectorAll('.settings-sec')) el.hidden = el.id !== sec;
   if (sec === 'setForms') renderFormsEditor();
+  if (sec === 'setBands') renderBandsEditor();
   if (sec === 'setStations') renderStations();
   if (sec === 'setPrompts') renderPromptEditor();
   $('settingsMsg').textContent = '';
@@ -4860,6 +5002,177 @@ $('mixerReset').onclick = () => {
   saveMixer();
   applyAllChannels();
   mixer.key = '';
+};
+
+// ---------------------------------------------------------------------------
+// 🎛 Master: the mastering style on the whole mix (master.js), live like a mixer. Every song carries a style
+// ("master" in its sheet, picked by the songwriter or the band) and maybe its own tweaks; with "follow song" on,
+// the master glides to the song's style when the song starts. Moving a control changes the sound at once.
+// ---------------------------------------------------------------------------
+const MASTER_BYPASS = { ...MASTER_DEFAULTS, glue: 0 };
+const master = { chain: null, style: 'clean', params: null, follow: true, songKey: '', bypass: false, dragging: null, msg: '' };
+{
+  const st = load();
+  master.style = normStyle(st.masterStyle) || 'clean';
+  master.params = clampParams(st.masterParams || styleParams(master.style));
+  master.follow = st.masterFollow !== false;
+}
+const saveMaster = (() => { let t; return () => { clearTimeout(t); t = setTimeout(() => save({ masterStyle: master.style, masterParams: master.params, masterFollow: master.follow }), 300); }; })();
+/** The chain on Strudel's output (built the first time, rebuilt when the audio engine was reset). */
+function masterChain() {
+  const ctrl = sdController();
+  const merger = ctrl?.output?.channelMerger, dest = ctrl?.output?.destinationGain;
+  if (!merger || !dest) return null;
+  if (!merger.__master) {
+    const chain = createMaster(merger.context);
+    try { merger.disconnect(); } catch {}
+    merger.connect(chain.input);
+    chain.output.connect(dest);
+    chain.set(master.bypass ? MASTER_BYPASS : master.params, 0);
+    merger.__master = chain;
+  }
+  master.chain = merger.__master;
+  return master.chain;
+}
+window.__masterInstall = () => { try { masterChain(); } catch (e) { console.warn('master chain:', e); } };
+/** Set the master: some controls (live), or a whole style. ramp = seconds to glide. */
+function setMaster(params, ramp = 0.03) {
+  master.params = clampParams({ ...master.params, ...params });
+  if (!master.bypass) masterChain()?.set(master.params, ramp);
+  saveMaster();
+}
+function setMasterStyle(style, tweaks = null, ramp = 0.4) {
+  master.style = normStyle(style) || 'clean';
+  master.params = styleParams(master.style, tweaks);
+  if (!master.bypass) masterChain()?.set(master.params, ramp);
+  saveMaster();
+  syncMasterUI();
+}
+/** The song whose style the master follows: the one playing (or the last one that played). */
+const masterSong = () => (setl.running ? setl.songs[setl.current] : nowSong) || null;
+setInterval(() => {
+  const playing = isPlaying();
+  if (!playing && !master.chain) return;
+  const chain = masterChain();
+  if (!chain) return;
+  chain.setRunning(playing);
+  const cps = scheduler()?.cps;
+  if (cps > 0) chain.setTempo(cps);
+  // follow the song: glide to its style when it starts (or when its style is edited)
+  const sg = playing ? masterSong() : null;
+  const key = sg?.sheet ? `${sg.title}|${songStyle(sg)}|${JSON.stringify(sg.sheet.masterParams || {})}` : '';
+  if (key && key !== master.songKey) {
+    master.songKey = key;
+    if (master.follow) {
+      setMasterStyle(songStyle(sg), sg.sheet.masterParams, 1.2);
+      clog('info', `🎛 master: ${master.style} for “${sg.title}”`);
+    }
+  }
+}, 250);
+
+function renderMasterPanel() {
+  $('masterStyle').innerHTML = STYLE_NAMES.map((n) => `<option value="${n}" title="${esc(MASTER_STYLES[n].desc)}">${n}</option>`).join('');
+  const groups = [...new Set(MASTER_PARAMS.map((d) => d.group))];
+  const ctl = (d) => `<div class="ms-ctl" title="${esc(d.title)} — double-click: the style's value">
+      <input type="range" class="mx-v ms-v" data-k="${d.key}" min="${d.min}" max="${d.max}" step="${d.step}" />
+      <span class="ms-val" data-v="${d.key}"></span><span class="ms-lbl">${d.label}</span></div>`;
+  $('masterBody').innerHTML = groups.map((g) => `<div class="ms-mod"><div class="ms-title">${g}</div><div class="ms-ctls">${MASTER_PARAMS.filter((d) => d.group === g).map(ctl).join('')}</div></div>`).join('') +
+    `<div class="ms-mod ms-scope"><div class="ms-title">Output <span class="ms-gr muted"></span></div>
+      <div class="ms-ctls"><canvas class="ms-spec" width="220" height="96" title="Spectrum of the mastered mix"></canvas>
+      <div class="ms-meters"><canvas class="ms-gr-meter" width="8" height="96" title="Glue compressor gain reduction (0 … −20 dB)"></canvas><canvas class="mx-meter ms-out" width="10" height="96" title="Output level"></canvas></div></div></div>`;
+  syncMasterUI();
+}
+const fmtMaster = (d, v) => (d.unit === 'dB' ? `${v > 0 ? '+' : ''}${v}` : d.key === 'time' ? `${Math.round(v * 16)}/16` : d.key === 'filter' ? (Math.abs(v) < 0.01 ? 'off' : v < 0 ? `LP ${Math.round(-v * 100)}` : `HP ${Math.round(v * 100)}`) : `${Math.round(v * 100)}`);
+function syncMasterUI() {
+  if (!$('masterBody').firstChild) return;
+  $('masterStyle').value = master.style;
+  $('masterFollow').checked = master.follow;
+  $('masterBypass').classList.toggle('on', master.bypass);
+  $('masterBypass').textContent = master.bypass ? 'bypassed — click to hear the style' : 'bypass';
+  const base = styleParams(master.style);
+  for (const d of MASTER_PARAMS) {
+    const v = master.params[d.key];
+    const inp = $('masterBody').querySelector(`input[data-k="${d.key}"]`);
+    if (inp && master.dragging !== d.key) inp.value = v;
+    const lab = $('masterBody').querySelector(`[data-v="${d.key}"]`);
+    if (lab) { lab.textContent = fmtMaster(d, v); lab.classList.toggle('changed', Math.abs(v - base[d.key]) > d.step / 2); }
+  }
+  const sg = masterSong();
+  const tweaked = Object.keys(diffParams(master.params, master.style)).length;
+  $('masterSong').textContent = master.msg || (sg?.sheet ? `“${sg.title}”: ${songStyle(sg)}${sg.sheet.masterParams && Object.keys(sg.sheet.masterParams).length ? ' (its own mix)' : ''}${songStyle(sg) !== master.style ? ` · now: ${master.style}` : ''}${tweaked ? ' · you changed ' + tweaked : ''}` : tweaked ? `${tweaked} control${tweaked > 1 ? 's' : ''} changed from the style` : MASTER_STYLES[master.style].desc);
+}
+setupDock('master', {
+  onShow: () => { if (!$('masterBody').firstChild) renderMasterPanel(); syncMasterUI(); cancelAnimationFrame(master.raf); drawMaster(); ws.minSize?.('master', 250); },
+  onHide: () => cancelAnimationFrame(master.raf),
+});
+setInterval(() => { if (docks.master?.on) syncMasterUI(); }, 1000);
+function drawMaster() {
+  master.raf = requestAnimationFrame(drawMaster);
+  const chain = master.chain, on = isPlaying() && chain;
+  const cv = $('masterBody').querySelector('.ms-spec');
+  if (cv) {
+    const g = cv.getContext('2d'), w = cv.width, h = cv.height;
+    g.fillStyle = '#0b0c10';
+    g.fillRect(0, 0, w, h);
+    g.strokeStyle = '#1d2029';
+    for (const f of [100, 1000, 10000]) { const x = (Math.log10(f / 20) / 3) * w; g.beginPath(); g.moveTo(x, 0); g.lineTo(x, h); g.stroke(); }
+    if (on) drawChannelSpectrum(g, chain.analyser, w, h, '#7c5cff');
+  }
+  const out = $('masterBody').querySelector('.ms-out');
+  if (out) drawMeter(out, on ? levelOf(chain.analyser, master.buf || (master.buf = new Float32Array(2048))) : { rms: 0, peak: 0 });
+  const gr = $('masterBody').querySelector('.ms-gr-meter');
+  if (gr) {
+    const g = gr.getContext('2d'), w = gr.width, h = gr.height;
+    const r = on ? chain.reduction() : { glue: 0, limit: 0 };
+    g.fillStyle = '#0b0c10';
+    g.fillRect(0, 0, w, h);
+    g.fillStyle = '#ffd166';
+    g.fillRect(1, 0, w - 2, Math.min(1, -r.glue / 20) * h); // gain reduction hangs from the top
+    const lab = $('masterBody').querySelector('.ms-gr');
+    if (lab && (master.grShown = (master.grShown || 0) + 1) % 10 === 0) lab.textContent = on ? `glue ${r.glue.toFixed(1)} dB · limit ${r.limit.toFixed(1)} dB` : '';
+  }
+}
+$('masterBody').addEventListener('pointerdown', (e) => { if (e.target.matches('input[type=range]')) master.dragging = e.target.dataset.k; });
+window.addEventListener('pointerup', () => { master.dragging = null; });
+$('masterBody').addEventListener('input', (e) => {
+  const k = e.target.dataset.k;
+  if (!k) return;
+  master.msg = '';
+  if (master.bypass) { master.bypass = false; }
+  setMaster({ [k]: Number(e.target.value) });
+  syncMasterUI();
+});
+$('masterBody').addEventListener('dblclick', (e) => {
+  const k = e.target.dataset?.k;
+  if (!k) return;
+  setMaster({ [k]: styleParams(master.style)[k] }, 0.1);
+  syncMasterUI();
+});
+$('masterStyle').onchange = () => { master.msg = ''; master.bypass = false; setMasterStyle($('masterStyle').value); };
+$('masterFollow').onchange = () => {
+  master.follow = $('masterFollow').checked;
+  saveMaster();
+  master.songKey = ''; // following again: take the playing song's style now
+};
+$('masterRevert').onclick = () => { master.msg = ''; setMasterStyle(master.style); };
+$('masterBypass').onclick = () => {
+  master.bypass = !master.bypass;
+  masterChain()?.set(master.bypass ? MASTER_BYPASS : master.params, 0.05);
+  syncMasterUI();
+};
+$('masterSave').onclick = () => {
+  const sg = masterSong() || songEdit.sg;
+  if (!sg?.sheet) { master.msg = 'play a song first: its style is saved in the song'; syncMasterUI(); return; }
+  sg.sheet.master = master.style;
+  const d = diffParams(master.params, master.style);
+  if (Object.keys(d).length) sg.sheet.masterParams = d; else delete sg.sheet.masterParams;
+  master.songKey = `${sg.title}|${songStyle(sg)}|${JSON.stringify(sg.sheet.masterParams || {})}`;
+  if (isMine(sg)) saveMySongs();
+  lastSongsKey = '';
+  renderSongs();
+  master.msg = `✓ saved in “${sg.title}”: ${master.style}${Object.keys(d).length ? ` + ${Object.keys(d).length} tweak${Object.keys(d).length > 1 ? 's' : ''}` : ''}${isMine(sg) ? '' : ' (📁 save the song to keep it)'}`;
+  syncMasterUI();
+  setTimeout(() => { master.msg = ''; }, 6000);
 };
 
 // ---------------------------------------------------------------------------
@@ -5606,7 +5919,8 @@ document.addEventListener('visibilitychange', () => { if (!document.hidden) load
 // --- editing a song: re-arranged by the app (no AI), live if it's playing
 function rawSheet(sh) {
   return {
-    form: sh.form, bpm: sh.bpm, meter: normMeter(sh.meter), key: sh.key, scale: sh.scale, hook: sh.hook,
+    form: sh.form, ...(sh.band ? { band: sh.band } : {}), master: sh.master || 'clean', ...(sh.masterParams ? { masterParams: sh.masterParams } : {}),
+    bpm: sh.bpm, meter: normMeter(sh.meter), key: sh.key, scale: sh.scale, hook: sh.hook,
     chords: Object.fromEntries(Object.entries(sh.chords).map(([k, v]) => [k, v.replace(/^<|>$/g, '')])),
     parts: sh.parts.map((p) => ({ name: p.id, role: p.role, sound: p.sound, variants: p.variants, desc: p.desc })),
     sections: sh.sections.map((x) => ({ name: x.name, bars: x.bars, chords: x.chords, play: x.play.map((y) => (y.variant === 'main' ? y.part : `${y.part}.${y.variant}`) + (y.enter ? `@${y.enter}` : '')), ...(x.shift ? { shift: x.shift } : {}), ...(x.bpm ? { bpm: x.bpm } : {}) })),
@@ -5698,7 +6012,7 @@ function openSongEditor(sg) {
 function songEditorHTML(sg) {
   const r = rawSheet(sg.sheet);
   return `<div class="sv-edit">
-    <div class="sv-edit-row"><label>title <input data-f="title" value="${esc(sg.title)}" /></label><label>bpm <input data-f="bpm" type="number" min="50" max="200" value="${r.bpm}" /></label><label>meter <select data-f="meter">${METERS.map((m) => `<option${m === r.meter ? ' selected' : ''}>${m}</option>`).join('')}</select></label><label>scale <input data-f="scale" value="${esc(r.scale)}" /></label></div>
+    <div class="sv-edit-row"><label>title <input data-f="title" value="${esc(sg.title)}" /></label><label>bpm <input data-f="bpm" type="number" min="50" max="200" value="${r.bpm}" /></label><label>meter <select data-f="meter">${METERS.map((m) => `<option${m === r.meter ? ' selected' : ''}>${m}</option>`).join('')}</select></label><label>scale <input data-f="scale" value="${esc(r.scale)}" /></label><label title="The master style: the mastering on the whole song (tweak it live in 🎛 Master)">master <select data-f="master">${STYLE_NAMES.map((n) => `<option${n === r.master ? ' selected' : ''}>${n}</option>`).join('')}</select></label></div>
     <label>chords — <span class="muted">one per line: <code>name: Am F C G</code></span>
       <textarea data-f="chords" rows="3">${esc(Object.entries(r.chords).map(([k, v]) => `${k}: ${v}`).join('\n'))}</textarea></label>
     <label>sections — <span class="muted">one per line: <code>name | bars | chords | parts (part or part.variant)</code>, optionally <code>| key +2, 106 bpm</code></span>
@@ -5719,6 +6033,7 @@ async function saveSongEditor(el, sg) {
   raw.meter = v('meter') || raw.meter;
   raw.scale = v('scale').trim() || raw.scale;
   raw.key = raw.scale.replace(':', ' ');
+  if (v('master') !== raw.master) { raw.master = v('master'); delete raw.masterParams; } // a new style starts from its own settings
   raw.chords = Object.fromEntries(lines(v('chords')).map((l) => { const i = l.indexOf(':'); return [l.slice(0, i).trim(), l.slice(i + 1).trim()]; }).filter(([k, c]) => k && c));
   raw.parts = lines(v('parts')).map((l) => { const [name, role, sound, variants] = l.split('|').map((x) => (x || '').trim()); return { name, role, sound, variants: (variants || 'main').split(/[,\s]+/).filter(Boolean) }; });
   raw.sections = lines(v('sections')).map((l) => {
@@ -5839,14 +6154,14 @@ function activeSong() {
   const viewed = viewedSong('set');
   return viewed?.sheet && viewed.library ? viewed : null;
 }
-const SONG_WORDS = /\b(song|section|sections|verse|chorus|bridge|intro|outro|drop|build|breakdown|break|structure|form|arrange|arrangement|chords?|progression|parts?|bars?|hook|tempo|bpm|key)\b/i;
+const SONG_WORDS = /\b(song|section|sections|verse|chorus|bridge|intro|outro|drop|build|breakdown|break|structure|form|arrange|arrangement|chords?|progression|parts?|bars?|hook|tempo|bpm|key|master|mastering|mix|style|band|lo-?fi)\b/i;
 /** Extra context for a chat request — only when the message is about the song / pads (keeps requests small). */
 function chatContext(text) {
   const out = [];
   const target = chatTarget();
   const sg = activeSong();
   if (sg && (target === 'song' || (target === 'auto' && SONG_WORDS.test(text)))) {
-    out.push(`ACTIVE SONG "${sg.title}" — sheet JSON:\n${JSON.stringify(rawSheet(sg.sheet))}\nPARTS CODE:\n\`\`\`javascript\n${sg.library}\n\`\`\``);
+    out.push(`ACTIVE SONG "${sg.title}" — sheet JSON ("master" is the song's mastering style, one of: ${STYLE_NAMES.join(', ')}; "masterParams" optional tweaks of it: ${MASTER_PARAMS.map((d) => `${d.key} ${d.min}…${d.max}`).join(', ')}):\n${JSON.stringify(rawSheet(sg.sheet))}\nPARTS CODE:\n\`\`\`javascript\n${sg.library}\n\`\`\``);
   }
   if (target === 'song' && sg) {
     out.push('TARGET: THE WHOLE SONG. Make the change across the song — its sections, form, chords, parts and their variants — ' +
@@ -6061,4 +6376,4 @@ function songMp3(sg) {
 }
 
 // handy for debugging from the browser console
-window.strudelAI = { ws, mixer, mixerChannels, normalizeSheet, playSong, songMp3, loadPads, songPads, transposeProgression, sectionCode, getForms: () => songForms, getFavorites: () => favorites, loadFavorites, getPads: () => pads, mySongs, activeSong, songFromJSON, songToJSON, mp3, session, pads, padsState, keysState, noteOn, noteOff, setPad, docks, rec, replay, startReplay, recordingForShare, viz, checkScales, checkSounds, prepareCode, evaluateCode, dryRun, hum, transcribe, ensureSliders, setlist, setl };
+window.strudelAI = { ws, mixer, mixerChannels, master, masterChain, getBands: () => bands, normalizeSheet, playSong, songMp3, loadPads, songPads, transposeProgression, sectionCode, getForms: () => songForms, getFavorites: () => favorites, loadFavorites, getPads: () => pads, mySongs, activeSong, songFromJSON, songToJSON, mp3, session, pads, padsState, keysState, noteOn, noteOff, setPad, docks, rec, replay, startReplay, recordingForShare, viz, checkScales, checkSounds, prepareCode, evaluateCode, dryRun, hum, transcribe, ensureSliders, setlist, setl };

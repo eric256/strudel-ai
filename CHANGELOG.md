@@ -2,6 +2,16 @@
 
 The version is in `package.json`. Bump it when you release. Open pages also notice *any* redeploy through the build id, which is a hash of the app files, even if the version wasn't bumped.
 
+## 1.31.0
+- **🎛 Master styles:** every song now has a mastering style on the whole mix: clean, lo-fi, warm, pop, techno, house, edm, dnb, hiphop, synthwave, ambient, dub, cinematic, rock, chiptune or radio. The songwriter picks it (or takes the band's), it shows in the song's details, and ✎ Edit song and the chat can change it.
+  - The chain: 3-band EQ, DJ filter, drive, bit crush, vinyl noise, reverb, tempo-synced echo, stereo width, glue compressor and a limiter.
+- **🎛 Master panel:** plays the master style live, like a mixer. It has 16 controls, a style picker, *follow song* (glides to each song's style when it starts), 💾 save to song, ↺ style, bypass, a spectrum, an output meter and gain reduction.
+- **🎸 Bands:** 13 built-in line-ups (instruments by role plus a master style), editable in ⚙ Settings → 🎸 Bands.
+  - Pick one for new songs in Songs or Station, or leave it on *auto* and the AI picks the band that fits the genre.
+  - The sheet is held to the band: each part takes the band's sound for its role.
+- **Sound guide:** the song-sheet request now describes the useful sounds (role · character · genres), so the AI picks sounds that suit the genre and each other.
+- Fixed a rare "Cannot access 'setlist' before initialization" error while the page loads.
+
 ## 1.30.1
 - **Fewer songs written block by block:**
   - When the AI's part library is missing some parts, it's asked for just those, which are added to what it wrote, instead of rewriting everything.

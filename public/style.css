@@ -616,3 +616,23 @@ body.hydra-on { background: #000; }
 .code-bar button.on { border-color: var(--accent-2); box-shadow: 0 0 0 1px var(--accent-2) inset; }
 .code-bar .np-line { margin-left: 6px; }
 body.hydra-on .code-bar { background: color-mix(in srgb, var(--panel-2) 80%, transparent); }
+
+/* 🎛 Master: the mastering style, live */
+.ms-body { flex: 1; min-height: 0; display: flex; gap: 6px; padding: 6px 10px 8px; overflow: auto; align-items: stretch; background: #101217; }
+.ms-mod { display: flex; flex-direction: column; gap: 4px; padding: 4px 6px 6px; border: 1px solid #262a36; border-top: 2px solid var(--accent); border-radius: 4px; background: linear-gradient(#1c1f28, #16181f); flex-shrink: 0; }
+.ms-title { font: 600 11px/14px var(--mono); color: var(--muted); text-transform: uppercase; letter-spacing: .04em; white-space: nowrap; }
+.ms-ctls { flex: 1; display: flex; gap: 6px; min-height: 0; }
+.ms-ctl { display: flex; flex-direction: column; align-items: center; gap: 2px; width: 36px; min-height: 0; }
+.ms-v { flex: 1; width: 22px; min-height: 70px; }
+.ms-val { font: 10px var(--mono); color: var(--muted); white-space: nowrap; }
+.ms-val.changed { color: #ffd166; }
+.ms-lbl { font: 600 10px var(--mono); color: var(--text); }
+.ms-scope .ms-ctls { align-items: stretch; }
+.ms-spec { width: 220px; height: 100%; min-height: 70px; border: 1px solid #262a36; border-radius: 3px; background: #0b0c10; }
+.ms-meters { display: flex; gap: 3px; }
+.ms-meters canvas { height: 100%; min-height: 70px; border-radius: 2px; }
+.ms-gr-meter { width: 8px; }
+.ms-gr { text-transform: none; letter-spacing: 0; font-weight: 400; }
+#masterBypass.on { color: #ffd166; }
+.master-chip { border-color: #7c5cff; }
+.chip.bad { border-color: var(--danger); color: var(--danger); }

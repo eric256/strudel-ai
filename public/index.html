@@ -19,6 +19,7 @@
       <button id="keysBtn" title="Show / hide the keyboard (play live, record a part)">🎹<span class="lbl"> Keys</span></button>
       <button id="padsBtn" title="Show / hide the 4×4 sound pad">🔲<span class="lbl"> Pads</span></button>
       <button id="mixerBtn" title="Mixer: every part with volume, 3-band EQ, mute and solo">🎚<span class="lbl"> Mixer</span></button>
+      <button id="masterBtn" title="Master: the mastering style on the whole mix (EQ, filter, drive, space, echo, glue) — live">🎛<span class="lbl"> Master</span></button>
       <button id="consoleBtn" title="Console: follow what the AI is writing, the checks and fixes, and any errors">🖥<span class="lbl"> Console</span></button>
       <span class="ws-menu-wrap"><button id="layoutBtn" title="Panels: open or close chat, songs, station, the playing song, visualizer, keys, pads and console — or reset the layout">▦<span class="lbl"> Panels</span></button>
         <div id="layoutMenu" class="share-pop layout-menu" hidden></div></span>
@@ -132,6 +133,11 @@
             <select id="setForm" class="form-select"></select></label>
           <button class="link forms-edit" title="See, edit and add song forms">🎼 edit forms</button>
         </div>
+        <div class="sl-buttons">
+          <label title="The band new songs are written for: its instruments and master style — auto picks one that fits each song's genre">band
+            <select id="setBand" class="form-select"></select></label>
+          <button class="link bands-edit" title="See, edit and add bands">🎸 edit bands</button>
+        </div>
         <div class="my-head">
           <b>★ Favorites</b> <span class="muted small" title="Favorites are stored on this server: everyone who opens it sees them, and they survive restarts">shared on this server</span>
         </div>
@@ -167,6 +173,11 @@
           <label title="Song form for the station's songs — auto picks one that fits each song's genre">form
             <select id="stationForm" class="form-select"></select></label>
           <button class="link forms-edit" title="See, edit and add song forms">🎼 edit forms</button>
+        </div>
+        <div class="sl-buttons">
+          <label title="The band the station's songs are written for — auto picks one that fits each song's genre">band
+            <select id="stationBand" class="form-select"></select></label>
+          <button class="link bands-edit" title="See, edit and add bands">🎸 edit bands</button>
         </div>
         <div id="stationNow" class="on-air" hidden></div>
         <div class="sl-buttons"><span class="spacer"></span><button class="link log-dl" title="Download every song played this session as a text file">⬇ played this session</button></div>
@@ -286,6 +297,20 @@
         </div>
         <div id="mixerStrips" class="mx-strips"></div>
       </section>
+      <section id="master-dock" class="panel dock">
+        <div class="viz-bar">
+          <b>🎛 Master</b>
+          <label title="The mastering style: a starting point for every control below">style
+            <select id="masterStyle"></select></label>
+          <label title="Switch to each song's own master style when it starts"><input type="checkbox" id="masterFollow" checked /> follow song</label>
+          <span id="masterSong" class="muted small"></span>
+          <span class="spacer"></span>
+          <button id="masterSave" class="link" title="Store this style and these settings in the playing song (and My songs)">💾 save to song</button>
+          <button id="masterRevert" class="link" title="Back to the style's own settings">↺ style</button>
+          <button id="masterBypass" class="link" title="Hear the mix without the master style (A/B)">bypass</button>
+        </div>
+        <div id="masterBody" class="ms-body"></div>
+      </section>
       <section id="console-dock" class="panel dock">
         <div class="viz-bar">
           <b>🖥 Console</b>
@@ -321,6 +346,7 @@
       <button data-sec="setAI">🤖 AI</button>
       <button data-sec="setPrompts">📝 Prompts</button>
       <button data-sec="setForms">🎼 Song forms</button>
+      <button data-sec="setBands">🎸 Bands</button>
       <button data-sec="setStations">📻 Stations</button>
       <button data-sec="setBackup">💾 Backup</button>
     </nav>
@@ -394,6 +420,23 @@
       <textarea id="formSections" rows="5" placeholder="intro 4, verse 8, chorus 8, verse 8, chorus 8, outro 4"></textarea></label>
     <div id="formPreview" class="form-preview"></div>
     <div class="sl-buttons"><span class="spacer"></span><button id="formReset" class="link" title="Bring back the built-in forms (your own forms are kept)">restore built-in forms</button></div>
+    </section>
+    <section id="setBands" class="settings-sec" hidden>
+    <p class="muted small">A band is a line-up of instruments and a master style. Songs are written for a band: the AI uses its
+      instruments (one part per instrument, by role) and the app masters the song in the band's style. Pick a band in the Songs /
+      Station tab, or leave it on auto and the AI picks the band that fits the genre. Saved in this browser.</p>
+    <div class="station-row">
+      <select id="bandSelect" title="Bands"></select>
+      <button id="bandNew">＋ New</button>
+      <button id="bandDelete" class="link">delete</button>
+    </div>
+    <label class="field">Name <input id="bandName" maxlength="40" placeholder="lo-fi trio" /></label>
+    <label class="field">Use for (genres / moods) <input id="bandUse" maxlength="200" placeholder="lo-fi, chillhop, jazz-hop" /></label>
+    <label class="field">Master style <select id="bandMaster"></select></label>
+    <label class="field">Instruments — <span class="muted">one per line: <code>role: sound — what it plays</code> (roles: drums, perc, bass, chords, pad, arp, melody, counter, fx)</span>
+      <textarea id="bandInstruments" rows="8" spellcheck="false" placeholder="drums: akaimpc60 — dusty boom-bap kit&#10;bass: gm_acoustic_bass — upright, round"></textarea></label>
+    <div id="bandPreview" class="form-preview"></div>
+    <div class="sl-buttons"><span class="spacer"></span><button id="bandReset" class="link" title="Bring back the built-in bands (your own bands are kept)">restore built-in bands</button></div>
     </section>
     <section id="setStations" class="settings-sec" hidden>
       <p class="muted small">A station is a name and a theme; the 📻 Station tab plays it.</p>

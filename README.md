@@ -211,6 +211,14 @@ A form lists a song's sections with their lengths, e.g. `intro 4, verse 8, pre-c
 - **form** (in each tab): *auto* lets the AI pick the form that fits each song's genre, or you choose one form for every song.
 - **The form decides section lengths.** If the AI returns the form's sections, their bar counts are replaced with the form's. If it returns a different number of sections, each one is capped at the form's longest section, or at 16 bars when no form matches.
 
+### 🎸 Bands and the sound guide
+A band is a line-up of instruments (`role: sound — what it plays`) plus a master style.
+- **Built-in bands:** lo-fi trio, house crew, techno rig, synthwave, jazz combo, hip hop producer, drum & bass unit, pop band, rock band, ambient ensemble, cinematic orchestra, dub sound system and chip band.
+- **band** (in the Songs and Station tabs): *auto* lists every band in the song-sheet request and the AI picks the one that fits the genre (or none, and chooses its own sounds). Pick a band and every new song is written for it.
+- **The band's instruments win:** each part of the sheet takes the band's sound for its role (a band with two pads hands them out in turn). Parts whose role the band doesn't have keep the AI's sound.
+- **🎸 edit bands** opens ⚙ Settings → 🎸 Bands: change a band's name, genres, master style and instruments, add your own, delete any, or restore the built-ins. Sounds that aren't loaded are marked in red.
+- **Sound guide:** the song-sheet request also describes about 120 of the most useful sounds (role · character · genres, e.g. `gm_epiano1: chords, comping · warm Rhodes · lo-fi, neo-soul, jazz, chillhop`), so the AI picks sounds that fit the genre and each other instead of guessing from names. Only loaded sounds are listed (`public/sounds.js`).
+
 ### 🎵 Songs
 
 **Create a song in the chat:** in 💬 Chat pick 🎯 **✨ new song** and describe it, e.g. *"dreamy synthwave at 100 bpm with a big hook"* (or *"Night Drive | synthwave, 100 bpm, A minor, slow build, big chorus"* to name it yourself). The AI names it, writes it, and it plays as soon as its first section is ready. If a song is already playing, the new one plays next (⏭ skips to it). The chat then goes back to *auto*, which works on the song that's playing.
@@ -379,6 +387,20 @@ How it works:
 - **flat EQ** resets every EQ and pan. **reset all** also resets faders, mutes and solos.
 - Anonymous `$:` lines share the default bus and don't get a channel: name them (e.g. `lead:`) to mix them.
 
+## 🎛 Master (mastering style)
+Every song has a **master style**: post-processing on the whole mix, picked by the songwriter (or the band) and shown in the song's details as 🎛. Styles: clean, lo-fi, warm, pop, techno, house, edm, dnb, hiphop, synthwave, ambient, dub, cinematic, rock, chiptune and radio.
+
+The chain sits between Strudel's output and the master volume:
+EQ (low shelf 120 Hz · mid 1 kHz · high shelf 6 kHz) → DJ filter (low-pass ← off → high-pass, with resonance) → drive (tape-style saturation) → crush (bit reduction) → reverb and tempo-synced echo sends, vinyl hiss and crackle → stereo width → glue compressor with makeup gain → output level → limiter (−1 dB).
+
+**🎛 Master** opens the panel to play it live, like a mixer:
+- A vertical control for each of the 16 settings, grouped EQ, Filter, Color, Space, Echo, Dynamics and Output. A value in yellow differs from the style. Double-click a control to return it to the style's value.
+- **Output:** the mastered spectrum, the level meter and the glue / limiter gain reduction.
+- **style** loads a style. **↺ style** throws away your tweaks. **bypass** lets you hear the mix without it (A/B).
+- **follow song** (on by default): when a song starts, the master glides to its style and its own tweaks.
+- **💾 save to song** stores the style and your tweaks in the playing song (in its sheet as `master` / `masterParams`, kept in 📁 My songs, files and links).
+- In ✎ Edit song, **master** changes the song's style. The chat can change it too ("make it more lo-fi", "give it a dub feel").
+
 ## Master volume
 The 🔊 fader in the header sets the overall output level (0–150%), and double-clicking it resets it to 100%. It's remembered, and "duck music" while humming lowers it relative to this level.
 
@@ -415,7 +437,7 @@ bass: note("c2*8").s("sawtooth").lpf(slider(1200, 200, 4000)).gain(slider(0.6, 0
 
 ## Panels and layout
 
-Every part of the app is a panel in [dockview](https://dockview.dev): the code editor ⌨, Chat 💬, Songs 🎵, Station 📻, **Now playing** 🎶, Visualizer 📊, Keys 🎹, Pads 🔲, Mixer 🎚 and Console 🖥.
+Every part of the app is a panel in [dockview](https://dockview.dev): the code editor ⌨, Chat 💬, Songs 🎵, Station 📻, **Now playing** 🎶, Visualizer 📊, Keys 🎹, Pads 🔲, Mixer 🎚, Master 🎛 and Console 🖥.
 
 - **Tabs and splits:** drag a tab onto another group to tab it there, or onto any edge of any group to split it. Splits can nest as deeply as you like, and you drag the bars between groups to resize them. A panel you open joins the group its kind already lives in (the tools go below the code, the song panels go on the right).
 - **Right-click a tab** to **maximise** its group, **float** it as a window, or **pop it out** into its own browser window, e.g. the visualizer or mixer on a second screen.
