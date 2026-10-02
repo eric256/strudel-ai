@@ -2,6 +2,16 @@
 
 The version is in `package.json`. Bump it when you release. Open pages also notice *any* redeploy through the build id, which is a hash of the app files, even if the version wasn't bumped.
 
+## 1.26.1
+- **AI edits of a playing song work:**
+  - With the chat on **auto** and a song playing, requests go to the **whole song** (the selector shows "auto → whole song"). Before, the AI edited the section's code and sometimes pasted the song's parts back into the editor, which failed.
+  - A reply that rewrites the song's parts as editor code (`const`s, or `part_variant:` labels) is now applied to the song's parts.
+- **Clearer errors for two common mistakes:**
+  - A label holding a function (`bass_main: (prog) => …`) used to fail with `.p is not a function`.
+  - Code that only defines consts used to fail with "unexpected ast format without body expression".
+
+  Both now get a plain explanation that the AI can fix, and the prompt warns about them.
+
 ## 1.26.0
 - **🎨 Part visuals:** each part of a song section gets a Strudel inline visual under its line, in the part's colour, picked by its role: a punchcard for drums, a piano roll for bass and arps, a spiral for chords and pads, a pitch wheel for melodies, a scope for fx. Turn it on or off in ⚙ Settings → General.
 - **🌀 Hydra visuals:** the visualizer has Hydra backgrounds behind the code, fed by Strudel's visuals (`initHydra({ feedStrudel: 1 })`). There are presets (kaleidoscope, tunnel, waves, cells, feedback), your own code (**✎ code**), and a **mix** slider. Hydra is served locally.

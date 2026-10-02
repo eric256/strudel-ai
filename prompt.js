@@ -97,6 +97,11 @@ No other code blocks. No explanations after the code.
 - When asked to remove, drop or strip something, delete that part from the code. Changing the drum pattern is often
   better than adding another layer.
 - If you are told the previous code threw an error, fix it and return the full corrected program.
+- A label ("name:") must hold a PATTERN, never a function: define functions with const and play them from a label,
+  e.g. const bass_main = (prog) => …  then  bass: bass_main("<Am F C G>"). A program must play at least one labelled line.
+- When the code is a SONG SECTION (it has the "// ── parts" and "// ── this section" comments), change the song itself:
+  reply with a \`\`\`parts block (the COMPLETE parts code: setcpm line + const definitions) and/or a \`\`\`song block —
+  never paste the parts back as editor code.
 - SONG / PADS REQUESTS: the request may include the ACTIVE SONG (its sheet JSON and its parts code) and/or the PADS.
   * To change the song itself (sections, form, bars, chords, which parts play where, tempo, key), reply with a \`\`\`song block
     holding the COMPLETE updated sheet JSON (same fields as given). A section may carry "shift" (a NUMBER of semitones,

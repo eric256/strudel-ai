@@ -1409,7 +1409,26 @@ function ensureSliders(code) {
 }
 
 /** Validate + correct + preload. Reports to chat. Returns { code, error } */
-async function prepareCode(code, { quiet = false } = {}) {
+/**
+ * Mistakes in the program's shape that Strudel reports cryptically: a label holding a function
+ * ("bass_main: (prog) => …" → ".p is not a function"), or only const definitions and nothing that plays
+ * ("unexpected ast format without body expression").
+ */
+function codeShapeError(code) {
+  const fnLabel = code.match(/^([A-Za-z_$][\w$]*):\s*\(?\s*[A-Za-z_$]*\s*\)?\s*=>/m);
+  if (fnLabel) {
+    return `"${fnLabel[1]}:" holds a function, but a label must hold a PATTERN. Define functions with const ` +
+      `(const ${fnLabel[1]} = (prog) => …) and play them from a labelled line with the chords: ${fnLabel[1].replace(/_\w+$/, '')}: ${fnLabel[1]}("<Am F C G>").`;
+  }
+  const body = code.replace(/\/\/.*$/gm, '').split('\n').filter((l) => l.trim());
+  if (body.length && !patternLines(code).length && body.every((l) => /^\s*(const|let|var|setcp[ms]|[)\].,]|\.)/.test(l) || /^\s+/.test(l))) {
+    return 'the program only defines consts and plays nothing: add labelled lines that play them (name: pattern).';
+  }
+  return null;
+}
+async function prepareCode(code, { quiet = false, library = false } = {}) {
+  const shape = library ? null : codeShapeError(code); // a song's part library is only consts, by design
+  if (shape) return { code, error: shape, corrections: [] };
   const sl = ensureSliders(code);
   if (sl.added || sl.fixed) {
     clog('fix', `🎚 ${[sl.added && `added ${sl.added} gain slider${sl.added > 1 ? 's' : ''}`, sl.fixed && `fixed ${sl.fixed} slider range${sl.fixed > 1 ? 's' : ''}`].filter(Boolean).join(', ')}`);
@@ -1503,7 +1522,13 @@ async function runTurn(userText, attempt = 0, bubble = null, failedCode = null) 
   const giveUp = (msg) => { setBubbleNote(bubble, '⚠ not applied', msg); warnUser(msg); };
 
   // song structure / parts / pads answers
-  const songBlock = fencedBlock(text, 'song'), partsBlock = fencedBlock(text, 'parts'), padsBlock = fencedBlock(text, 'pads');
+  const songBlock = fencedBlock(text, 'song'), padsBlock = fencedBlock(text, 'pads');
+  let partsBlock = fencedBlock(text, 'parts');
+  // a reply that rewrote the song's part library as editor code (consts or "part_variant:" labels) is a parts edit
+  if (!partsBlock && code && chatTarget() !== 'code') {
+    const lib = libraryFromReply(code, activeSong());
+    if (lib) { clog('fix', '🎵 the reply rewrote the song’s parts as editor code — applying it to the song’s parts instead'); partsBlock = lib; code = null; }
+  }
   const notes = [];
   if (padsBlock) {
     try { const done = applyPadsReply(padsBlock); if (done) notes.push(`🔲 ${done}`); }
@@ -3154,7 +3179,7 @@ async function writeSongLibrary(song, signal, { fix = null, prev = null } = {}) 
       else if (patternLines(lib).length) err = 'the library must not contain labelled lines like "drums:" or "$:" — only const definitions';
       else err = syntaxError(lib);
       if (!err) {
-        const prep = await prepareCode(lib, { quiet: true });
+        const prep = await prepareCode(lib, { quiet: true, library: true });
         lib = prep.code;
         err = prep.error || testLibrary(lib, sh)?.message || null;
       }
@@ -5482,7 +5507,7 @@ async function applySongEdit(sg, raw, partsCode = null) {
   if (patternLines(lib).length) return 'the parts code must only contain const definitions (no "name:" lines)';
   const syn = syntaxError(lib);
   if (syn) return `the parts code has a syntax error: ${syn}`;
-  const prep = await prepareCode(lib, { quiet: true });
+  const prep = await prepareCode(lib, { quiet: true, library: true });
   if (prep.error) return prep.error;
   lib = prep.code;
   const testErr = testLibrary(lib, sheet);
@@ -5702,10 +5727,30 @@ function chatContext(text) {
   }
   return out.join('\n\n');
 }
-/** 🎯 What the chat works on: auto | code | song | pads ("song" falls back to auto when no song is open). */
+/**
+ * 🎯 What the chat works on: auto | code | song | pads. "song" falls back to auto when no song is open; auto means the
+ * whole song while the editor shows a section of the song that's playing (an edit to just that section's code would
+ * be replaced at the next section), otherwise the code.
+ */
 function chatTarget() {
   const v = $('chatTarget').value;
-  return v === 'song' && !activeSong() ? 'auto' : v;
+  if (v === 'song') return activeSong() ? 'song' : 'auto';
+  if (v === 'auto' && songSectionInEditor()) return 'song';
+  return v;
+}
+const songSectionInEditor = () => {
+  const sg = activeSong();
+  return !!(sg && setl.running && setl.songs[setl.current] === sg && getCode().includes(SEC_START));
+};
+/** If editor code from the AI is really the song's part library, return it as library code (consts), else null. */
+function libraryFromReply(code, sg) {
+  if (!sg?.sheet || !sg.library) return null;
+  const ids = new Set(libraryIds(sg.sheet));
+  const lines = code.split('\n');
+  const named = lines.map((l) => l.match(/^(?:const\s+|let\s+|var\s+)?([A-Za-z_$][\w$]*)\s*(?:=|:(?!:))/)?.[1]).filter((n) => n && ids.has(n));
+  if (new Set(named).size < 2) return null; // not the library — ordinary code
+  if (code.includes(SEC_START) || /^\s*const sectionChords\b/m.test(code)) return null; // a whole section, not just parts
+  return lines.map((l) => l.replace(/^([A-Za-z_$][\w$]*):(?!:)\s*/, (m, n) => (ids.has(n) || /_\w+$/.test(n) ? `const ${n} = ` : m))).join('\n');
 }
 if (saved.chatTarget) $('chatTarget').value = saved.chatTarget;
 $('chatTarget').onchange = () => { save({ chatTarget: $('chatTarget').value }); renderChatTarget(); };
@@ -5715,7 +5760,9 @@ function renderChatTarget() {
   const opt = $('chatTarget').querySelector('option[value="song"]');
   const label = sg ? `🎵 whole song: ${sg.title.slice(0, 28)}` : '🎵 whole song (none open)';
   if (opt.textContent !== label) opt.textContent = label;
-  $('input').placeholder = { song: sg ? `Change the whole song “${sg.title}”… (sections, chords, parts)` : 'No song is open — open one in 🎵 Songs (Enter to send)', pads: 'Program or press the pads… (Enter to send)', code: 'Change the code in the editor… (Enter to send, Shift+Enter for newline)' }[$('chatTarget').value]
+  const auto = $('chatTarget').value === 'auto' && songSectionInEditor();
+  $('chatTarget').querySelector('option[value="auto"]').textContent = auto ? 'auto → whole song' : 'auto';
+  $('input').placeholder = { song: sg ? `Change the whole song “${sg.title}”… (sections, chords, parts)` : 'No song is open — open one in 🎵 Songs (Enter to send)', pads: 'Program or press the pads… (Enter to send)', code: 'Change the code in the editor… (Enter to send, Shift+Enter for newline)' }[auto ? 'song' : $('chatTarget').value]
     || 'Make it groovier… (Enter to send, Shift+Enter for newline)';
 }
 setInterval(renderChatTarget, 1000);
