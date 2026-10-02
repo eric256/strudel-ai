@@ -2,6 +2,9 @@
 
 The version is in `package.json`. Bump it when you release. Open pages also notice *any* redeploy through the build id, which is a hash of the app files, even if the version wasn't bumped.
 
+## 1.31.2
+- **Favicon:** the browser tab, bookmarks and popped-out panels show the app's icon, three mixer faders in the purple-to-teal accent. It comes as an SVG with PNG fallbacks (32 px, plus 180 px for the iOS home screen) and a web manifest, so the app can be installed with its own icon.
+
 ## 1.31.1
 - **The window no longer scrolls away:** the page is a fixed frame. Focusing a text box, or the editor bringing its cursor into view, could scroll the whole window and push everything off the top. The page and the workspace can no longer scroll; only the panels inside them do.
 
