@@ -221,6 +221,8 @@ Every finished song has a toolbar:
 
 **Chat edits the song, too:** with a song playing (or open in the Songs tab), ask things like *"make the chorus 16 bars"*, *"add a breakdown before the last chorus"* or *"give the bass a funkier line"*. The chat changes the song's sheet and parts, and they're checked and re-arranged the same way. The song is only sent to the AI when your message is about the song (sections, chorus, chords, parts …), which keeps requests small.
 
+**Following along:** in a song view, the playing section fills up as it plays and shows `bar 3/8 · next in 0:06`, so you know when the next section starts. It adds `then ↑ 108 bpm` when the next section changes tempo. Section lines mark tempo changes (`♩ ↑ 108 bpm`) and key moves (`key +2`, `key home`).
+
 **Key and tempo can move:** where the genre does it, a section may lift the key (e.g. a pop or gospel last chorus +1 or +2 semitones) or push the tempo a little (up to ±8%). Chords and melodies move with the key and drums never do. Dance genres like techno and house keep one key and tempo. The song view marks those sections (`key +2`, `108 bpm`), and the song editor takes them as an optional last column: `chorus | 4 | chorus | drums, bass | key +2, 108 bpm`.
 
 **Song pads** are made from the song itself, with no AI:

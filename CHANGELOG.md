@@ -9,6 +9,8 @@ The version is in `package.json`. Bump it when you release. Open pages also noti
 - **Song pads follow the songs:** turning on 🔲 Song pads (or **follow song** in the pad dock) stays on, and the dock switches to each new song's pads as songs change.
 - **Song pads always play:** song part pads (e.g. the lead or hook) carry their own code. They no longer fail with "lead_main is not defined" when another song or your own code is playing. Pads saved with older songs are repaired when the song loads.
 - **Part pads show and switch the song's parts:** song pads start with one pad per part. A part pad is lit while the section plays that part, and pressing it mutes or unmutes the section's own line instead of adding a second copy.
+- **Section progress:** the playing section fills up as it plays, with `bar 3/8 · next in 0:06` beneath it. It also says when the next section changes tempo (`then ↑ 108 bpm`), and shows `⏸ holding` while a section is held.
+- **Tempo and key changes on the section lines:** each section line marks where the tempo moves (`♩ ↑ 108 bpm`) or the key moves (`key +2`, `key home`) compared with the section before.
 - **Tempo pads:** **tempo −¼** and **tempo +¼** (hold) play everything at ¾ or 1¼ speed.
 
 ## 1.21.0

@@ -3308,17 +3308,25 @@ function songViewHTML(sg, live) {
       h += `<div class="sv-tools"><button class="sv-hold" title="Stay on the current section until you pick another one">${setlist.hold ? '▶ continue the song' : '⏸ hold this section'}</button>
         <small class="muted">Alt+1…9 jump to a section</small></div>`;
     }
+    // tempo and key of every section, so the lines can mark where they change
+    const tempos = steps.map(stepTempo), shifts = steps.map((st) => st.section?.shift || 0);
     h += '<div class="sv-sections">' + steps.map((st, j) => {
       const i = setlist.steps.indexOf(st);
       const queued = i >= 0 && setlist.jumpTarget === i && st.status !== 'armed' && st.status !== 'playing';
       const sec = st.section;
       const parts = sec ? sec.play.map((x) => `<span class="chip part" style="--c:${vizColor(x.part)}">${esc(x.part)}${x.variant !== 'main' ? `<small>.${esc(st.fillStep && fillPart(sh)?.id === x.part ? 'fill' : x.variant)}</small>` : st.fillStep && fillPart(sh)?.id === x.part ? '<small>.fill</small>' : ''}</span>`).join('') : '';
-      const moves = sec && !st.fillStep ? [sec.shift ? `key ${signed(sec.shift)}` : '', sec.bpm ? `${sec.bpm} bpm` : ''].filter(Boolean).join(' · ') : '';
-      const name = sec ? `${esc(st.prompt)}${sec && !st.fillStep ? ` <span class="sv-chords">${esc(sec.chords)}</span>` : ''}${moves ? ` <span class="sv-move" title="This section moves the key and/or tempo">${esc(moves)}</span>` : ''}` : esc(st.prompt);
+      // mark tempo / key changes against the section before (the first one shows the song's tempo)
+      const bpm = tempos[j], prevBpm = j ? tempos[j - 1] : null;
+      const moves = [
+        bpm && (j === 0 || (prevBpm && bpm !== prevBpm)) ? (j === 0 ? `♩ ${bpm} bpm` : `♩ ${bpm > prevBpm ? '↑' : '↓'} ${bpm} bpm`) : '',
+        j > 0 && shifts[j] !== shifts[j - 1] ? `key ${shifts[j] ? signed(shifts[j]) : 'home'}` : '',
+      ].filter(Boolean).join(' · ');
+      const moveTitle = j === 0 ? 'The song’s tempo' : `Changes here: ${prevBpm && bpm !== prevBpm ? `tempo ${prevBpm} → ${bpm} bpm ` : ''}${shifts[j] !== shifts[j - 1] ? `key ${signed(shifts[j - 1])} → ${signed(shifts[j])} semitones` : ''}`;
+      const name = `${esc(st.prompt)}${sec && !st.fillStep ? ` <span class="sv-chords">${esc(sec.chords)}</span>` : ''}${moves ? ` <span class="sv-move${j === 0 ? ' first' : ''}" title="${esc(moveTitle)}">${esc(moves)}</span>` : ''}`;
       return `<details class="step ${st.status}${queued ? ' queued' : ''}${st.fillStep ? ' fill' : ''}" data-j="${j}">
         <summary><span class="ico">${queued ? '⏭' : STATUS_ICON[st.status] || ''}</span>
           <span class="bars">${st.bars}</span><span class="prompt">${name}${parts ? `<span class="sv-parts">${parts}</span>` : ''}</span>
-          ${st.error ? `<span class="err-icon" title="${esc(st.error)}">⚠</span>` : ''}${queued ? '<span class="next">next</span>' : ''}
+          ${i >= 0 ? `<span class="sv-left" data-i="${i}"></span>` : ''}${st.error ? `<span class="err-icon" title="${esc(st.error)}">⚠</span>` : ''}${queued ? '<span class="next">next</span>' : ''}
           ${i >= 0 ? `<button class="jump" data-i="${i}" title="Switch to this section${j < 9 && isCurrent ? ` (Alt+${j + 1})` : ''}">⏭ go</button>` : ''}</summary>
         ${st.code ? `<pre>${esc(st.code.slice(st.code.indexOf(SEC_START) >= 0 ? st.code.indexOf(SEC_START) : 0))}</pre>` : ''}
       </details>`;
@@ -3327,6 +3335,43 @@ function songViewHTML(sg, live) {
   if (sg.library) h += `<details class="sv-lib"><summary>parts code (shared by every section)</summary><pre>${esc(sg.library)}</pre></details>`;
   return h;
 }
+
+/** A section's tempo in bpm: from its code's setcpm / setcps line, else its sheet. */
+function stepTempo(st) {
+  const m = st?.code && /setcp([ms])\(\s*([\d.]+)\s*(?:\/\s*([\d.]+))?\s*\)/.exec(st.code);
+  if (m) { const v = Number(m[2]) / (Number(m[3]) || 1); return Math.round(m[1] === 'm' ? v * 4 : v * 240); }
+  return st?.section?.bpm || st?.song?.sheet?.bpm || null;
+}
+/** How far the playing section is: { bar, bars, frac, left (seconds until the next section), hold } or null. */
+function sectionProgress(st) {
+  if (st?.status !== 'playing' || st.startedAt == null || !isPlaying()) return null;
+  const now = nowCycle();
+  const k = setlist.steps.indexOf(st);
+  const next = setlist.steps.slice(k + 1).find((x) => x.status === 'armed' && x.startedAt != null);
+  // the switch: an armed next section, else where the set list will switch next (its bar count when nothing is due)
+  const end = next?.startedAt ?? (setlist.nextAt != null && setlist.nextAt > st.startedAt ? setlist.nextAt : st.startedAt + st.bars);
+  const len = Math.max(1, end - st.startedAt);
+  const pos = Math.max(0, now - st.startedAt);
+  const hold = setlist.hold && !next;
+  return { bar: Math.min(len, Math.floor(pos % (hold ? len : Infinity)) + 1), bars: len, frac: hold ? (pos % len) / len : Math.min(1, pos / len),
+    left: Math.max(0, (end - now) / cps()), hold, waiting: !hold && pos >= len };
+}
+// progress of the playing section in the song views (updated without re-rendering the lists)
+setInterval(() => {
+  for (const el of document.querySelectorAll('.sv-left[data-i]')) {
+    const st = setlist.steps[Number(el.dataset.i)];
+    const pr = sectionProgress(st);
+    const sum = el.closest('summary');
+    if (!pr) { if (el.textContent) { el.textContent = ''; sum?.style.removeProperty('--p'); } continue; }
+    sum?.style.setProperty('--p', `${(pr.frac * 100).toFixed(1)}%`);
+    // the next section changes the tempo: say so
+    const k = Number(el.dataset.i), nb = stepTempo(setlist.steps[k + 1]), cb = stepTempo(st);
+    const tempo = !pr.hold && nb && cb && nb !== cb && setlist.steps[k + 1]?.song === st.song ? ` · then ${nb > cb ? '↑' : '↓'} ${nb} bpm` : '';
+    el.textContent = pr.hold ? `bar ${pr.bar}/${pr.bars} · ⏸ holding`
+      : pr.waiting ? 'next section is on its way…'
+      : `bar ${pr.bar}/${pr.bars} · next in ${fmtTime(Math.ceil(pr.left))}${tempo}`;
+  }
+}, 250);
 
 function renderSongs() {
   // Songs tab: the running/last set (until the text is edited), otherwise a preview of the text
