@@ -2,13 +2,13 @@
 // that plays a sound live through Strudel's engine. ⏺ Rec captures what you play
 // on the bar grid and turns it into a note("…") part.
 // (split out of app.js: start-up code runs in setup(), called from app.js)
-import { esc } from '../lib/util.js';
 import { miniStrings } from '../lib/sheet.js';
 import { midiToName, polyBarsToMini } from '../hum.js';
 import { audibleCycle, audioCtx } from './hum-ui.js';
 import { patternLines } from '../lib/labels.js';
 import { $, addMsg, applyQuantized, clog, cps, docks, getCode, load, save, setupDock, showPanel, state, warnUser } from '../app.js';
 import { runTurn, setBusy } from './chat.js';
+import { html, render, renderOptions, repeat } from '../html.js';
 export let keysState;
 
 const KEY_LETTERS = { a: 0, w: 1, s: 2, e: 3, d: 4, f: 5, t: 6, g: 7, y: 8, h: 9, u: 10, j: 11, k: 12, o: 13, l: 14, p: 15, ';': 16 };
@@ -26,8 +26,9 @@ function renderKeysSounds() {
   const sel = $('keysSound');
   if (sel.options.length === list.length + 1) return;
   const want = sel.value || load().keysSound || (list.includes('piano') ? 'piano' : 'triangle');
-  sel.innerHTML = '<option value="__custom">✎ custom Strudel line…</option>' + (list.map((k) => `<option>${esc(k)}</option>`).join('') || '<option>triangle</option>');
-  sel.value = want === '__custom' || list.includes(want) ? want : sel.options[1].value;
+  const sounds = list.length ? list : ['triangle'];
+  renderOptions(sel, [{ value: '__custom', label: '✎ custom Strudel line…' }, ...sounds.map((k) => ({ value: k, label: k }))],
+    want === '__custom' || sounds.includes(want) ? want : sounds[0]);
   showKeysTemplate();
 }
 function showKeysTemplate() {
@@ -57,14 +58,9 @@ function renderKeyboard() {
   const whites = [];
   for (let m = lo; m <= lo + 24; m++) if (!isBlack(m)) whites.push(m);
   const w = 100 / whites.length;
-  let html = '';
-  whites.forEach((m, i) => {
-    html += `<div class="key white" data-m="${m}" style="left:${i * w}%;width:${w}%"><span>${m % 12 === 0 ? midiToName(m) : ''}</span></div>`;
-  });
-  whites.forEach((m, i) => {
-    if (m + 1 <= lo + 24 && isBlack(m + 1)) html += `<div class="key black" data-m="${m + 1}" style="left:${(i + 0.68) * w}%;width:${w * 0.64}%"></div>`;
-  });
-  $('keysBoard').innerHTML = html;
+  const blacks = whites.map((m, i) => [m + 1, i]).filter(([b]) => b <= lo + 24 && isBlack(b));
+  // keyed by note: another octave gets fresh keys (a key held down doesn't carry over)
+  render(html`${repeat(whites.map((m, i) => [m, i]), ([m]) => m, ([m, i]) => html`<div class="key white" data-m=${m} style="left:${i * w}%;width:${w}%"><span>${m % 12 === 0 ? midiToName(m) : ''}</span></div>`)}${repeat(blacks, ([b]) => b, ([b, i]) => html`<div class="key black" data-m=${b} style="left:${(i + 0.68) * w}%;width:${w * 0.64}%"></div>`)}`, $('keysBoard'));
   $('keysOct').textContent = keysState.oct;
 }
 

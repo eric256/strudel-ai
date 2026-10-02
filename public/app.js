@@ -34,6 +34,7 @@ import { stopSet, repairSong, startPlaylist, jumpToSong } from './features/song-
 import { songsChanged, nowSong, viewedSong, setup as setup_song_lists } from './features/song-lists.js';
 import { setup as setup_stations } from './features/stations.js';
 import { addToPlaylist, sessionSongs, setup as setup_playlist } from './features/playlist.js';
+import { html, nothing, render, renderOptions } from './html.js';
 // Strudel AI — browser app
 /**
  * Element by id. Remembered once found, so panels keep working when the layout engine takes them out of the
@@ -742,9 +743,8 @@ $('replayBtn').onclick = () => { stopReplay(); addMsg('info', '■ replay stoppe
 async function loadConfig() {
   state.config = await fetch('/api/config').then((r) => r.json());
   const sel = $('provider');
-  sel.innerHTML = '';
-  for (const [key, p] of Object.entries(state.config.providers)) sel.add(new Option(p.label, key));
-  sel.value = saved.provider && state.config.providers[saved.provider] ? saved.provider : state.config.defaultProvider;
+  renderOptions(sel, Object.entries(state.config.providers).map(([key, p]) => ({ value: key, label: p.label })),
+    saved.provider && state.config.providers[saved.provider] ? saved.provider : state.config.defaultProvider);
   await loadModels();
 }
 
@@ -760,19 +760,16 @@ async function loadModels() {
   renderProviderControls();
   if (pcfg.kind === 'anthropic') $('claudeEffort').value = load().claudeEffort || pcfg.defaultEffort || 'low';
   const sel = $('model');
-  sel.innerHTML = '<option>loading…</option>';
+  renderOptions(sel, [{ value: '', label: 'loading…' }]);
   try {
     const r = await fetch(`/api/models?provider=${provider}`);
     const j = await r.json();
     if (!r.ok) throw new Error(j.error);
-    sel.innerHTML = '';
-    if (!j.models.length) sel.add(new Option('(default)', ''));
-    for (const m of j.models) sel.add(new Option(m.name, m.id));
     const want = load().models?.[provider] || pcfg.defaultModel;
-    if (want && j.models.some((m) => m.id === want)) sel.value = want;
+    renderOptions(sel, j.models.length ? j.models.map((m) => ({ value: m.id, label: m.name })) : [{ value: '', label: '(default)' }],
+      want && j.models.some((m) => m.id === want) ? want : j.models[0]?.id ?? '');
   } catch (e) {
-    sel.innerHTML = '';
-    sel.add(new Option(pcfg.defaultModel || '(default)', pcfg.defaultModel || ''));
+    renderOptions(sel, [{ value: pcfg.defaultModel || '', label: pcfg.defaultModel || '(default)' }], pcfg.defaultModel || '');
     warnUser(`Model list unavailable (⚙ Settings → AI): ${e.message}`);
   }
 }
@@ -837,9 +834,9 @@ save({ playlistAdded: true });
 export const showPanel = (id) => ws.open(id);
 // the ▦ Panels menu: open / close any panel, reset the layout
 function renderLayoutMenu() {
-  $('layoutMenu').innerHTML = ws.panels().map((p) => `<label${p.fixed ? ' title="Always shown"' : ''}><input type="checkbox" data-panel="${p.id}"${p.open ? ' checked' : ''}${p.fixed ? ' disabled' : ''} /> ${p.icon} ${esc(p.title)}</label>`).join('') +
-    '<div class="lm-foot"><button id="layoutReset" class="link" title="Back to the default layout">↺ reset layout</button></div>' +
-    '<small class="muted">Drag a tab onto another group to tab it, or to a group\'s edge to split it. Right-click a tab to maximise, float or pop it out into its own window.</small>';
+  render(html`${ws.panels().map((p) => html`<label title=${p.fixed ? 'Always shown' : nothing}><input type="checkbox" data-panel=${p.id} .checked=${p.open} ?disabled=${p.fixed} /> ${p.icon} ${p.title}</label>`)}
+    <div class="lm-foot"><button id="layoutReset" class="link" title="Back to the default layout">↺ reset layout</button></div>
+    <small class="muted">Drag a tab onto another group to tab it, or to a group's edge to split it. Right-click a tab to maximise, float or pop it out into its own window.</small>`, $('layoutMenu'));
 }
 $('layoutBtn').onclick = (e) => {
   e.stopPropagation();

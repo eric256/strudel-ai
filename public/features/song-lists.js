@@ -1,7 +1,8 @@
 // Feature module split out of app.js (see the section comments below).
-import { esc, signed } from '../lib/util.js';
-import { addToMySongs, download, favListHTML, favOf, favorites, isMine, loadSongIntoSet, myListHTML, mySongs, playSong, slug, songFromJSON, songToJSON, toggleFavorite } from './song-library.js';
-import { openSongEditor, saveSongEditor, songEdit, songEditorHTML } from './song-editor.js';
+import { signed } from '../lib/util.js';
+import { html, nothing, render, repeat } from '../html.js';
+import { addToMySongs, download, favListTemplate, favOf, favorites, isMine, loadSongIntoSet, myListTemplate, mySongs, playSong, slug, songFromJSON, songToJSON, toggleFavorite } from './song-library.js';
+import { openSongEditor, saveSongEditor, songEdit, songEditorTemplate } from './song-editor.js';
 import { loadPads, padsState, setPadsFollow } from './pads.js';
 import { mp3, songMp3 } from './mp3.js';
 import { MASTER_STYLES } from '../master.js';
@@ -43,49 +44,51 @@ export function songMeta(sg) {
     ? `${sh.bpm} bpm · ${sh.key} · ${sh.sections.length} sections · ${sg.bars} bars · ~${fmtTime((sg.bars * 4 * 60) / sh.bpm)}`
     : `${sg.blocks.length} blocks · ${sg.bars} bars · ${coded}/${sg.blocks.length} coded`;
 }
-const NOW_LINK = '<button class="open-now" data-open-now title="Open the 🎶 Now playing panel: the song\'s sheet, sections and progress">🎶 Now playing ↗</button>';
-export const sharedLinkHTML = (sg) => (sg.shareUrl ? `<div class="sv-shared">🔗 <input readonly value="${esc(sg.shareUrl)}" /><button class="sv-copy">📋 Copy</button><a href="${esc(sg.shareUrl)}" target="_blank" rel="noopener">open ↗</a></div>` : '');
-/** A song list. With `tools`, the selected song shows its toolbar in place (the station list: details live in 🎶 Now playing). */
-function songsHTML(songs, live, sel, { tools = false } = {}) {
-  return songs.map((sg, k) => {
+const NOW_LINK = html`<button class="open-now" data-open-now title="Open the 🎶 Now playing panel: the song's sheet, sections and progress">🎶 Now playing ↗</button>`;
+/** A song's share link (once it has one), with 📋 Copy and open ↗. */
+export const sharedLinkTemplate = (sg) => (sg.shareUrl
+  ? html`<div class="sv-shared">🔗 <input readonly .value=${sg.shareUrl} /><button class="sv-copy">📋 Copy</button><a href=${sg.shareUrl} target="_blank" rel="noopener">open ↗</a></div>`
+  : nothing);
+/** A song list. With `tools`, the selected song shows its toolbar in place (the details live in 🎶 Now playing). */
+function songListTemplate(songs, live, sel, { tools = false } = {}) {
+  return html`${repeat(songs, (sg) => sg, (sg, k) => {
     const meta = songMeta(sg);
     const isCurrent = live && queue.songs[queue.current] === sg;
-    const toolbar = tools && k === sel ? `<div class="song-tools">${songToolbarHTML(sg, live)}${isCurrent ? NOW_LINK : ''}${sharedLinkHTML(sg)}</div>` : '';
-    return `<div class="song ${sg.status}${k === sel ? ' selected' : ''}" data-k="${k}" title="${tools ? 'Show this song’s buttons' : 'Show this song’s sheet and sections'}">
+    return html`<div class="song ${sg.status}${k === sel ? ' selected' : ''}" data-k=${k} title=${tools ? 'Show this song’s buttons' : 'Show this song’s sheet and sections'}>
       <span class="ico">${SONG_ICON[sg.status] || '·'}</span>
-      <div class="body"><div class="t">${k + 1}. ${esc(sg.title)}</div><div class="d">${esc(sg.desc)}</div>
-        ${meta ? `<div class="meta">${esc(meta)}</div>` : ''}${sg.error ? `<span class="err-icon" title="${esc(sg.error)}">⚠</span>` : ''}${toolbar}</div>
-      <button class="jump" data-song="${k}" title="Play this song now (it joins the 📃 Playlist)">▶</button>
+      <div class="body"><div class="t">${k + 1}. ${sg.title}</div><div class="d">${sg.desc}</div>
+        ${meta ? html`<div class="meta">${meta}</div>` : nothing}${sg.error ? html`<span class="err-icon" title=${sg.error}>⚠</span>` : nothing}
+        ${tools && k === sel ? html`<div class="song-tools">${songToolbarTemplate(sg, live)}${isCurrent ? NOW_LINK : nothing}${sharedLinkTemplate(sg)}</div>` : nothing}</div>
+      <button class="jump" data-song=${k} title="Play this song now (it joins the 📃 Playlist)">▶</button>
     </div>`;
-  }).join('') + (live && queue.planning ? '<div class="song writing"><span class="ico">✎</span><div class="body"><div class="d">planning the next songs…</div></div></div>' : '');
+  })}${live && queue.planning ? html`<div class="song writing"><span class="ico">✎</span><div class="body"><div class="d">planning the next songs…</div></div></div>` : nothing}`;
 }
 
 /** A song's toolbar: play, edit, favorite, save, song pads, MP3, JSON, link (only once the song is written). */
-export function songToolbarHTML(sg, live) {
+export function songToolbarTemplate(sg, live) {
   const sh = sg.sheet;
   const isCurrent = live && queue.songs[queue.current] === sg;
   const complete = sg.blocks?.length && sg.blocks.every((b) => b.code) && !sg.phase;
+  const btn = (act, label, title) => html`<button data-act=${act} title=${title}>${label}</button>`;
   if (!complete) {
     return sg.status === 'failed' && !sg.phase
-      ? `<div class="sv-toolbar"><button data-act="retry" title="${esc(`Write this song again from scratch${sg.error ? ` (last time: ${sg.error})` : ''}`)}">↻ Try again</button></div>`
-      : '';
+      ? html`<div class="sv-toolbar">${btn('retry', '↻ Try again', `Write this song again from scratch${sg.error ? ` (last time: ${sg.error})` : ''}`)}</div>`
+      : nothing;
   }
-  const mine = isMine(sg);
-  const canPlay = complete && !(isCurrent);
-  const btn = (act, label, title) => `<button data-act="${act}" title="${esc(title)}">${label}</button>`;
-  return `<div class="sv-toolbar">
-      ${canPlay ? btn('play', '▶ Play', 'Play this song from the start now (already written — no AI needed)') : ''}
-      ${canPlay ? btn('next', '⤴ Play next', 'Play this song after the one playing now (📃 Playlist)') : ''}
-      ${canPlay ? btn('queue', '＋ Playlist', 'Add this song to the end of the 📃 Playlist') : ''}
-      ${sh && sg.library ? btn('edit', songEdit.sg === sg ? '✎ editing…' : '✎ Edit', 'Open this song in the ✎ Edit song panel: sections, chords, parts and their code (or ask the chat)') : ''}
+  const canPlay = !isCurrent;
+  return html`<div class="sv-toolbar">
+      ${canPlay ? btn('play', '▶ Play', 'Play this song from the start now (already written — no AI needed)') : nothing}
+      ${canPlay ? btn('next', '⤴ Play next', 'Play this song after the one playing now (📃 Playlist)') : nothing}
+      ${canPlay ? btn('queue', '＋ Playlist', 'Add this song to the end of the 📃 Playlist') : nothing}
+      ${sh && sg.library ? btn('edit', songEdit.sg === sg ? '✎ editing…' : '✎ Edit', 'Open this song in the ✎ Edit song panel: sections, chords, parts and their code (or ask the chat)') : nothing}
       ${btn('fav', favOf(sg) ? '★ favorite' : '☆ Favorite', favOf(sg) ? 'A favorite on this server — click to remove it from the shared list' : 'Add to ★ Favorites: everyone on this server sees it, and it survives restarts')}
-      ${mine ? '' : btn('save', '📁 Save to My songs', 'Copy this song into 📁 My songs, where you can edit it, keep it and export it')}
-      ${sg.pads ? btn('pads', padsState.follow ? '🔲 song pads ✓' : '🔲 Song pads', padsState.follow ? 'Song pads are on: the pad dock switches to each song’s pads as the songs change — click to go back to your own pads' : 'Load this song’s 16 pads (its own parts, key and chords) into the pad dock — and keep switching to each new song’s pads as the songs change') : ''}
-      ${sg.take ? btn('mp3', `⬇ MP3 <span class="muted">${fmtTime(sg.take.secs)}</span>`, `Download the recording of this song (${(sg.take.size / 1e6).toFixed(1)} MB) — kept until the page is reloaded`)
+      ${isMine(sg) ? nothing : btn('save', '📁 Save to My songs', 'Copy this song into 📁 My songs, where you can edit it, keep it and export it')}
+      ${sg.pads ? btn('pads', padsState.follow ? '🔲 song pads ✓' : '🔲 Song pads', padsState.follow ? 'Song pads are on: the pad dock switches to each song’s pads as the songs change — click to go back to your own pads' : 'Load this song’s 16 pads (its own parts, key and chords) into the pad dock — and keep switching to each new song’s pads as the songs change') : nothing}
+      ${sg.take ? btn('mp3', html`⬇ MP3 <span class="muted">${fmtTime(sg.take.secs)}</span>`, `Download the recording of this song (${(sg.take.size / 1e6).toFixed(1)} MB) — kept until the page is reloaded`)
         : mp3.seg?.sg === sg ? btn('mp3', '🎙 recording…', 'Recording this song as it plays — ⬇ MP3 appears when it has played to its end')
         : btn('mp3', mp3.want.has(sg) ? '🎙 MP3 next time' : '🎙 MP3', queue.running ? 'Record this song the next time it plays from the start (the music keeps playing)' : 'Play this song from the start and record it — download the MP3 when it ends')}
       ${btn('json', '⬇ JSON', 'Download the whole song (sheet, parts, sections, pads) as a .json file — import it on any Strudel AI server')}
-      ${btn('link', '🔗 Link', 'Create a link that plays this whole song on this server')}
+      ${sg.sharing ? html`<button disabled>creating link…</button>` : btn('link', '🔗 Link', 'Create a link that plays this whole song on this server')}
     </div>`;
 }
 
@@ -98,65 +101,68 @@ function shortPrompt(prompt, j) {
   return words.length > 2 ? `${words}…` : `section ${j + 1}`;
 }
 
-/** The song sheet and the sections of one song, with live status and jump buttons. */
-function songViewHTML(sg, live) {
-  if (!sg) return '';
+const ENTER_TITLE = { in: 'comes in halfway through', out: 'drops out halfway through', alt: '2 bars on, 2 bars off' };
+/** The parts a section plays, as coloured chips (block sections: the labelled parts in their code). */
+function sectionParts(st, sh) {
+  const sec = st.section;
+  if (!sec) {
+    const blockParts = st.code ? [...new Set(patternLines(st.code).filter((r) => !/^pad\d+$/.test(r.base)).map((r) => r.base))] : [];
+    return blockParts.map((b) => html`<span class="chip part" style="--c:${vizColor(b)}">${b}</span>`);
+  }
+  const fill = st.fillStep && fillPart(sh)?.id;
+  return sec.play.map((x) => html`<span class="chip part" style="--c:${vizColor(x.part)}">${x.part}${x.variant !== 'main'
+    ? html`<small>.${fill === x.part ? 'fill' : x.variant}</small>` : fill === x.part ? html`<small>.fill</small>` : nothing}${x.enter && !st.fillStep
+    ? html`<small title=${ENTER_TITLE[x.enter]}>@${x.enter}</small>` : nothing}</span>`);
+}
+
+/** The song sheet and the sections of one song, with live status and jump buttons. `note`: shown after the title. */
+function songViewTemplate(sg, live, note = '') {
   const sh = sg.sheet;
   const isCurrent = live && queue.songs[queue.current] === sg;
-  const mine = isMine(sg);
-  let h = `<div class="sv-head"><b>${esc(sg.title)}</b>${isCurrent ? ' <span class="sv-live">▶ playing</span>' : ''}${mine ? ' <span class="sv-mine">📁 My songs</span>' : ''}</div>
-    <div class="sv-desc">${esc(sg.desc)}</div>`;
-  h += songToolbarHTML(sg, live);
-  if (sg.shareUrl) {
-    h += `<div class="sv-shared">🔗 <input readonly value="${esc(sg.shareUrl)}" /><button class="sv-copy">📋 Copy</button><a href="${esc(sg.shareUrl)}" target="_blank" rel="noopener">open ↗</a></div>`;
-  }
-  if (sg.phase) h += `<div class="sv-phase">✎ ${esc(sg.phase)}…</div>`;
-  if (sh) {
-    h += `<div class="sv-grid">
-      ${sh.form ? `<span class="k">form</span><span>${esc(sh.form)} · ${sh.sections.length} sections · ${sh.sections.reduce((a, x) => a + x.bars, 0)} bars</span>` : ''}
-      <span class="k">sound</span><span>${sh.band ? `🎸 ${esc(sh.band)} · ` : ''}<span class="chip master-chip" title="${esc(MASTER_STYLES[songStyle(sg)]?.desc || '')} — change it in ✎ Edit or live in 🎛 Master">🎛 ${esc(songStyle(sg))}${sh.masterParams && Object.keys(sh.masterParams).length ? ' <small>+ own mix</small>' : ''}</span></span>
-      <span class="k">tempo</span><span>${sh.bpm} bpm · ${normMeter(sh.meter)} · ${esc(sh.key)} <code>${esc(sh.scale)}</code></span>
-      <span class="k">chords</span><span>${Object.entries(sh.chords).map(([k, v]) => `<span class="chip"><b>${esc(k)}</b> ${esc(v.replace(/^<|>$/g, ''))}</span>`).join(' ')}</span>
-      <span class="k">hook</span><span><code>${esc(sh.hook)}</code></span>
-      <span class="k">parts</span><span>${sh.parts.map((p) => `<span class="chip part" style="--c:${vizColor(p.id)}" title="${esc(`${p.role} · ${p.desc}${p.variants.length > 1 ? ` · variants: ${p.variants.join(', ')}` : ''}`)}"><b>${esc(p.id)}</b> ${esc(p.sound)}</span>`).join(' ')}</span>
-    </div>`;
-  }
   const steps = sg.blocks || (sh ? sh.sections.map((sec) => ({ section: sec, bars: sec.bars, prompt: sec.name, status: 'waiting' })) : []);
-  if (steps.length) {
-    if (isCurrent) {
-      h += `<div class="sv-tools"><button class="sv-hold" title="Stay on the current section until you pick another one">${engine.hold ? '▶ continue the song' : '⏸ hold this section'}</button>
-        <small class="muted">Alt+1…9 jump to a section</small></div>`;
-    }
-    // tempo and key of every section, so the lines can mark where they change
-    const tempos = steps.map(stepTempo), shifts = steps.map((st) => st.section?.shift || 0);
-    h += '<div class="sv-sections">' + steps.map((st, j) => {
-      const i = engine.steps.indexOf(st);
-      const queued = i >= 0 && engine.jumpTarget === i && st.status !== 'armed' && st.status !== 'playing';
-      const sec = st.section;
-      // a section written block by block (no song sheet): its instruments are the labelled parts in its code
-      const blockParts = !sec && st.code ? [...new Set(patternLines(st.code).filter((r) => !/^pad\d+$/.test(r.base)).map((r) => r.base))] : [];
-      const parts = !sec ? blockParts.map((b) => `<span class="chip part" style="--c:${vizColor(b)}">${esc(b)}</span>`).join('') : sec.play.map((x) => `<span class="chip part" style="--c:${vizColor(x.part)}">${esc(x.part)}${x.variant !== 'main' ? `<small>.${esc(st.fillStep && fillPart(sh)?.id === x.part ? 'fill' : x.variant)}</small>` : st.fillStep && fillPart(sh)?.id === x.part ? '<small>.fill</small>' : ''}${x.enter && !st.fillStep ? `<small title="${{ in: 'comes in halfway through', out: 'drops out halfway through', alt: '2 bars on, 2 bars off' }[x.enter]}">@${x.enter}</small>` : ''}</span>`).join('');
-      // mark tempo / key changes against the section before (the first one shows the song's tempo)
-      const bpm = tempos[j], prevBpm = j ? tempos[j - 1] : null;
-      const moves = [
-        bpm && (j === 0 || (prevBpm && bpm !== prevBpm)) ? (j === 0 ? `♩ ${bpm} bpm` : `♩ ${bpm > prevBpm ? '↑' : '↓'} ${bpm} bpm`) : '',
-        j > 0 && shifts[j] !== shifts[j - 1] ? `key ${shifts[j] ? signed(shifts[j]) : 'home'}` : '',
-      ].filter(Boolean).join(' · ');
-      const moveTitle = j === 0 ? 'The song’s tempo' : `Changes here: ${prevBpm && bpm !== prevBpm ? `tempo ${prevBpm} → ${bpm} bpm ` : ''}${shifts[j] !== shifts[j - 1] ? `key ${signed(shifts[j - 1])} → ${signed(shifts[j])} semitones` : ''}`;
-      // block sections: a short name (the instruction's first words), the whole instruction as a tooltip
-      const label = sec ? esc(st.prompt) : `<span title="${esc(st.prompt)}">${esc(shortPrompt(st.prompt, j))}</span>`;
-      const name = `${label}${sec && !st.fillStep ? ` <span class="sv-chords">${esc(sec.chords)}</span>` : ''}${moves ? ` <span class="sv-move${j === 0 ? ' first' : ''}" title="${esc(moveTitle)}">${esc(moves)}</span>` : ''}`;
-      return `<details class="step ${st.status}${queued ? ' queued' : ''}${st.fillStep ? ' fill' : ''}" data-j="${j}">
-        <summary><span class="ico">${queued ? '⏭' : STATUS_ICON[st.status] || ''}</span>
-          <span class="bars">${st.bars}</span><span class="prompt">${name}${parts ? `<span class="sv-parts">${parts}</span>` : ''}</span>
-          ${i >= 0 ? `<span class="sv-left" data-i="${i}"></span>` : ''}${st.error ? `<span class="err-icon" title="${esc(st.error)}">⚠</span>` : ''}${queued ? '<span class="next">next</span>' : ''}
-          ${i >= 0 ? `<button class="jump" data-i="${i}" title="Switch to this section${j < 9 && isCurrent ? ` (Alt+${j + 1})` : ''}">⏭ go</button>` : ''}</summary>
-        ${st.code ? `<pre>${esc(st.code.slice(st.code.indexOf(SEC_START) >= 0 ? st.code.indexOf(SEC_START) : 0))}</pre>` : ''}
-      </details>`;
-    }).join('') + '</div>';
-  }
-  if (sg.library) h += `<details class="sv-lib"><summary>parts code (shared by every section)</summary><pre>${esc(sg.library)}</pre></details>`;
-  return h;
+  // tempo and key of every section, so the lines can mark where they change
+  const tempos = steps.map(stepTempo), shifts = steps.map((st) => st.section?.shift || 0);
+  const section = (st, j) => {
+    const i = engine.steps.indexOf(st);
+    const queued = i >= 0 && engine.jumpTarget === i && st.status !== 'armed' && st.status !== 'playing';
+    const sec = st.section;
+    const parts = sectionParts(st, sh);
+    // mark tempo / key changes against the section before (the first one shows the song's tempo)
+    const bpm = tempos[j], prevBpm = j ? tempos[j - 1] : null;
+    const moves = [
+      bpm && (j === 0 || (prevBpm && bpm !== prevBpm)) ? (j === 0 ? `♩ ${bpm} bpm` : `♩ ${bpm > prevBpm ? '↑' : '↓'} ${bpm} bpm`) : '',
+      j > 0 && shifts[j] !== shifts[j - 1] ? `key ${shifts[j] ? signed(shifts[j]) : 'home'}` : '',
+    ].filter(Boolean).join(' · ');
+    const moveTitle = j === 0 ? 'The song’s tempo' : `Changes here: ${prevBpm && bpm !== prevBpm ? `tempo ${prevBpm} → ${bpm} bpm ` : ''}${shifts[j] !== shifts[j - 1] ? `key ${signed(shifts[j - 1])} → ${signed(shifts[j])} semitones` : ''}`;
+    const codeFrom = st.code ? Math.max(0, st.code.indexOf(SEC_START)) : 0;
+    // (.sv-left is filled in by updateSectionProgress: it has no template values inside)
+    return html`<details class="step ${st.status}${queued ? ' queued' : ''}${st.fillStep ? ' fill' : ''}" data-j=${j}>
+      <summary><span class="ico">${queued ? '⏭' : STATUS_ICON[st.status] || ''}</span>
+        <span class="bars">${st.bars}</span><span class="prompt">${sec ? st.prompt : html`<span title=${st.prompt}>${shortPrompt(st.prompt, j)}</span>`}${sec && !st.fillStep
+          ? html` <span class="sv-chords">${sec.chords}</span>` : nothing}${moves ? html` <span class="sv-move${j === 0 ? ' first' : ''}" title=${moveTitle}>${moves}</span>` : nothing}${parts.length
+          ? html`<span class="sv-parts">${parts}</span>` : nothing}</span>
+        ${i >= 0 ? html`<span class="sv-left" data-i=${i}></span>` : nothing}${st.error ? html`<span class="err-icon" title=${st.error}>⚠</span>` : nothing}${queued ? html`<span class="next">next</span>` : nothing}
+        ${i >= 0 ? html`<button class="jump" data-i=${i} title="Switch to this section${j < 9 && isCurrent ? ` (Alt+${j + 1})` : ''}">⏭ go</button>` : nothing}</summary>
+      ${st.code ? html`<pre>${st.code.slice(codeFrom)}</pre>` : nothing}
+    </details>`;
+  };
+  return html`<div class="sv-head"><b>${sg.title}</b>${isCurrent ? html` <span class="sv-live">▶ playing</span>` : nothing}${isMine(sg) ? html` <span class="sv-mine">📁 My songs</span>` : nothing}${note ? html` <span class="sv-stopped">${note}</span>` : nothing}</div>
+    <div class="sv-desc">${sg.desc}</div>
+    ${songToolbarTemplate(sg, live)}
+    ${sharedLinkTemplate(sg)}
+    ${sg.phase ? html`<div class="sv-phase">✎ ${sg.phase}…</div>` : nothing}
+    ${sh ? html`<div class="sv-grid">
+      ${sh.form ? html`<span class="k">form</span><span>${sh.form} · ${sh.sections.length} sections · ${sh.sections.reduce((a, x) => a + x.bars, 0)} bars</span>` : nothing}
+      <span class="k">sound</span><span>${sh.band ? `🎸 ${sh.band} · ` : ''}<span class="chip master-chip" title="${MASTER_STYLES[songStyle(sg)]?.desc || ''} — change it in ✎ Edit or live in 🎛 Master">🎛 ${songStyle(sg)}${sh.masterParams && Object.keys(sh.masterParams).length ? html` <small>+ own mix</small>` : nothing}</span></span>
+      <span class="k">tempo</span><span>${sh.bpm} bpm · ${normMeter(sh.meter)} · ${sh.key} <code>${sh.scale}</code></span>
+      <span class="k">chords</span><span>${Object.entries(sh.chords).map(([k, v]) => html`<span class="chip"><b>${k}</b> ${v.replace(/^<|>$/g, '')}</span> `)}</span>
+      <span class="k">hook</span><span><code>${sh.hook}</code></span>
+      <span class="k">parts</span><span>${sh.parts.map((p) => html`<span class="chip part" style="--c:${vizColor(p.id)}" title="${p.role} · ${p.desc}${p.variants.length > 1 ? ` · variants: ${p.variants.join(', ')}` : ''}"><b>${p.id}</b> ${p.sound}</span> `)}</span>
+    </div>` : nothing}
+    ${steps.length && isCurrent ? html`<div class="sv-tools"><button class="sv-hold" title="Stay on the current section until you pick another one">${engine.hold ? '▶ continue the song' : '⏸ hold this section'}</button>
+      <small class="muted">Alt+1…9 jump to a section</small></div>` : nothing}
+    ${steps.length ? html`<div class="sv-sections">${repeat(steps, (st, j) => (sg.blocks ? st : `${sg.title}:${j}`), section)}</div>` : nothing}
+    ${sg.library ? html`<details class="sv-lib"><summary>parts code (shared by every section)</summary><pre>${sg.library}</pre></details>` : nothing}`;
 }
 
 /** A section's tempo in bpm: from its code's setcpm / setcps line, else its sheet. */
@@ -228,13 +234,13 @@ export function renderSongs() {
     favorites.map((f) => [f.id, queue.songs[queue.current] === f.song])]);
   if (key === lastSongsKey) return;
   lastSongsKey = key;
-  $('setStatus').innerHTML = setSongs.length ? songsHTML(setSongs, queue.running, selSet, { tools: true })
-    : '<div class="muted small">No songs yet — in 💬 Chat pick 🎯 <b>✨ new song</b> and describe one, or play a favorite or one of My songs.</div>';
-  $('mySongs').innerHTML = myListHTML();
-  $('favSongs').innerHTML = favListHTML();
-  $('stationStatus').innerHTML = queue.station
-    ? `<div class="muted small">📃 ${stationSongs.length} of its songs coming up in the <button class="link" data-open-playlist>Playlist ↗</button>${queue.planning ? ' — planning more…' : ''}</div>`
-    : '<div class="muted small">Start a station and it adds its songs to the end of the 📃 Playlist; the songs already there play first. ■ Stop only stops it adding songs.</div>';
+  render(setSongs.length ? songListTemplate(setSongs, queue.running, selSet, { tools: true })
+    : html`<div class="muted small">No songs yet — in 💬 Chat pick 🎯 <b>✨ new song</b> and describe one, or play a favorite or one of My songs.</div>`, $('setStatus'));
+  render(myListTemplate(), $('mySongs'));
+  render(favListTemplate(), $('favSongs'));
+  render(queue.station
+    ? html`<div class="muted small">📃 ${stationSongs.length} of its songs coming up in the <button class="link" data-open-playlist>Playlist ↗</button>${queue.planning ? ' — planning more…' : ''}</div>`
+    : html`<div class="muted small">Start a station and it adds its songs to the end of the 📃 Playlist; the songs already there play first. ■ Stop only stops it adding songs.</div>`, $('stationStatus'));
   updateSetButtons();
   renderPlaylist();
   // 🎶 Now playing: the playing song — or, once it's over, the last one that played (stopped)
@@ -246,23 +252,22 @@ export function renderSongs() {
   // ✎ Edit song panel: the editor (rendered when another song is opened) and the song's sections
   const ed = songEdit.sg;
   $('editEmpty').hidden = !!ed;
-  if ($('editForm').__sg !== ed) { $('editForm').__sg = ed; $('editForm').innerHTML = ed?.sheet && ed.library ? songEditorHTML(ed) : ''; }
+  if ($('editForm').__sg !== ed) { $('editForm').__sg = ed; render(ed?.sheet && ed.library ? songEditorTemplate(ed) : nothing, $('editForm')); }
   void setView;
+  // (the views keep their DOM between renders, so opened sections stay open)
   for (const [id, sg, live] of [['editSongView', ed, !!(queue.running && queue.songs[queue.current] === ed)], ['nowSongView', playingSong, nowLive]]) {
     const el = $(id);
-    const open = new Set([...el.querySelectorAll('details[open]')].map((d) => d.dataset.j ?? 'lib'));
     el.hidden = !sg;
-    el.innerHTML = songViewHTML(sg, live);
-    if (id === 'nowSongView' && sg && !live) el.querySelector('.sv-head')?.insertAdjacentHTML('beforeend', sg === preparing ? ' <span class="sv-stopped">✎ being written — plays when ready</span>' : ' <span class="sv-stopped">■ stopped</span>');
-    for (const d of el.querySelectorAll('details')) if (open.has(d.dataset.j ?? 'lib')) d.open = true;
+    const note = id === 'nowSongView' && sg && !live ? (sg === preparing ? '✎ being written — plays when ready' : '■ stopped') : '';
+    render(sg ? songViewTemplate(sg, live, note) : nothing, el);
   }
   updateSectionProgress();
   const onAir = !!queue.station;
   $('stationNow').hidden = !onAir;
   if (onAir) {
-    $('stationNow').innerHTML = now
-      ? `📻 <b>On air:</b> ${esc(now.title)}<div class="d">${esc(now.desc)}</div><div class="song-tools">${songToolbarHTML(now, true)}${NOW_LINK}${sharedLinkHTML(now)}</div>`
-      : `📻 <b>${esc(queue.station.name || 'Station')} on air</b><div class="d">${queue.running && queue.songs[queue.current] ? `its songs follow “${esc(queue.songs[queue.current].title)}” and the others in the 📃 Playlist` : 'the agent is planning and writing the first song'}</div>`;
+    render(now
+      ? html`📻 <b>On air:</b> ${now.title}<div class="d">${now.desc}</div><div class="song-tools">${songToolbarTemplate(now, true)}${NOW_LINK}${sharedLinkTemplate(now)}</div>`
+      : html`📻 <b>${queue.station.name || 'Station'} on air</b><div class="d">${queue.running && queue.songs[queue.current] ? `its songs follow “${queue.songs[queue.current].title}” and the others in the 📃 Playlist` : 'the agent is planning and writing the first song'}</div>`, $('stationNow'));
   }
 }
 
@@ -283,7 +288,7 @@ export function songAction(act, sg, btn, view) {
   }
   else if (act === 'mp3') songMp3(sg);
   else if (act === 'json') download(`${slug(sg.title)}.strudel-song.json`, JSON.stringify(songToJSON(sg), null, 1));
-  else if (act === 'link') shareSong(sg, btn);
+  else if (act === 'link') shareSong(sg);
   songsChanged();
 }
 
@@ -297,9 +302,10 @@ export function viewedSong(tab) {
 }
 
 /** Share a finished song: its sheet, parts and every arranged section, playable without the AI. */
-async function shareSong(sg, btn) {
-  btn.disabled = true;
-  btn.textContent = 'creating link…';
+async function shareSong(sg) {
+  if (sg.sharing) return;
+  sg.sharing = true; // the 🔗 button shows "creating link…" (the template re-renders it)
+  songsChanged();
   try {
     const steps = sg.blocks.map((b) => ({ bars: b.bars, prompt: b.prompt, code: b.code, fade: b.fade ?? null, fillStep: !!b.fillStep, section: b.section || null }));
     const r = await fetch('/api/share', {
@@ -318,9 +324,8 @@ async function shareSong(sg, btn) {
     addMsg('info', `🔗 “${sg.title}” shared: ${sg.shareUrl} (link copied)`);
   } catch (e) {
     addMsg('error', `Sharing “${sg.title}” failed: ${e.message}`);
-    btn.disabled = false;
-    btn.textContent = '🔗 Share song';
   }
+  sg.sharing = false;
   songsChanged();
   renderSongs();
 }

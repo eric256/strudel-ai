@@ -2,6 +2,14 @@
 
 The version is in `package.json`. Bump it when you release. Open pages also notice *any* redeploy through the build id, which is a hash of the app files, even if the version wasn't bumped.
 
+## 1.37.0
+- **HTML templates (step 1 of templates → themes → plugins):** the panels are now built with [lit-html](https://lit.dev/docs/libraries/standalone-templates/) templates (`public/html.js`, served locally, no build step) instead of HTML strings.
+  - **Converted:** 📃 Playlist, 🎵 Songs (This session, ★ Favorites, 📁 My songs), 🎶 Now playing, ✎ Edit song, 📻 Station, 🎚 Mixer, 🎛 Master, 🔲 Pads, 🎹 Keys, the form, band and station editors, the AI model pickers and the ▦ Panels menu.
+  - **Automatic escaping:** a song title (or any text) can never turn into HTML. The hand-written escaping is gone from these panels.
+  - **Steadier panels:** a re-render only changes what changed. A section you open in Now playing stays open while the song plays, a mixer strip keeps its meters as parts come and go, and the keyboard keeps its keys.
+  - Still written as HTML: the chat's formatted replies, the About changelog, the session restore and the M / S buttons beside the code lines.
+- **Smoke test:** a song title containing HTML shows as text and never runs, and an opened section stays open while the view updates (24 steps).
+
 ## 1.36.0
 - **📃 Playlist:** every song now plays from one playlist. It's a new panel next to Chat / Songs / Station, showing what played, what's playing (with its section) and what's coming up.
   - **Upcoming songs:** ▶ play now, ⤴ play next, ↑ ↓ move, ✕ remove, ↻ rewrite a failed one.

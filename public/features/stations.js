@@ -1,9 +1,9 @@
 // Feature module split out of app.js (see the section comments below).
 import { addNewDefaults } from './forms.js';
-import { esc } from '../lib/util.js';
 import { startStation, stopStation } from './song-writer.js';
 import { updateSetButtons } from './song-lists.js';
 import { $, load, save, saved } from '../app.js';
+import { renderOptions } from '../html.js';
 let stations, stationIdx;
 // --- saved stations
 const DEFAULT_STATIONS = [
@@ -22,8 +22,8 @@ const DEFAULT_STATIONS = [
 ];
 export const currentStation = () => ({ name: stations[stationIdx]?.name || '', theme: stations[stationIdx]?.theme || '' });
 export function renderStations() {
-  const opts = stations.map((st, i) => `<option value="${i}">${esc(st.name || 'untitled')}</option>`).join('');
-  for (const id of ['stationSelect', 'stationEditSelect']) { $(id).innerHTML = opts; $(id).value = String(stationIdx); }
+  const opts = stations.map((st, i) => ({ value: i, label: st.name || 'untitled' }));
+  for (const id of ['stationSelect', 'stationEditSelect']) renderOptions($(id), opts, stationIdx);
   $('stationName').value = stations[stationIdx]?.name || '';
   $('stationTheme').value = stations[stationIdx]?.theme || '';
   $('stationThemeView').textContent = stations[stationIdx]?.theme || 'No theme yet — ✎ edit stations to write one.';
@@ -42,7 +42,8 @@ export function setup() {
       stations[stationIdx] = { name: $('stationName').value.trim(), theme: $('stationTheme').value.trim() };
       saveStations();
       const name = $('stationName').value || 'untitled';
-      for (const sel of ['stationSelect', 'stationEditSelect']) if ($(sel).options[stationIdx]) $(sel).options[stationIdx].textContent = name;
+      const opts = stations.map((st, i) => ({ value: i, label: (i === stationIdx ? name : st.name) || 'untitled' }));
+      for (const sel of ['stationSelect', 'stationEditSelect']) renderOptions($(sel), opts, stationIdx);
       $('stationThemeView').textContent = $('stationTheme').value || 'No theme yet — ✎ edit stations to write one.';
     };
   }

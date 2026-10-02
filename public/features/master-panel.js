@@ -4,12 +4,12 @@
 // (split out of app.js: start-up code runs in setup(), called from app.js)
 import { MASTER_DEFAULTS, MASTER_PARAMS, MASTER_STYLES, STYLE_NAMES, clampParams, createMaster, diffParams, normStyle, styleParams } from '../master.js';
 import { drawChannelSpectrum, drawMeter, levelOf, sdController } from './mixer.js';
-import { esc } from '../lib/util.js';
 import { songEdit } from './song-editor.js';
 import { isMine, saveMySongs } from './song-library.js';
 import { $, clog, docks, isPlaying, load, player, queue, save, scheduler, setupDock, ws } from '../app.js';
 import { nowSong, songsChanged, renderSongs } from './song-lists.js';
 import { songStyle } from './bands.js';
+import { html, render, renderOptions } from '../html.js';
 let MASTER_BYPASS, saveMaster;
 
 export const master = { chain: null, style: 'clean', params: null, follow: true, songKey: '', bypass: false, dragging: null, msg: '' };
@@ -66,15 +66,16 @@ function masterTick() {
 }
 
 function renderMasterPanel() {
-  $('masterStyle').innerHTML = STYLE_NAMES.map((n) => `<option value="${n}" title="${esc(MASTER_STYLES[n].desc)}">${n}</option>`).join('');
+  renderOptions($('masterStyle'), STYLE_NAMES.map((n) => ({ value: n, label: n, title: MASTER_STYLES[n].desc })), master.style);
   const groups = [...new Set(MASTER_PARAMS.map((d) => d.group))];
-  const ctl = (d) => `<div class="ms-ctl" title="${esc(d.title)} — double-click: the style's value">
-      <input type="range" class="mx-v ms-v" data-k="${d.key}" min="${d.min}" max="${d.max}" step="${d.step}" />
-      <span class="ms-val" data-v="${d.key}"></span><span class="ms-lbl">${d.label}</span></div>`;
-  $('masterBody').innerHTML = groups.map((g) => `<div class="ms-mod"><div class="ms-title">${g}</div><div class="ms-ctls">${MASTER_PARAMS.filter((d) => d.group === g).map(ctl).join('')}</div></div>`).join('') +
-    `<div class="ms-mod ms-scope"><div class="ms-title">Output <span class="ms-gr muted"></span></div>
+  // built once; syncMasterUI sets the values (the value labels have no template values inside)
+  const ctl = (d) => html`<div class="ms-ctl" title="${d.title} — double-click: the style's value">
+      <input type="range" class="mx-v ms-v" data-k=${d.key} min=${d.min} max=${d.max} step=${d.step} />
+      <span class="ms-val" data-v=${d.key}></span><span class="ms-lbl">${d.label}</span></div>`;
+  render(html`${groups.map((g) => html`<div class="ms-mod"><div class="ms-title">${g}</div><div class="ms-ctls">${MASTER_PARAMS.filter((d) => d.group === g).map(ctl)}</div></div>`)}
+    <div class="ms-mod ms-scope"><div class="ms-title">Output <span class="ms-gr muted"></span></div>
       <div class="ms-ctls"><canvas class="ms-spec" width="220" height="96" title="Spectrum of the mastered mix"></canvas>
-      <div class="ms-meters"><canvas class="ms-gr-meter" width="8" height="96" title="Glue compressor gain reduction (0 … −20 dB)"></canvas><canvas class="mx-meter ms-out" width="10" height="96" title="Output level"></canvas></div></div></div>`;
+      <div class="ms-meters"><canvas class="ms-gr-meter" width="8" height="96" title="Glue compressor gain reduction (0 … −20 dB)"></canvas><canvas class="mx-meter ms-out" width="10" height="96" title="Output level"></canvas></div></div></div>`, $('masterBody'));
   syncMasterUI();
 }
 const fmtMaster = (d, v) => (d.unit === 'dB' ? `${v > 0 ? '+' : ''}${v}` : d.key === 'time' ? `${Math.round(v * 16)}/16` : d.key === 'filter' ? (Math.abs(v) < 0.01 ? 'off' : v < 0 ? `LP ${Math.round(-v * 100)}` : `HP ${Math.round(v * 100)}`) : `${Math.round(v * 100)}`);

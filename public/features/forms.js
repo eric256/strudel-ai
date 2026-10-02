@@ -1,8 +1,8 @@
 // Feature module split out of app.js (see the section comments below).
 import { DEFAULT_FORMS, OLD_DEFAULT_FORMS, OLD_FORM_SECTIONS, findIn, formBars, formsForRequest as formsRequest, parseFormSections } from '../lib/forms.js';
-import { esc } from '../lib/util.js';
 import { openSettings } from './settings.js';
 import { $, load, save } from '../app.js';
+import { html, render, renderOptions } from '../html.js';
 export let songForms;
 // ---------------------------------------------------------------------------
 // Song forms: the order and length of a song's sections. Users can edit and add
@@ -31,16 +31,14 @@ function renderFormSelects() {
   for (const id of ['setForm', 'stationForm']) {
     const el = $(id);
     const keep = el.value || load()[id] || 'auto';
-    el.innerHTML = '<option value="auto">auto (fits the genre)</option>' +
-      songForms.map((f) => `<option value="${esc(f.name)}">${esc(f.name)} · ${formBars(f)} bars</option>`).join('');
-    el.value = keep === 'auto' || findForm(keep) ? keep : 'auto';
+    renderOptions(el, [{ value: 'auto', label: 'auto (fits the genre)' }, ...songForms.map((f) => ({ value: f.name, label: `${f.name} · ${formBars(f)} bars` }))],
+      keep === 'auto' || findForm(keep) ? keep : 'auto');
   }
 }
 function saveForms() { save({ songForms }); renderFormSelects(); }
 export function renderFormsEditor() {
   formIdx = Math.max(0, Math.min(formIdx, songForms.length - 1));
-  $('formSelect').innerHTML = songForms.map((f, i) => `<option value="${i}">${esc(f.name || 'untitled')}</option>`).join('');
-  $('formSelect').value = String(formIdx);
+  renderOptions($('formSelect'), songForms.map((f, i) => ({ value: i, label: f.name || 'untitled' })), formIdx);
   const f = songForms[formIdx] || { name: '', use: '', sections: '' };
   $('formName').value = f.name;
   $('formUse').value = f.use;
@@ -49,10 +47,10 @@ export function renderFormsEditor() {
 }
 function renderFormPreview() {
   const secs = parseFormSections($('formSections').value);
-  $('formPreview').innerHTML = secs.length
-    ? secs.map((x) => `<span class="chip" style="--w:${x.bars}"><b>${esc(x.name)}</b> ${x.bars}</span>`).join('') +
-      `<div class="muted small">${secs.length} sections · ${formBars({ sections: $('formSections').value })} bars</div>`
-    : '<span class="muted small">no sections yet</span>';
+  render(secs.length
+    ? html`${secs.map((x) => html`<span class="chip" style="--w:${x.bars}"><b>${x.name}</b> ${x.bars}</span>`)}
+      <div class="muted small">${secs.length} sections · ${formBars({ sections: $('formSections').value })} bars</div>`
+    : html`<span class="muted small">no sections yet</span>`, $('formPreview'));
 }
 
 /** Start-up: the statements that ran here when this was part of app.js (called from app.js at the same point). */
@@ -70,7 +68,7 @@ export function setup() {
       f.name = $('formName').value.trim();
       f.use = $('formUse').value.trim();
       f.sections = $('formSections').value;
-      if (id === 'formName') $('formSelect').options[formIdx].textContent = f.name || 'untitled';
+      if (id === 'formName') renderOptions($('formSelect'), songForms.map((x, i) => ({ value: i, label: x.name || 'untitled' })), formIdx);
       if (id === 'formSections') renderFormPreview();
       saveForms();
     };
