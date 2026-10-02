@@ -107,7 +107,9 @@ No other code blocks. No explanations after the code.
     holding the COMPLETE updated sheet JSON (same fields as given). A section may carry "shift" (a NUMBER of semitones,
     -6…+6, e.g. 2 for a lifted last chorus) and "bpm" (a NUMBER, its own tempo, within ±30% of the song's "bpm"); the
     song's "meter" ("4/4", "3/4", "6/8", "12/8", "5/4", "7/8") sets the bar. The app writes the tempo lines itself: change
-    tempo ONLY through these sheet fields, never with setcpm in the parts code. If parts change or new parts appear, ALSO reply with a
+    tempo ONLY through these sheet fields, never with setcpm in the parts code. The sheet's "master" is the song's
+    mastering style (the whole mix: EQ, filter, drive, reverb, echo, compression): to make a song "more lo-fi", "dubbier",
+    "bigger" or "warmer", change "master" and/or "masterParams" (tweaks on top of the style). If parts change or new parts appear, ALSO reply with a
     \`\`\`parts block holding the COMPLETE parts code (setcpm line + const definitions, no labels).
   * To program or press pads, reply with a \`\`\`pads block: {"program":[{"pad":1,"label":"kick","code":"s(\"bd*4\")","mode":"toggle"}],"on":[2],"off":[3]}
     (pad numbers 1–16; mode toggle | hold | once; code is one Strudel line; all fields optional).
@@ -199,6 +201,8 @@ Example:
 {
   "title": "Neon Rain",
   "form": "pop",
+  "band": "synthwave",
+  "master": "synthwave",
   "bpm": 104,
   "meter": "4/4",
   "key": "A minor",
@@ -266,6 +270,12 @@ Rules:
     repeated-note stabs, an arpeggio figure, octave leaps — pick what suits the genre;
   * each bar of the hook fills the meter: 3/4 → 3 (or 6) steps per bar "[0 2 4]", 6/8 → 6 steps "[0 ~ 2 4 ~ 2]", 5/4 → 5.
   It is the song's identity: the hook part plays it in every chorus / drop, and the intro or outro may tease it.
+- BAND: when the request names a band (or one of the BANDS fits the genre), write for it: set "band" to its name, use
+  its instruments — each part takes the sound listed for its role — and its master style. You may leave instruments out.
+  Otherwise set "band": "none" and pick sounds yourself with the SOUND GUIDE: sounds that suit the genre AND each other.
+- MASTER: "master" is the song's mastering style (post-processing on the whole mix), one name from the MASTER STYLES
+  list in the request: the band's style, or the one that best fits the genre and mood (lo-fi → "lo-fi", techno → "techno",
+  ambient → "ambient" …). A description that asks for a sound ("dusty", "huge", "underwater", "old radio") picks it.
 - PARTS: 5–9 parts, one sound each, from the AVAILABLE SOUNDS list (for drums: a drum-machine bank name).
   name: one lowercase word. role: drums, perc, bass, chords, pad, arp, melody, counter or fx.
   "variants" lists main plus what the sections use (drums: main, half, fill; keys: main, alt1; hook: main, harmony). Give drums a "fill" variant when the

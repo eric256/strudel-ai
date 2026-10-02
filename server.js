@@ -372,7 +372,7 @@ app.post('/api/chat', async (req, res) => {
             : PROMPTS[mode] || SYSTEM_PROMPT) +
           (sounds && ['code', 'sheet', 'library'].includes(mode)
             ? '\n\n## AVAILABLE SOUNDS (the complete list loaded right now — use these exact names, never invent, renumber or zero-pad names)\n' +
-              String(sounds).slice(0, 16000)
+              String(sounds).slice(0, 32000)
             : ''),
       },
       ...history,
