@@ -122,6 +122,15 @@ try {
     expect(await ev(() => !strudelAI.setl.running || !document.querySelector('strudel-editor').editor.repl.scheduler.started), 'still playing');
   });
 
+  await step('🐞 the debug log downloads with the problems and context', async () => {
+    await ev(() => { console.warn('smoke: a test warning'); strudelAI.ws.open('console'); });
+    await p.waitForTimeout(300);
+    const [dl] = await Promise.all([p.waitForEvent('download'), ev(() => document.getElementById('consoleDownload').click())]);
+    expect(/^strudel-ai-debug-\d{12}\.txt$/.test(dl.suggestedFilename()), `file name ${dl.suggestedFilename()}`);
+    const text = await (await import('node:fs/promises')).readFile(await dl.path(), 'utf8');
+    for (const want of ['== SUMMARY:', 'smoke: a test warning', '== APP ==', '== SONG SHEET ==', '== CODE IN THE EDITOR ==', '== FULL LOG', '“Smoke Signal”']) expect(text.includes(want), `missing ${want}`);
+  });
+
   await step('no page errors', async () => expect(!errors.length, errors.join(' | ')));
 } finally {
   await browser.close();

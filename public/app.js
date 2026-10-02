@@ -1,3 +1,4 @@
+import { dlog, debugReport, debugState, debugCounts } from './debuglog.js'; // first: it catches errors from everything after it
 import { loadDockview, createWorkspace } from './workspace.js';
 import { wrapCode } from './format.js';
 import { createMaster, MASTER_PARAMS, MASTER_DEFAULTS, MASTER_STYLES, STYLE_NAMES, styleParams, normStyle, clampParams, diffParams, stylesForPrompt } from './master.js';
@@ -308,6 +309,8 @@ function nextBoundary(every) {
  * only happen when notes are generated, not when the code is evaluated.
  */
 let inDryRun = false;
+// Strudel errors while new code is test-played are expected (that's what the test is for): the debug log marks them
+Object.defineProperty(debugState, 'testPlaying', { get: () => inDryRun });
 const recentDryRunErrors = new Map(); // message → time, to avoid reporting the same error twice
 function dryRun(pat) {
   const c = Math.floor(nowCycle());
@@ -875,6 +878,7 @@ function clog(kind, text) {
   row.append(time, body);
   log.appendChild(row); // (the log is tailed: it stays at the bottom unless you scroll up)
   while (log.childElementCount > CONSOLE_MAX) log.firstElementChild.remove();
+  const entry = dlog(kind, text, 'console'); // 🐞 the debug log keeps everything (the panel only the last 400)
   let stream = null;
   return {
     stream(t) {
@@ -882,10 +886,14 @@ function clog(kind, text) {
       if (!stream) { stream = document.createElement('pre'); stream.className = 'con-stream'; row.appendChild(stream); tail(stream); }
       stream.textContent = t.length > 4000 ? '…' + t.slice(-4000) : t;
     },
-    done(t, k) { if (t) body.textContent = t; if (k) row.className = `con-row ${k}`; },
+    done(t, k) {
+      if (t) { body.textContent = t; entry.text = t; }
+      if (k) { row.className = `con-row ${k}`; entry.kind = k; }
+    },
   };
 }
 $('consoleClear').onclick = () => { $('consoleLog').innerHTML = ''; };
+$('consoleDownload').onclick = () => downloadDebugLog();
 if (load().consoleStream !== undefined) $('consoleStream').checked = load().consoleStream;
 $('consoleStream').onchange = () => save({ consoleStream: $('consoleStream').checked });
 
@@ -5913,4 +5921,51 @@ function songMp3(sg) {
 }
 
 // handy for debugging from the browser console
-window.strudelAI = { ws, mixer, mixerChannels, master, masterChain, getBands: () => bands, normalizeSheet, playSong, songMp3, loadPads, songPads, transposeProgression, sectionCode, getForms: () => songForms, getFavorites: () => favorites, loadFavorites, getPads: () => pads, mySongs, activeSong, songFromJSON, songToJSON, mp3, session, pads, padsState, keysState, noteOn, noteOff, setPad, docks, rec, replay, startReplay, recordingForShare, viz, checkScales, checkSounds, prepareCode, evaluateCode, dryRun, hum, transcribe, ensureSliders, setlist, setl };
+// ---------------------------------------------------------------------------
+// 🐞 Debug log download (🖥 Console → ⬇ debug log): the problems, the whole log and what the app was doing, as a text
+// file to send back for fixes. Nothing secret is in it: API keys live on the server.
+// ---------------------------------------------------------------------------
+function debugContext() {
+  const safe = (fn) => { try { return fn(); } catch (e) { return `(unavailable: ${e.message})`; } };
+  const ac = safe(() => audioCtx());
+  const sg = safe(() => (setl.running ? setl.songs[setl.current] : null) || nowSong || activeSong());
+  const step = safe(() => setlist.steps.find((x) => x.status === 'playing'));
+  const st = load();
+  const app = [
+    `version ${APP_VERSION} (build ${APP_BUILD}) · ${location.origin}`,
+    `browser ${navigator.userAgent}`,
+    `window ${innerWidth}×${innerHeight} @${devicePixelRatio}x · audio ${ac?.state || '?'} ${ac?.sampleRate || ''} Hz, latency ${ac?.baseLatency ? Math.round(ac.baseLatency * 1000) + ' ms' : '?'}`,
+    `AI ${$('provider')?.value || '?'} / ${$('model')?.value || '?'}${st.claudeEffort ? ` (effort ${st.claudeEffort})` : ''}`,
+    `panels open: ${safe(() => ws.panels().filter((p) => p.open).map((p) => p.id).join(', '))}`,
+    `settings: ${['quantize', 'fade', 'liveMode', 'autoComplete', 'partVisuals', 'recSongs', 'setForm', 'setBand', 'stationForm', 'stationBand', 'masterStyle', 'masterFollow', 'vizMode', 'aiBudget'].filter((k) => st[k] !== undefined).map((k) => `${k}=${JSON.stringify(st[k])}`).join(' ')}`,
+  ].join('\n');
+  const now = [
+    `${isPlaying() ? 'playing' : 'stopped'} · ${$('status')?.textContent || ''}${setlist.paused ? ' · paused' : ''}`,
+    sg ? `song “${sg.title}” (${sg.status || '?'}${sg.phase ? `, ${sg.phase}` : ''}) · section ${step?.prompt || '—'} · ${setl.mode || ''} ${setl.running ? `${setl.current + 1}/${setl.songs.length}` : ''}` : 'no song',
+    `master ${master.style}${master.bypass ? ' (bypassed)' : ''} · follow ${master.follow} · ${JSON.stringify(diffParams(master.params, master.style))}`,
+    `mixer: ${Object.entries(mixer.ch).filter(([, c]) => c.mute || c.solo || c.vol !== 1 || c.low || c.mid || c.high).map(([b, c]) => `${b}${c.mute ? ' M' : ''}${c.solo ? ' S' : ''} ${c.vol}`).join(', ') || 'flat'}`,
+  ].join('\n');
+  const chat = state.history.slice(-8).map((m) => `--- ${m.role}\n${String(m.content).slice(0, 1500)}`).join('\n');
+  return {
+    app, 'now': now,
+    'song sheet': sg?.sheet ? safe(() => JSON.stringify(rawSheet(sg.sheet), null, 1)) : '',
+    'song parts code': sg?.library || '',
+    'code in the editor': safe(() => getCode()),
+    'recent chat (last 8 messages)': chat,
+  };
+}
+function downloadDebugLog() {
+  const text = debugReport(debugContext());
+  const name = `strudel-ai-debug-${new Date().toISOString().slice(0, 16).replace(/[-:T]/g, '')}.txt`;
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([text], { type: 'text/plain' }));
+  a.download = name;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+  const c = debugCounts();
+  clog('info', `🐞 debug log saved: ${name} (${c.errors} errors, ${c.warnings} warnings) — send it back for fixes`);
+}
+
+window.strudelAI = { debugReport: () => debugReport(debugContext()), ws, mixer, mixerChannels, master, masterChain, getBands: () => bands, normalizeSheet, playSong, songMp3, loadPads, songPads, transposeProgression, sectionCode, getForms: () => songForms, getFavorites: () => favorites, loadFavorites, getPads: () => pads, mySongs, activeSong, songFromJSON, songToJSON, mp3, session, pads, padsState, keysState, noteOn, noteOff, setPad, docks, rec, replay, startReplay, recordingForShare, viz, checkScales, checkSounds, prepareCode, evaluateCode, dryRun, hum, transcribe, ensureSliders, setlist, setl };

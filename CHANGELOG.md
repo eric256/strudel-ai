@@ -8,6 +8,7 @@ The version is in `package.json`. Bump it when you release. Open pages also noti
   - chat, writing a new song with a band, and playback;
   - Now playing, the mixer, the master chain and ✎ Edit song;
   - the settings editors, stop, and that no page errors occur.
+- **🐞 Debug log:** 🖥 Console → **⬇ debug log** saves a text file to send back for fixes. It holds every error and warning (counted in a summary), what the app and song were doing, the song's sheet and code, the editor code, the recent chat and the full log since the page opened. That includes uncaught errors, failed promises, `console.error` / `console.warn` and Strudel's errors, which the panel didn't show before.
 - **Fixed:** in ✎ Edit song (and in chat edits), sections were cut to 16 bars and choruses to 4, even though the editor allows up to 32. Your own edits now keep their lengths. The limits still apply to songs the AI writes.
 - **Hygiene:**
   - Settings are read from browser storage once and kept in memory, and still stay in sync with other tabs and backup restores.

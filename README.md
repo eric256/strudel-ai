@@ -363,6 +363,15 @@ Live, `{note}` is the key you press. In a recording it becomes the recorded note
 - retries and repairs;
 - errors from the audio engine.
 
+**⬇ debug log** saves a text file (`strudel-ai-debug-YYYYMMDDHHMM.txt`) to send back when something goes wrong or could be better. It contains:
+- **a summary** of every error and warning, counted;
+- **the app:** version, browser, audio, AI model, open panels and main settings;
+- **what was playing:** the song, its section, the master style and the mixer;
+- **the song:** its sheet and parts code, the code in the editor and the last 8 chat messages;
+- **every problem**, then **the full log**.
+
+The log keeps everything since the page opened (up to 5,000 entries; the panel shows only the last 400). That includes uncaught errors, failed promises, `console.error` / `console.warn` from Strudel and the audio engine, and Strudel's own error messages. Errors from *test plays* of new code are marked as expected warnings. There are no API keys in it: they stay on the server.
+
 Problems the app is still fixing stay in the console. When an AI problem can't be fixed (e.g. Claude is overloaded after 4 automatic retries, or the budget is reached), it's shown only as **⚠** in the status bar, with the message as its tooltip; click it to open the console.
 
 Fix attempts always work on the AI's own failed code (sent as *code to fix*), not on what's in the editor. The chat only gets the final result:
