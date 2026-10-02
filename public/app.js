@@ -38,6 +38,7 @@ import { addToPlaylist, sessionSongs, setup as setup_playlist } from './features
 import { setup as setup_themes } from './features/themes.js';
 import { pluginsState, setup as setup_plugins } from './features/plugins.js';
 import { html, nothing, render, renderOptions } from './html.js';
+import { T } from './templates/index.js';
 // Strudel AI — browser app
 /**
  * Element by id. Remembered once found, so panels keep working when the layout engine takes them out of the
@@ -837,9 +838,7 @@ save({ playlistAdded: true });
 export const showPanel = (id) => ws.open(id);
 // the ▦ Panels menu: open / close any panel, reset the layout
 function renderLayoutMenu() {
-  render(html`${ws.panels().map((p) => html`<label title=${p.fixed ? 'Always shown' : nothing}><input type="checkbox" data-panel=${p.id} .checked=${p.open} ?disabled=${p.fixed} /> ${p.icon} ${p.title}</label>`)}
-    <div class="lm-foot"><button id="layoutReset" class="link" title="Back to the default layout">↺ reset layout</button></div>
-    <small class="muted">Drag a tab onto another group to tab it, or to a group's edge to split it. Right-click a tab to maximise, float or pop it out into its own window.</small>`, $('layoutMenu'));
+  render(T.layoutMenu(ws.panels()), $('layoutMenu'));
 }
 $('layoutBtn').onclick = (e) => {
   e.stopPropagation();

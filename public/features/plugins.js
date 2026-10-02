@@ -25,6 +25,7 @@ import { resetSoundCatalog } from './sound-check.js';
 import { addToPlaylist } from './playlist.js';
 import { playSong, songFromJSON } from './song-library.js';
 import { meterBeats, songMeter } from '../lib/music.js';
+import { T, overrideTemplate, templateNames } from '../templates/index.js';
 
 const INSTALLED_KEY = 'strudel-ai:plugins';
 const ID_RE = /^[a-z0-9][a-z0-9_-]{0,39}$/i;
@@ -140,6 +141,12 @@ function makeApi(p, id) {
     addBands(list) { mergeBands([].concat(list), `plugin:${id}:bands`); },
     addForms(list) { mergeForms([].concat(list), `plugin:${id}:forms`); },
     addStations(list) { mergeStations([].concat(list), `plugin:${id}:stations`); },
+    /**
+     * Replace one of the app's HTML templates (public/templates/): make(original) returns the new template, which
+     * can call original(...) to wrap it. Removed again when the plugin is turned off. Names: api.templateNames().
+     */
+    overrideTemplate(name, make) { later(overrideTemplate(name, make, `🧩 ${id}`)); },
+    templateNames,
     /** Extra instructions for the AI: mode 'code' (chat edits), 'sheet', 'library', 'songs', or '*' for all. */
     addPromptHint(mode, text) {
       const h = { plugin: id, modes: mode === '*' ? PROMPT_MODES : [].concat(mode), text: String(text) };
@@ -255,31 +262,19 @@ let urlDraft = '';
 export function renderPluginSettings() {
   const el = $('pluginList');
   if (!el) return;
-  const list = [...plugins.values()];
-  render(html`
-    <div class="plugin-list">
-      ${list.length ? nothing : html`<p class="muted small">No plugins yet.</p>`}
-      ${repeat(list, (p) => p.src, (p) => html`
-        <div class="plugin-card${p.on ? ' on' : ''}${p.error ? ' bad' : ''}" data-src=${p.src}>
-          <label class="plugin-switch" title=${p.on ? 'Turn it off' : 'Turn it on'}>
-            <input type="checkbox" .checked=${live(p.on)} @change=${(e) => toggle(p, e.target.checked)} />
-            <b>${p.name}</b></label>
-          ${p.def?.version ? html`<span class="muted small">v${p.def.version}</span>` : nothing}
-          <span class="tag">${KIND_LABEL[p.kind]}</span>
-          <span class="spacer"></span>
-          ${p.kind === 'installed' ? html`<button class="link" @click=${() => uninstall(p)}>remove</button>` : nothing}
-          ${p.def?.description ? html`<div class="muted small plugin-desc">${p.def.description}</div>` : nothing}
-          ${p.error ? html`<div class="plugin-err small">✗ ${p.error}</div>` : nothing}
-        </div>`)}
-    </div>
-    <div class="plugin-install">
-      <b>Install</b>
-      <label class="button-like" title="A plugin's .js file">⬆ from a file
-        <input type="file" accept=".js,.mjs,text/javascript" hidden @change=${async (e) => { const f = e.target.files[0]; e.target.value = ''; if (f) await install(await f.text(), f.name); }} /></label>
-      <input class="plugin-url" placeholder="https://…/my-plugin.js" .value=${live(urlDraft)} @input=${(e) => { urlDraft = e.target.value; }} />
-      <button @click=${installFromUrl}>⬇ from a URL</button>
-    </div>
-    <p class="plugin-warn small">⚠ A plugin runs with full access to this page: what you hear, your songs and your settings. Only install plugins you trust.</p>`, el);
+  render(T.pluginList({
+    plugins: [...plugins.values()].map((p) => ({
+      src: p.src, name: p.name, version: p.def?.version || '', kind: KIND_LABEL[p.kind], description: p.def?.description || '',
+      on: p.on, error: p.error, removable: p.kind === 'installed',
+    })),
+    url: urlDraft,
+  }, {
+    toggle: (src, on) => toggle(plugins.get(src), on),
+    remove: (src) => uninstall(plugins.get(src)),
+    installFile: async (f) => install(await f.text(), f.name),
+    setUrl: (t) => { urlDraft = t; },
+    installUrl: installFromUrl,
+  }), el);
 }
 async function installFromUrl() {
   const url = urlDraft.trim();

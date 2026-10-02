@@ -112,6 +112,25 @@ For colours that follow the user's theme:
 
 Bands, forms and stations are added to your own lists **once**. After that they're yours to edit or delete, and a deleted one doesn't come back.
 
+### Changing the HTML
+
+Every panel's HTML is a template in [`public/templates/`](public/templates/), and a plugin can replace any of them. `api.overrideTemplate(name, make)` takes:
+- the template's **name**, for example `playlistRow`, `songToolbar`, `songView`, `mixerStrip`, `padsGrid` or `layoutMenu` (`api.templateNames()` lists them all);
+- a function **`make(original)`** that returns the new template.
+
+The new template gets the same arguments as the original. These are listed in the comment above each template. Calling `original(...)` inside it wraps the built-in one, and leaving it out replaces it.
+
+```js
+// put a star in front of every song in the playlist
+api.overrideTemplate('playlistRow', (original) => (row, act) => api.html`
+  <div class="starred">⭐ ${original(row, act)}</div>`);
+```
+
+- **When it shows:** the panels using that template re-render straight away. When the plugin is turned off, the original comes back.
+- **More than one plugin:** if several plugins override the same template, each wraps the one before.
+- **Errors:** an override that throws while rendering falls back to the template underneath, and the error is logged.
+- **What to keep:** keep the `data-…` attributes and classes the comment mentions. The app's click handlers and its hand-updated labels rely on them.
+
 ### Storage
 
 `api.storage.get(key, fallback)`, `api.storage.set(key, value)` and `api.storage.remove(key)` keep the plugin's own settings in this browser.

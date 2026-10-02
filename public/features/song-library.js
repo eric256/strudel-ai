@@ -8,8 +8,7 @@ import { arrangeSong } from '../lib/arrange.js';
 import { JAM_ARP, JAM_LEAD, padProg, songPads } from './song-pads.js';
 import { $, LOG_JSON_MARK, addMsg, clog, queue, showPanel, warnUser } from '../app.js';
 import { normalizeSheet } from './bands.js';
-import { songSel, songsChanged, renderSongs, sharedLinkTemplate, songAction, songMeta, songToolbarTemplate } from './song-lists.js';
-import { html, nothing, repeat } from '../html.js';
+import { rowTools, songSel, songsChanged, renderSongs, songAction, songMeta } from './song-lists.js';
 
 export let mySongs;
 const SONG_FORMAT = 'strudel-ai-song';
@@ -82,17 +81,11 @@ export function addToMySongs(sg) {
   clog('ok', `📁 “${copy.title}” saved to My songs`);
   return copy;
 }
-export function myListTemplate() {
-  if (!mySongs.length) return html`<div class="muted small">No songs yet — save one from a set or station (☆ / → My songs), or import a .json file.</div>`;
-  return repeat(mySongs, (sg) => sg, (sg, k) => {
-    const sel = songSel.set === `mine:${k}`;
-    const playing = queue.running && queue.songs[queue.current] === sg;
-    return html`<div class="song mine ${playing ? 'playing' : 'ready'}${sel ? ' selected' : ''}" data-mine=${k} title="Show, edit or play this song">
-      <span class="ico">${playing ? '▶' : '♪'}</span>
-      <div class="body"><div class="t">${sg.title}</div><div class="meta">${songMeta(sg)}</div>${sel ? html`<div class="song-tools">${songToolbarTemplate(sg, false)}${sharedLinkTemplate(sg)}</div>` : nothing}</div>
-      <button class="jump" data-mine-play=${k} title="Play this song (no AI needed)">▶</button>
-      <button class="link" data-mine-del=${k} title="Remove from My songs">🗑</button>
-    </div>`;
+/** 📁 My songs rows (templates/songs.js → mySongsList). */
+export function myListRows() {
+  return mySongs.map((sg, k) => {
+    const selected = songSel.set === `mine:${k}`;
+    return { song: sg, k, playing: queue.running && queue.songs[queue.current] === sg, selected, title: sg.title, meta: songMeta(sg), tools: selected ? rowTools(sg, false) : null };
   });
 }
 /** A song opened from a link or a file: listed in 🎵 Songs → This session, ready to play or queue. */
@@ -146,17 +139,12 @@ export async function toggleFavorite(sg) {
   } catch (e) { warnUser(`Favorite failed: ${e.message}`); }
   renderSongs();
 }
-export function favListTemplate() {
-  if (!favorites.length) return html`<div class="muted small">No favorites yet — ★ a song you like and everyone on this server will see it here.</div>`;
-  return repeat(favorites, (f) => f, (f, k) => {
+/** ★ Favorites rows (templates/songs.js → favoritesList). */
+export function favListRows() {
+  return favorites.map((f, k) => {
     const sg = f.song;
-    const sel = songSel.set === `fav:${k}`;
-    const playing = queue.running && queue.songs[queue.current] === sg;
-    return html`<div class="song fav ${playing ? 'playing' : 'ready'}${sel ? ' selected' : ''}" data-fav=${k} title="Show or play this song">
-      <span class="ico">${playing ? '▶' : '★'}</span>
-      <div class="body"><div class="t">${sg.title}</div><div class="meta">${songMeta(sg)}</div>${sel ? html`<div class="song-tools">${songToolbarTemplate(sg, false)}${sharedLinkTemplate(sg)}</div>` : nothing}</div>
-      <button class="jump" data-fav-play=${k} title="Play this song (no AI needed)">▶</button>
-    </div>`;
+    const selected = songSel.set === `fav:${k}`;
+    return { song: f, k, playing: queue.running && queue.songs[queue.current] === sg, selected, title: sg.title, meta: songMeta(sg), tools: selected ? rowTools(sg, false) : null };
   });
 }
 

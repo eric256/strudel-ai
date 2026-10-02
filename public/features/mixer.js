@@ -12,7 +12,8 @@ import { onceAFrame } from '../lib/events.js';
 import { audioCtx } from './hum-ui.js';
 import { $, docks, getCode, isPlaying, load, player, queue, save, scheduler, setupDock, ws } from '../app.js';
 import { nowSong } from './song-lists.js';
-import { html, live, render, repeat } from '../html.js';
+import { render } from '../html.js';
+import { T, onTemplatesChange } from '../templates/index.js';
 import { themeColor } from '../theme.js';
 let saveMixer;
 const MX_BANDS = [['high', 'highshelf', 4000], ['mid', 'peaking', 1000], ['low', 'lowshelf', 200]];
@@ -116,31 +117,18 @@ function renderMixerPanel() {
   const key = JSON.stringify([chans, mixer.ch, $('masterGain').value]);
   if (key === mixer.key) return;
   mixer.key = key;
-  // faders: live() so a re-render never fights the value you dragged; the dB labels are .textContent (set by hand while dragging)
-  const slider = (cls, k, min, max, step, v, title) => html`<input type="range" class=${cls} data-k=${k} min=${min} max=${max} step=${step} .value=${live(String(v))} title=${title} />`;
-  const strip = (ch) => {
+  const EQ_TITLE = { high: '(4 kHz shelf)', mid: '(1 kHz peak)', low: '(200 Hz shelf)' };
+  const channel = (ch) => {
     const c = chOf(ch.base);
-    const off = !audible(ch.base);
-    return html`<div class="mx-strip${ch.inSection ? '' : ' absent'}${off ? ' silenced' : ''}" style="--c:${vizColor(ch.base)}" data-base=${ch.base}>
-      <div class="mx-name" title="${ch.base}${ch.role ? ` · ${ch.role}` : ''}${ch.sound ? ` · ${ch.sound}` : ''}">${ch.base}</div>
-      <div class="mx-state">${ch.inSection ? (ch.codeMuted ? html`<span class="cm" title="muted in the code (_label:)">muted in code</span>` : html`<span class="on">● playing</span>`) : html`<span title="This part doesn’t play in the current section — its settings apply when it comes in">not in section</span>`}</div>
-      <canvas class="mx-eqviz" width="76" height="40" title="EQ curve over the channel's live spectrum"></canvas>
-      <div class="mx-eqs">${MX_BANDS.map(([b]) => html`<label title="${b} ${b === 'mid' ? '(1 kHz peak)' : b === 'low' ? '(200 Hz shelf)' : '(4 kHz shelf)'} — double-click: 0 dB"><span>${b[0].toUpperCase()}</span>${slider('mx-h', b, -12, 12, 0.5, Number(c[b]) || 0, `${b}: ${c[b] || 0} dB`)}</label>`)}
-        <label title="Pan — double-click: centre"><span>P</span>${slider('mx-h', 'pan', -1, 1, 0.05, Number(c.pan) || 0, `pan ${c.pan || 0}`)}</label></div>
-      <div class="mx-ms"><button data-mx="mute" class="m${c.mute ? ' on' : ''}" title="Mute this channel (whole song)">M</button><button data-mx="solo" class="s${c.solo ? ' on' : ''}" title="Solo this channel (whole song)">S</button></div>
-      <div class="mx-fader">${slider('mx-v mx-vol', 'vol', 0, 1.5, 0.01, c.vol, 'Channel fader — double-click: 0 dB')}<canvas class="mx-meter" width="10" height="100"></canvas></div>
-      <div class="mx-val" .textContent=${`${dbText(c.vol)} dB`}></div>
-    </div>`;
+    return {
+      base: ch.base, color: vizColor(ch.base), title: `${ch.base}${ch.role ? ` · ${ch.role}` : ''}${ch.sound ? ` · ${ch.sound}` : ''}`,
+      state: !ch.inSection ? 'absent' : ch.codeMuted ? 'code-muted' : 'playing', silenced: !audible(ch.base),
+      eq: MX_BANDS.map(([b]) => ({ band: b, title: `${b} ${EQ_TITLE[b]} — double-click: 0 dB`, value: Number(c[b]) || 0 })),
+      pan: Number(c.pan) || 0, mute: !!c.mute, solo: !!c.solo, vol: c.vol, db: dbText(c.vol),
+    };
   };
-  const masterStrip = html`<div class="mx-strip master" data-base="__master">
-      <div class="mx-name">master</div><div class="mx-state"><span>${isPlaying() ? '● on' : 'stopped'}</span></div>
-      <canvas class="mx-eqviz" width="76" height="40" title="Spectrum of the whole mix"></canvas>
-      <div class="mx-eqs"></div><div class="mx-ms"></div>
-      <div class="mx-fader">${slider('mx-v mx-vol', 'master', 0, 1.5, 0.01, $('masterGain').value, 'Master volume — double-click: 100%')}<canvas class="mx-meter" width="10" height="100"></canvas></div>
-      <div class="mx-val" .textContent=${`${dbText(Number($('masterGain').value))} dB`}></div>
-    </div>`;
-  // keyed by part, so a channel keeps its strip (and its meters' canvases) as parts come and go
-  render(html`${chans.length ? repeat(chans, (ch) => ch.base, strip) : html`<div class="muted small mx-empty">No parts yet: every part of the song, and every labelled line in the code (<code>drums: …</code>), gets a channel here.</div>`}${masterStrip}`, $('mixerStrips'));
+  const gain = $('masterGain').value;
+  render(T.mixer({ channels: chans.map(channel), master: { playing: isPlaying(), value: gain, db: dbText(Number(gain)) } }), $('mixerStrips'));
 }
 
 // live visuals: an EQ curve over each channel's spectrum, and a level meter beside each fader
@@ -256,6 +244,7 @@ export function setup() {
   {
     const soon = onceAFrame(() => { mixer.key = ''; renderMixerPanel(); });
     for (const e of ['section', 'song']) player.on(e, soon);
+    onTemplatesChange(soon);
     setInterval(renderMixerPanel, 1000);
   }
   $('mixerStrips').addEventListener('pointerdown', (e) => { if (e.target.matches('input[type=range]')) mixer.dragging = true; });

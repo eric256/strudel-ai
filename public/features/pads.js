@@ -8,7 +8,8 @@ import { isMine, saveMySongs } from './song-library.js';
 import { oneLine } from '../lib/util.js';
 import { $, addMsg, beatCycles, docks, evaluateCode, getCode, isPlaying, load, mirror, nextBoundary, nowCycle, queue, save, saved, setupDock, switchCycle } from '../app.js';
 import { songsChanged } from './song-lists.js';
-import { html, render } from '../html.js';
+import { render } from '../html.js';
+import { T, onTemplatesChange } from '../templates/index.js';
 export let pads, padsState;
 let myPads;
 const DEFAULT_PADS = [
@@ -103,12 +104,7 @@ export function renderPads() {
   const key = JSON.stringify([pads, padsState.edit, padsState.sel, [...padsState.pending.keys()], pads.map((_, i) => padIsOn(i, code))]);
   if (key === renderPads.key) return;
   renderPads.key = key;
-  render(html`${pads.map((p, i) => {
-    const on = padIsOn(i, code);
-    return html`<button class="pad${on ? ' on' : ''}${padsState.pending.has(i) ? ' pending' : ''}${padsState.sel === i && padsState.edit ? ' selected' : ''}" data-i=${i}
-      style="--pc:${p.color || '#7c5cff'}" title="${p.label} · ${p.mode}\n${p.code}">
-      <span class="pad-label">${p.label || `pad ${i + 1}`}</span><span class="pad-mode">${p.mode === 'toggle' ? '' : p.mode}</span></button>`;
-  })}`, $('padsGrid'));
+  render(T.padsGrid(pads.map((p, i) => ({ i, label: p.label, mode: p.mode, code: p.code, color: p.color, on: padIsOn(i, code), pending: padsState.pending.has(i), selected: padsState.sel === i && padsState.edit }))), $('padsGrid'));
 }
 /** "once": on at the next boundary, off one bar later. */
 export async function padOnce(i, lineText = null) {
@@ -184,6 +180,7 @@ export function setPadsFollow(on) {
 
 /** Start-up: the statements that ran here when this was part of app.js (called from app.js at the same point). */
 export function setup() {
+  onTemplatesChange(() => { renderPads.key = ''; renderPads(); });
   myPads = (load().pads || DEFAULT_PADS).map((p, i) => ({ ...DEFAULT_PADS[i], ...p }));
   pads = myPads;
   // owner: null = your own pads; a song = that song's pads (edits are saved with the song)

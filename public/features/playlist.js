@@ -3,7 +3,8 @@
 // from 🎵 Songs (＋ Playlist, ⤴ Play next, ▶ Play) and from a 📻 Station on air, which adds its songs to the end.
 // Upcoming songs can be moved, removed or played now; the playlist is written ahead of time while it plays.
 // ---------------------------------------------------------------------------
-import { html, render, repeat, nothing } from '../html.js';
+import { render } from '../html.js';
+import { T, onTemplatesChange } from '../templates/index.js';
 import { songMeta, songsChanged } from './song-lists.js';
 import { jumpToSong, retrySong, startPlaylist, stopStation } from './song-writer.js';
 import { $, addMsg, dropQueuedSongs, engine, isPlaying, player, queue, save, saved, showPanel } from '../app.js';
@@ -96,29 +97,24 @@ export function clearUpcoming() {
 const ICON = { waiting: '·', writing: '✎', ready: '✓', playing: '▶', done: '✔', failed: '✗' };
 const source = (sg) => (sg.from === 'station' ? `📻 ${sg.station || 'station'}` : sg.from === 'chat' ? '✨ chat' : '📁 added');
 
-/** One song of the playlist: played (↺), now (with its section) or up next (▶ ⤴ ↑ ↓ ✕ / ↻). */
-function rowTemplate(sg, k, kind, section) {
+/** What a playlist row shows (templates/playlist.js → playlistRow). */
+function rowView(sg, k, kind, section) {
   const meta = kind === 'now' ? `${section ? `${section} · ` : ''}${songMeta(sg)}` : songMeta(sg);
-  const btn = (name, label, title, onclick, disabled = false) => html`<button data-pl=${name} title=${title} ?disabled=${disabled} @click=${onclick}>${label}</button>`;
-  const buttons = kind === 'up'
-    ? html`${sg.status === 'failed'
-        ? btn('retry', '↻', 'Write it again from scratch', () => retrySong(sg))
-        : btn('now', '▶', 'Play it now (from the next bar line, once its first section is written)', () => jumpToSong(queue.songs.indexOf(sg)))}
-      ${btn('next', '⤴', 'Play it next', () => addToPlaylist(sg, { at: 'next' }))}
-      ${btn('up', '↑', 'Move up', () => moveInPlaylist(queue.songs.indexOf(sg), -1), k - 1 <= queue.current)}
-      ${btn('down', '↓', 'Move down', () => moveInPlaylist(queue.songs.indexOf(sg), 1), k + 1 >= queue.songs.length)}
-      ${btn('remove', '✕', 'Remove from the playlist', () => removeFromPlaylist(queue.songs.indexOf(sg)))}`
-    : kind === 'played' ? btn('again', '↺', 'Play it again: queue it next', () => addToPlaylist(sg, { at: 'next' })) : nothing;
-  return html`<div class="pl-row ${kind} ${sg.status}" data-k=${k}>
-    <span class="ico">${kind === 'now' ? (isPlaying() ? '▶' : '⏸') : ICON[sg.status] || '·'}</span>
-    <div class="body">
-      <div class="t">${sg.title} <span class="pl-src">${source(sg)}</span></div>
-      <div class="meta">${meta || sg.desc || ''}</div>
-      ${sg.error ? html`<div class="meta bad" title=${sg.error}>⚠ ${sg.error.slice(0, 120)}</div>` : nothing}
-    </div>
-    <div class="pl-btns">${buttons}</div>
-  </div>`;
+  return {
+    song: sg, k, kind, status: sg.status, icon: kind === 'now' ? (isPlaying() ? '▶' : '⏸') : ICON[sg.status] || '·',
+    title: sg.title, source: source(sg), meta: meta || sg.desc || '', error: sg.error || '', failed: sg.status === 'failed',
+    first: k - 1 <= queue.current, last: k + 1 >= queue.songs.length,
+  };
 }
+const rowActions = {
+  retry: (sg) => retrySong(sg),
+  now: (sg) => jumpToSong(queue.songs.indexOf(sg)),
+  next: (sg) => addToPlaylist(sg, { at: 'next' }),
+  up: (sg) => moveInPlaylist(queue.songs.indexOf(sg), -1),
+  down: (sg) => moveInPlaylist(queue.songs.indexOf(sg), 1),
+  remove: (sg) => removeFromPlaylist(queue.songs.indexOf(sg)),
+  again: (sg) => addToPlaylist(sg, { at: 'next' }),
+};
 
 export function renderPlaylist() {
   const playingNow = queue.running && queue.current >= 0 ? queue.songs[queue.current] : null;
@@ -126,17 +122,12 @@ export function renderPlaylist() {
   const entries = queue.songs.map((sg, k) => ({ sg, k }));
   const upcoming = entries.filter(({ k }) => k > queue.current);
   const played = entries.filter(({ k }) => k < queue.current || (!queue.running && k === queue.current)).slice(-8);
-  render(queue.station
-    ? html`📻 <b>${queue.station.name || 'Station'}</b> is adding songs${queue.planning ? ' — planning the next ones…' : ''}
-        <button class="link" title="Stop adding songs — the ones already written still play" @click=${stopStation}>■ stop</button>`
-    : nothing, $('plStation'));
-  render(html`
-    ${played.length ? html`<div class="pl-head">Played</div>${repeat(played, ({ sg }) => sg, ({ sg, k }) => rowTemplate(sg, k, 'played'))}` : nothing}
-    ${playingNow ? html`<div class="pl-head">Now playing</div>${rowTemplate(playingNow, queue.current, 'now', section)}` : nothing}
-    <div class="pl-head">Up next${upcoming.length ? ` · ${upcoming.length}` : ''}</div>
-    ${upcoming.length
-      ? repeat(upcoming, ({ sg }) => sg, ({ sg, k }) => rowTemplate(sg, k, 'up'))
-      : html`<div class="muted small pl-empty">Nothing coming up. Add songs from 🎵 Songs (＋ Playlist), create one in 💬 Chat (🎯 ✨ new song), or start a 📻 Station.</div>`}`, $('playlist'));
+  render(T.playlistStation(queue.station ? { name: queue.station.name, planning: !!queue.planning } : null, { stop: stopStation }), $('plStation'));
+  render(T.playlist({
+    played: played.map(({ sg, k }) => rowView(sg, k, 'played')),
+    now: playingNow ? rowView(playingNow, queue.current, 'now', section) : null,
+    upcoming: upcoming.map(({ sg, k }) => rowView(sg, k, 'up')),
+  }, rowActions), $('playlist'));
   $('plClear').disabled = !upcoming.length;
 }
 
@@ -148,5 +139,6 @@ export function setup() {
   const soon = onceAFrame(renderPlaylist);
   for (const e of ['section', 'song', 'transport', 'songs']) player.on(e, soon);
   setInterval(renderPlaylist, 1000);
+  onTemplatesChange(soon);
   renderPlaylist();
 }

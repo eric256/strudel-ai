@@ -2,7 +2,8 @@
 import { DEFAULT_FORMS, OLD_DEFAULT_FORMS, OLD_FORM_SECTIONS, findIn, formBars, formsForRequest as formsRequest, parseFormSections } from '../lib/forms.js';
 import { openSettings } from './settings.js';
 import { $, load, save } from '../app.js';
-import { html, render, renderOptions } from '../html.js';
+import { render, renderOptions } from '../html.js';
+import { T } from '../templates/index.js';
 export let songForms;
 // ---------------------------------------------------------------------------
 // Song forms: the order and length of a song's sections. Users can edit and add
@@ -52,10 +53,7 @@ export function renderFormsEditor() {
 }
 function renderFormPreview() {
   const secs = parseFormSections($('formSections').value);
-  render(secs.length
-    ? html`${secs.map((x) => html`<span class="chip" style="--w:${x.bars}"><b>${x.name}</b> ${x.bars}</span>`)}
-      <div class="muted small">${secs.length} sections · ${formBars({ sections: $('formSections').value })} bars</div>`
-    : html`<span class="muted small">no sections yet</span>`, $('formPreview'));
+  render(T.formPreview({ sections: secs.map((x) => ({ name: x.name, bars: x.bars })), bars: formBars({ sections: $('formSections').value }) }), $('formPreview'));
 }
 
 /** Start-up: the statements that ran here when this was part of app.js (called from app.js at the same point). */
