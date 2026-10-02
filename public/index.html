@@ -202,7 +202,23 @@
               <option value="meters">level meters</option>
             </optgroup>
           </select>
+          <label title="Hydra: live video synth visuals behind the code, fed by Strudel's visuals (initHydra({ feedStrudel: 1 }))">🌀 hydra
+            <select id="hydraMode">
+              <option value="off">off</option>
+              <option value="kaleido">kaleidoscope</option>
+              <option value="tunnel">tunnel</option>
+              <option value="waves">waves</option>
+              <option value="voronoi">cells</option>
+              <option value="feedback">feedback</option>
+              <option value="custom">custom…</option>
+            </select></label>
+          <label title="How strongly the Hydra visuals show through the code">mix <input type="range" id="hydraMix" min="0.1" max="1" step="0.05" value="0.6" /></label>
+          <button id="hydraEdit" class="link" title="Edit the Hydra code">✎ code</button>
           <span class="spacer"></span>
+        </div>
+        <div id="hydraEditor" class="hydra-editor" hidden>
+          <textarea id="hydraCode" rows="4" spellcheck="false"></textarea>
+          <div class="sl-buttons"><button id="hydraApply">▶ run</button><span id="hydraMsg" class="muted small">Hydra code (s0 is Strudel's visuals; H("&lt;4 5 6&gt;") turns a pattern into a value). Saved as “custom”.</span></div>
         </div>
         <canvas id="vizCanvas"></canvas>
       </section>
@@ -325,6 +341,7 @@
           <option value="2">2 bars</option>
         </select>
       </label><span class="muted small">crossfade into new blocks and AI changes</span></div>
+      <div class="set-row"><label class="live" title="Song sections show a Strudel visual under each part's line, in the part's colour: drums a punchcard, bass a piano roll, chords and pads a spiral, melodies a pitch wheel, fx a scope"><input type="checkbox" id="partVisuals" checked /> 🎨 part visuals</label><span class="muted small">a visual under each part of a song section (punchcard, piano roll, spiral, pitch wheel, scope)</span></div>
       <div class="set-row"><label class="live" title="Autocomplete in the code editor: Strudel functions (with docs and examples), sounds, drum banks, scales and chords. Ctrl+Space shows it any time."><input type="checkbox" id="autoComplete" checked /> ⌨ autocomplete</label><span class="muted small">Strudel functions with docs, sounds, banks, scales, chords · Ctrl+Space</span></div>
       <div class="set-row"><label class="live" title="Record every song in the background as it plays; when a song has played to its end, its song view gets a ⬇ MP3 download button. Songs that are cut short are discarded."><input type="checkbox" id="recSongs" checked /> 🎙 record songs</label><span class="muted small">record songs as they play · ⬇ MP3 in the song view once a song has finished</span></div>
       <p class="muted small">Settings, song forms, stations, pads, layout and your last code are saved in this browser (per address: <code>https://192.168.1.50</code> and <code>https://myhost</code> keep separate settings). Use 💾 Backup to move them.</p>

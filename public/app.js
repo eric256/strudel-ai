@@ -159,6 +159,13 @@ function setAutocomplete(on) {
   return true;
 }
 if (saved.autoComplete !== undefined) $('autoComplete').checked = saved.autoComplete;
+if (saved.partVisuals !== undefined) $('partVisuals').checked = saved.partVisuals;
+$('partVisuals').onchange = async () => {
+  save({ partVisuals: $('partVisuals').checked });
+  // the song section playing now gets (or loses) its visuals on the next bar
+  const code = getCode();
+  if (isPlaying() && code.includes(SEC_START) && !state.pending) await evaluateCode(partVisuals(code), { at: nextBoundary(1), label: 'part visuals', undo: false });
+};
 $('autoComplete').onchange = () => { save({ autoComplete: $('autoComplete').checked }); setAutocomplete($('autoComplete').checked); };
 (function waitForEditor(n = 0) {
   if (setAutocomplete($('autoComplete').checked) || n > 100) return;
@@ -792,7 +799,20 @@ function addMsg(role, html, { raw = false } = {}) {
   scrollChat();
   return div;
 }
-const scrollChat = () => { const m = $('messages'); m.scrollTop = m.scrollHeight; };
+/**
+ * Tail a scrolling log: it follows new content (stays at the bottom) unless you scroll up to read;
+ * scrolling back to the bottom resumes following.
+ */
+function tail(el) {
+  el.__follow = true;
+  const toBottom = () => { if (el.__follow) el.scrollTop = el.scrollHeight; };
+  el.addEventListener('scroll', () => { el.__follow = el.scrollHeight - el.scrollTop - el.clientHeight < 40; }, { passive: true });
+  new MutationObserver(toBottom).observe(el, { childList: true, subtree: true, characterData: true });
+  new ResizeObserver(toBottom).observe(el);
+}
+tail($('messages'));
+tail($('consoleLog'));
+const scrollChat = () => { const m = $('messages'); m.__follow = true; m.scrollTop = m.scrollHeight; };
 
 // ---------------------------------------------------------------------------
 // 🖥 Console: a running log of what happens behind the scenes — every AI request
@@ -824,17 +844,14 @@ function clog(kind, text) {
   body.className = 'con-text';
   body.textContent = text;
   row.append(time, body);
-  const atBottom = log.scrollHeight - log.scrollTop - log.clientHeight < 40;
-  log.appendChild(row);
+  log.appendChild(row); // (the log is tailed: it stays at the bottom unless you scroll up)
   while (log.childElementCount > CONSOLE_MAX) log.firstElementChild.remove();
-  if (atBottom) log.scrollTop = log.scrollHeight;
   let stream = null;
   return {
     stream(t) {
       if (!$('consoleStream').checked) return;
-      if (!stream) { stream = document.createElement('pre'); stream.className = 'con-stream'; row.appendChild(stream); }
+      if (!stream) { stream = document.createElement('pre'); stream.className = 'con-stream'; row.appendChild(stream); tail(stream); }
       stream.textContent = t.length > 4000 ? '…' + t.slice(-4000) : t;
-      if (log.scrollHeight - log.scrollTop - log.clientHeight < 200) log.scrollTop = log.scrollHeight;
     },
     done(t, k) { if (t) body.textContent = t; if (k) row.className = `con-row ${k}`; },
   };
@@ -2845,7 +2862,42 @@ function enterMask(mode, bars) {
 }
 /** Every part of a section is anchored to the bar the section starts on (set when it's armed), so phrases and chord progressions start on their first bar. */
 const SECTION_START_RE = /^const sectionStart = -?[\d.]+.*$/m;
-const atSectionStart = (code, bar) => (SECTION_START_RE.test(code) ? code.replace(SECTION_START_RE, `const sectionStart = ${Math.round(bar)} // the bar this section started on`) : code);
+const atSectionStart = (code, bar) => partVisuals(SECTION_START_RE.test(code) ? code.replace(SECTION_START_RE, `const sectionStart = ${Math.round(bar)} // the bar this section started on`) : code);
+
+// 🎨 Part visuals: each part of a song section gets one of Strudel's inline visuals under its line, in the part's
+// colour, picked by what the part does — drums a punchcard, bass a scrolling piano roll, chords and pads a spiral,
+// melodies a pitch wheel, arps a dense piano roll, fx a scope. (⚙ Settings → General → 🎨 part visuals)
+const PART_VIS_RE = /\.color\('#[0-9a-f]{6}'\)\._(pianoroll|punchcard|spiral|pitchwheel|scope)\(\{[^}]*\}\)\s*$/;
+function hslHex(css) {
+  const m = /hsl\((\d+),\s*(\d+)%,\s*(\d+)%\)/.exec(css);
+  if (!m) return '#7c5cff';
+  const [h, sat, l] = [Number(m[1]), Number(m[2]) / 100, Number(m[3]) / 100];
+  const f = (n) => { const k = (n + h / 30) % 12; const c = l - sat * Math.min(l, 1 - l) * Math.max(-1, Math.min(k - 3, 9 - k, 1)); return Math.round(c * 255).toString(16).padStart(2, '0'); };
+  return `#${f(0)}${f(8)}${f(4)}`;
+}
+function partVisual(name, line) {
+  const t = `${name} ${line}`.toLowerCase();
+  if (/drum|perc|beat|kick|hats?\b|clap|snare|bank\(/.test(t)) return '_punchcard({ cycles: 2, labels: 0, vertical: 0, fold: 0 })';
+  if (/\bfx\b|noise|riser|white|pink|brown|crackle/.test(t)) return '_scope({ thickness: 2, scale: 0.4, pos: 0.5 })';
+  if (/arp/.test(t)) return '_pianoroll({ cycles: 2, fold: 1, labels: 0, smear: 1 })';
+  if (/bass|sub\b/.test(t)) return '_pianoroll({ cycles: 4, fold: 1, labels: 0, autorange: 1 })';
+  if (/chord|pad|keys|piano|organ|string|voicing/.test(t)) return '_spiral({ steady: 0.96, stretch: 0.6, thickness: 4 })';
+  if (/hook|lead|melod|counter|riff|harm|vox|flute|bell/.test(t)) return '_pitchwheel({ edo: 12, thickness: 3 })';
+  return '_pianoroll({ cycles: 2, fold: 1, labels: 0 })';
+}
+/** Add (or remove) the part visuals on the part lines of a section's code. */
+function partVisuals(code) {
+  const at = code.indexOf(SEC_START);
+  if (at < 0) return code;
+  const on = $('partVisuals').checked;
+  const tailCode = code.slice(at).split('\n').map((l) => {
+    const m = l.match(LABEL_LINE);
+    if (!m || /^\s*pad\d+:/.test(l)) return l;
+    const bare = l.replace(PART_VIS_RE, '');
+    return on ? `${bare}.color('${hslHex(vizColor(parseLabel(m[1]).base))}').${partVisual(parseLabel(m[1]).base, bare)}` : bare;
+  }).join('\n');
+  return code.slice(0, at) + tailCode;
+}
 const MAX_KEY_SHIFT = 3;      // semitones a section may move away from the song's key
 const MAX_TEMPO_DRIFT = 0.08; // a section's tempo stays within ±8% of the song's
 // usual spellings: major-ish roots Db Eb F# Ab Bb, minor roots C# Eb F# G# Bb
@@ -4181,6 +4233,65 @@ function setupDock(name, { onShow, onHide } = {}) {
 
 if (load().vizMode) $('vizMode').value = load().vizMode;
 $('vizMode').onchange = () => save({ vizMode: $('vizMode').value });
+// ---------------------------------------------------------------------------
+// 🌀 Hydra: live video-synth visuals behind the code (Strudel's initHydra({ feedStrudel: 1 }) — s0 is Strudel's
+// own visuals). Presets or your own Hydra code; the code area turns see-through while it runs.
+// ---------------------------------------------------------------------------
+const HYDRA_PRESETS = {
+  kaleido: 'src(s0).kaleid(H("<4 5 6>"))\n  .diff(osc(1, 0.5, 5))\n  .modulateScale(osc(2, -0.25, 1))\n  .out()',
+  tunnel: 'src(o0).scale(1.02).rotate(0.006)\n  .blend(src(s0).kaleid(H("<3 4 6>")), 0.25)\n  .modulate(osc(4, 0.1, 1), 0.02)\n  .out()',
+  waves: 'osc(18, 0.03, 1.1).color(0.6, 0.25, 0.9)\n  .modulate(noise(2.5), 0.25)\n  .diff(src(s0))\n  .out()',
+  voronoi: 'voronoi(H("<6 8 12>"), 0.3, 0.4)\n  .mult(osc(10, 0.08, 1.4))\n  .modulate(src(s0), 0.3)\n  .out()',
+  feedback: 'src(o0).modulateHue(src(o0).scale(1.01), 1)\n  .layer(src(s0).luma(0.15))\n  .out()',
+};
+const hydraState = { on: false, mode: load().hydraMode || 'off', custom: load().hydraCustom || HYDRA_PRESETS.kaleido };
+const hydraCodeFor = (mode) => (mode === 'custom' ? hydraState.custom : HYDRA_PRESETS[mode]);
+async function runHydra(mode = hydraState.mode) {
+  hydraState.mode = mode;
+  $('hydraMode').value = mode;
+  if (mode === 'off') return stopHydra();
+  try {
+    if (typeof globalThis.initHydra !== 'function') throw new Error('Hydra is not available in this Strudel build');
+    await globalThis.initHydra({ feedStrudel: 1, src: '/vendor/hydra/hydra-synth.js' });
+    new Function(hydraCodeFor(mode))(); // Hydra's functions (osc, src, s0, o0 …) and Strudel's H() are globals
+    hydraState.on = true;
+    document.body.classList.add('hydra-on');
+    applyHydraMix();
+    $('hydraMsg').textContent = '▶ running';
+  } catch (e) {
+    $('hydraMsg').textContent = `⚠ ${e.message}`;
+    clog('warn', `🌀 Hydra: ${e.message}`);
+  }
+}
+function stopHydra() {
+  try { globalThis.solid?.(0, 0, 0, 0).out(); } catch {}
+  document.getElementById('hydra-canvas')?.remove();
+  try { globalThis.getDrawContext?.().canvas.style.removeProperty('display'); } catch {} // feedStrudel hid Strudel's own canvas
+  hydraState.on = false;
+  document.body.classList.remove('hydra-on');
+}
+function applyHydraMix() {
+  const c = document.getElementById('hydra-canvas');
+  if (c) c.style.opacity = $('hydraMix').value;
+}
+$('hydraMode').value = hydraState.mode;
+$('hydraMix').value = load().hydraMix ?? 0.6;
+$('hydraMode').onchange = () => { save({ hydraMode: $('hydraMode').value }); if ($('hydraMode').value !== 'custom' && $('hydraMode').value !== 'off') $('hydraCode').value = hydraCodeFor($('hydraMode').value); runHydra($('hydraMode').value); };
+$('hydraMix').oninput = () => { applyHydraMix(); save({ hydraMix: Number($('hydraMix').value) }); };
+$('hydraEdit').onclick = () => {
+  $('hydraEditor').hidden = !$('hydraEditor').hidden;
+  if (!$('hydraEditor').hidden) $('hydraCode').value = hydraCodeFor(hydraState.mode === 'off' ? 'custom' : hydraState.mode) || hydraState.custom;
+};
+$('hydraApply').onclick = () => {
+  hydraState.custom = $('hydraCode').value;
+  save({ hydraCustom: hydraState.custom, hydraMode: 'custom' });
+  runHydra('custom');
+};
+// Hydra needs Strudel loaded: start the saved mode once the editor is ready
+if (hydraState.mode !== 'off') {
+  const wait = setInterval(() => { if (typeof globalThis.initHydra === 'function' && mirror()) { clearInterval(wait); runHydra(); } }, 500);
+}
+
 setupDock('viz', {
   onShow: () => { viz.on = true; cancelAnimationFrame(viz.raf); drawViz(); },
   onHide: () => { viz.on = false; cancelAnimationFrame(viz.raf); },
@@ -5189,6 +5300,10 @@ function songFromJSON(j) {
   const libRef = (c) => !/typeof sectionChords/.test(c) && (/^\s*\(?[A-Za-z]\w*_\w+\)?(\(sectionChords\))?\s*$/.test(c) || /\bsectionChords\b/.test(c));
   song.pads = song.pads && fresh
     ? song.pads.map((p) => {
+      // older jam pads played the song's scale, not the chords: give them the chord-following version
+      if (/^(arp|lead|jam lead)$/.test(p.label) && /\.scale\(/.test(p.code || '') && /^n\("(0 2 4 7 4 2|<0 \[2 4\] 7 \[4 2\]>)"\)/.test(p.code)) {
+        return { ...p, label: p.label === 'lead' ? 'jam lead' : p.label, code: (p.label === 'arp' ? JAM_ARP : JAM_LEAD)(padProg(song.sheet)) };
+      }
       const f = fresh.find((q) => q.label === p.label);
       if (!libRef(p.code || '')) return f?.part && !p.part && p.code === f.code ? { ...p, part: f.part, variant: f.variant } : p;
       return f ? { ...p, code: f.code, part: f.part, variant: f.variant } : { ...p, code: p.code.replace(/\bsectionChords\b/g, padProg(song.sheet)) };
@@ -5478,6 +5593,8 @@ function libExpr(lib, id) {
   const end = rest.search(/^\s*(?:const|let|var)\s+[\w$]+\s*=|^\s*setcp[ms]\(/m);
   return (end < 0 ? rest : rest.slice(0, end)).trim().replace(/;\s*$/, '');
 }
+const JAM_ARP = (prog) => `n("0 1 2 3 2 1").chord(${prog}).voicing().fast(2).s("triangle").gain(0.4)`;
+const JAM_LEAD = (prog) => `n("<[0 ~ 2] [3 2] [4 ~ 3] [2 1]>").chord(${prog}).voicing().add(note(12)).s("sawtooth").lpf(2000).decay(0.2).sustain(0.3).gain(0.3)`;
 /** Chords for a pad: the section's chords when one of the song's sections plays, else the song's first progression. */
 const padProg = (sh) => `(typeof sectionChords === 'undefined' ? ${JSON.stringify(Object.values(sh.chords)[0])} : sectionChords)`;
 function songPads(sg) {
@@ -5514,8 +5631,9 @@ function songPads(sg) {
   add('echo all', 'all(x => x.delay(0.5).delaytime(0.1875).delayfeedback(0.6))', 'hold', '#7c5cff');
   add('half time', 'all(x => x.slow(2))', 'hold', '#7c5cff');
   // jam parts in the song's key, following the section's chords
-  add('arp', `n("0 2 4 7 4 2").scale("${scale}").fast(2).s("triangle").gain(0.4)`, 'toggle', '#20d3a6');
-  add('jam lead', `n("<0 [2 4] 7 [4 2]>").scale("${scale}").add(note(12)).s("sawtooth").lpf(2000).decay(0.2).sustain(0.3).gain(0.3)`, 'toggle', '#20d3a6');
+  // the arp and lead play the tones of the chord sounding now (the section's chords, moved with any key change)
+  add('arp', JAM_ARP(prog), 'toggle', '#20d3a6');
+  add('jam lead', JAM_LEAD(prog), 'toggle', '#20d3a6');
   add('stabs', `chord(${prog}).voicing().struct("~ x ~ x").s("square").decay(0.1).sustain(0).gain(0.3)`, 'toggle', '#20d3a6');
   add('jam pad', `chord(${prog}).voicing().s("supersaw").attack(0.4).release(1).lpf(1800).gain(0.25)`, 'toggle', '#7c5cff');
   return pads;
