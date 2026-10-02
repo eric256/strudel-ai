@@ -28,6 +28,23 @@ jobs:
           curl -sf -o /dev/null http://127.0.0.1:3000/vendor/strudel/index.js
           kill $! || true
 
+  smoke:
+    # the whole app in a real browser, with a mock AI (test/smoke)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Install Playwright and Chromium
+        run: |
+          npm install --no-save playwright
+          npx playwright install --with-deps chromium
+      - name: Browser smoke test
+        run: npm run smoke
+
   docker:
     runs-on: ubuntu-latest
     steps:

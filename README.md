@@ -363,6 +363,15 @@ Live, `{note}` is the key you press. In a recording it becomes the recorded note
 - retries and repairs;
 - errors from the audio engine.
 
+**⬇ debug log** saves a text file (`strudel-ai-debug-YYYYMMDDHHMM.txt`) to send back when something goes wrong or could be better. It contains:
+- **a summary** of every error and warning, counted;
+- **the app:** version, browser, audio, AI model, open panels and main settings;
+- **what was playing:** the song, its section, the master style and the mixer;
+- **the song:** its sheet and parts code, the code in the editor and the last 8 chat messages;
+- **every problem**, then **the full log**.
+
+The log keeps everything since the page opened (up to 5,000 entries; the panel shows only the last 400). That includes uncaught errors, failed promises, `console.error` / `console.warn` from Strudel and the audio engine, and Strudel's own error messages. Errors from *test plays* of new code are marked as expected warnings. There are no API keys in it: they stay on the server.
+
 Problems the app is still fixing stay in the console. When an AI problem can't be fixed (e.g. Claude is overloaded after 4 automatic retries, or the budget is reached), it's shown only as **⚠** in the status bar, with the message as its tooltip; click it to open the console.
 
 Fix attempts always work on the AI's own failed code (sent as *code to fix*), not on what's in the editor. The chat only gets the final result:
@@ -564,11 +573,26 @@ Use ≥ 8k context. Small models hallucinate function names more often — auto-
 ```bash
 npm ci
 npm run check     # syntax check
-npm test          # unit tests (hum → melody pipeline)
+npm test          # unit tests: song engine, music theory, code wrapping, hum → melody
+npm run smoke     # the whole app in Chromium with a mock AI (needs Playwright: npm i --no-save playwright && npx playwright install chromium)
 LLAMACPP_URL=http://localhost:8080 npm start   # http://localhost:3000
 ```
 
-CI runs the checks, the tests, a server smoke test and a Docker build on every push and pull request.
+Code layout:
+- `server.js`: the web server, the AI providers, share links and favorites. `prompt.js`: the AI's system prompts.
+- `public/app.js`: the browser app (UI, playback, the song engine's AI steps).
+- `public/lib/`: the song engine's pure logic, with no DOM and no app state, so it is unit-tested in Node:
+  - `music.js`: chords, transposing, meters, tempo
+  - `scales.js`: scale-name repair
+  - `labels.js`: labelled pattern lines
+  - `forms.js` and `bands.js`: forms and bands
+  - `sheet.js`: song-sheet checks and repair
+  - `arrange.js`: section code and arrangement
+  - `util.js`: small helpers
+- `public/master.js` (master chain and styles), `format.js` (code wrapping), `hum.js` (humming), `workspace.js` (panels), `sounds.js` (sound guide).
+- `test/`: unit tests (`*.test.mjs`) and the browser smoke test (`smoke/`).
+
+CI runs the checks, the unit tests, a server check, the browser smoke test and a Docker build on every push and pull request.
 Every push to `main` publishes `ghcr.io/eric256/strudel-ai:latest`, and every `v*` tag publishes a versioned image.
 To release: bump `version` in `package.json`, add a `CHANGELOG.md` entry, then `git tag vX.Y.Z && git push --tags`.
 

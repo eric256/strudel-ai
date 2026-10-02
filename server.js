@@ -70,7 +70,8 @@ const PUBLIC_DIR = path.join(__dirname, 'public');
 const VERSION = JSON.parse(fs.readFileSync(path.join(__dirname, 'package.json'), 'utf8')).version;
 const BUILD = (() => {
   const h = crypto.createHash('sha1').update(VERSION);
-  const files = ['server.js', 'prompt.js', ...fs.readdirSync(PUBLIC_DIR).map((f) => path.join('public', f))];
+  // every app file, including subfolders (public/lib/…)
+  const files = ['server.js', 'prompt.js', ...fs.readdirSync(PUBLIC_DIR, { recursive: true }).map((f) => path.join('public', String(f)))];
   for (const f of files.sort()) {
     try { h.update(f).update(fs.readFileSync(path.join(__dirname, f))); } catch {}
   }
