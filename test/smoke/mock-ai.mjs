@@ -35,6 +35,7 @@ function library(req) {
 }
 
 export const log = [];
+let failSheets = 0;
 export function startMockAI(port) {
   const server = http.createServer((req, res) => {
     if (req.url.startsWith('/v1/models')) { res.writeHead(200, { 'Content-Type': 'application/json' }); return res.end('{"data":[{"id":"mock"}]}'); }
@@ -44,7 +45,9 @@ export function startMockAI(port) {
       const j = JSON.parse(body);
       const sys = j.messages[0].content, last = j.messages[j.messages.length - 1].content;
       let kind, content;
-      if (sys.startsWith('You are a songwriter')) { kind = 'sheet'; content = JSON.stringify(sheet(last)); }
+      // a song described with FAILSHEET gets unusable sheets the first 6 times (both rounds of 3 tries), then good ones
+      if (sys.startsWith('You are a songwriter') && /FAILSHEET/.test(last) && failSheets++ < 6) { kind = 'sheet'; content = 'Sorry, no sheet today.'; }
+      else if (sys.startsWith('You are a songwriter')) { kind = 'sheet'; content = JSON.stringify(sheet(last)); }
       else if (sys.startsWith('You write the PART LIBRARY')) { kind = 'library'; content = library(last); }
       else { kind = 'code'; content = 'Here you go.\n```javascript\nsetcpm(120/4)\ndrums: s("bd*4").bank("RolandTR909")\nlead: note("c4 e4 g4").s("square").gain(0.3)\n```'; }
       log.push({ kind, sys, last });

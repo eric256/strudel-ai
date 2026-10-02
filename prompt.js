@@ -144,29 +144,6 @@ export const SYSTEM_PROMPT = (() => {
   return prompt + SCALE_LIST;
 })();
 
-export const SETLIST_PROMPT = `You plan the song blocks (sections) of ONE live-coded song in Strudel.
-Given a description of a set, write a SETLIST: an ordered list of sections. Each line is exactly:
-<bars> | <instruction for the musician>
-
-Rules:
-- Output ONLY setlist lines, no intro, no numbering, no code, no markdown.
-- 4–12 lines. Bars are multiples of 4 (usually 8 or 16). One bar = one cycle.
-- Each instruction describes a concrete musical CHANGE relative to the previous section
-  (add/remove instruments, change filter, rhythm, chords, tempo, energy), in under 25 words.
-- Don't only ADD layers. At least a third of the sections must REMOVE or strip back parts (name exactly what goes),
-  and at least two sections must SWITCH UP THE BEAT (new kick pattern, half-time, broken beat / breakbeat, swing,
-  four-on-the-floor ↔ syncopated, drum fills). A section can swap one part for another.
-- Build a musical arc (intro → build → peak/drop → breakdown → outro) unless told otherwise.
-- Mention tempo (bpm) and key in the first line.
-
-Example:
-8 | intro at 124 bpm in A minor: soft kick and closed hats only
-16 | add a rolling sub bass on A1 and a clap on 2 and 4
-8 | breakdown: remove kick and clap, add a warm pad with Am9 and Fmaj7, filter sweep up
-16 | drop: kick back as a broken beat with ghost snares, bass filter open, add a lead arpeggio
-16 | switch to half-time drums, remove the hats, swap the arpeggio for a plucked lead
-8 | outro: remove lead and bass, hats fade out`;
-
 export const SONGS_PROMPT = `You are the music director of a live-coded electronic music set / radio station played with Strudel
 (synths, drum machines, samples and General-MIDI soundfonts; no vocals, no real recordings).
 Given a theme (and possibly songs already played), write a list of SONGS.

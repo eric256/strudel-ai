@@ -2,6 +2,16 @@
 
 The version is in `package.json`. Bump it when you release. Open pages also notice *any* redeploy through the build id, which is a hash of the app files, even if the version wasn't bumped.
 
+## 1.34.0
+- **Refactor, part 3: one way to write a song.** The old block-by-block writer is gone, and every new song comes from the song-sheet engine.
+  - **If a song can't be written:** after the usual tries (3 for the sheet, 3 for the parts), the song is started over once from a fresh sheet.
+  - **If that fails too:** the song is marked ✗ with the reason, the set or station moves on, and **↻ Try again** in its row writes it from scratch and plays it next.
+  - No more songs whose sections show AI instruction text instead of instruments.
+  - **Older songs keep working:** songs saved in the block format still load, play and repair a failing section.
+  - The "Blocks" prompt is gone from ⚙ Settings → 📝 Prompts.
+- **Fixed:** a song that failed kept showing "✎ writing the song sheet…".
+- **Smoke test:** a song whose sheet keeps failing gets ✗ and ↻ Try again, and is never written block by block. An old block-format song still loads and plays.
+
 ## 1.33.0
 - **Refactor, part 2: the player announces what happens.** Sections starting, songs changing, play / pause / resume / stop and changes to the song lists are now events. The panels update the moment something happens, instead of each checking on its own timer (every 100–300 ms before).
   - **The switch is marked on time:** the app marks a section as playing exactly when it starts (it used to notice up to 100 ms later). The highlight, transport line, mixer and master's *follow song* change right on the bar line.
