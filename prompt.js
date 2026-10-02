@@ -98,7 +98,8 @@ No other code blocks. No explanations after the code.
 - If you are told the previous code threw an error, fix it and return the full corrected program.
 - SONG / PADS REQUESTS: the request may include the ACTIVE SONG (its sheet JSON and its parts code) and/or the PADS.
   * To change the song itself (sections, form, bars, chords, which parts play where, tempo, key), reply with a \`\`\`song block
-    holding the COMPLETE updated sheet JSON (same fields as given). If parts change or new parts appear, ALSO reply with a
+    holding the COMPLETE updated sheet JSON (same fields as given). A section may carry "shift" (semitones, -3…+3, e.g. a
+    lifted last chorus) and "bpm" (its own tempo, within ±8% of the song's). If parts change or new parts appear, ALSO reply with a
     \`\`\`parts block holding the COMPLETE parts code (setcpm line + const definitions, no labels).
   * To program or press pads, reply with a \`\`\`pads block: {"program":[{"pad":1,"label":"kick","code":"s(\"bd*4\")","mode":"toggle"}],"on":[2],"off":[3]}
     (pad numbers 1–16; mode toggle | hold | once; code is one Strudel line; all fields optional).
@@ -208,7 +209,7 @@ Example:
     { "name": "pre-chorus", "bars": 4, "chords": "bridge", "play": ["pad", "drums", "bass", "keys"] },
     { "name": "chorus", "bars": 8, "chords": "chorus", "play": ["drums", "bass", "keys", "hook"] },
     { "name": "bridge", "bars": 8, "chords": "bridge", "play": ["pad", "keys", "drums.half"] },
-    { "name": "chorus", "bars": 8, "chords": "chorus", "play": ["drums", "bass", "keys", "hook", "pad"] },
+    { "name": "chorus", "bars": 8, "chords": "chorus", "play": ["drums", "bass", "keys", "hook", "pad"], "shift": 2, "bpm": 106 },
     { "name": "outro", "bars": 4, "chords": "verse", "play": ["pad", "hook"] }
   ]
 }
@@ -229,6 +230,12 @@ Rules:
   name: one lowercase word. role: drums, perc, bass, chords, pad, arp, melody or fx.
   Add "variants" only where sections need them (e.g. drums: main, half, fill). Give drums a "fill" variant when the
   song has choruses, drops or builds: the app plays it in the last bar before them.
+- KEY AND TEMPO MAY MOVE, only where the genre does it. A section may add "shift" (semitones up or down from the song's
+  key, -3…+3: the app moves the chords and melodies, never the drums) and/or "bpm" (its own tempo, within ±8% of the
+  song's). Fitting: a pop / rock / gospel / ballad / anthem last chorus lifted +1 or +2; a folk, funk or live-band
+  song pushing the tempo up 2–4 bpm in its last sections; a trance or progressive build creeping up a few bpm.
+  Not fitting: techno, house, drum & bass, lo-fi and most dance music keep one key and one tempo (DJs mix them).
+  Most songs change nothing; at most one key change and one tempo move per song, and once moved, later sections keep it.
 - "play": the parts heard in a section; "part" means its main variant, "part.variant" another one.
 - SMOOTH FLOW: between neighbouring sections change at most 1–2 parts, except going into a chorus / drop or a breakdown.
   Keep drums and bass through most of the song; intro, breakdown and outro thin out.

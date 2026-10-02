@@ -1,0 +1,284 @@
+Strudel AI — songs played this session (10/2/2026, 12:00:05 AM)
+
+1. 11:59:56 PM  “Song One”  (songs)
+   test song one
+   200 bpm · A minor · form short · 5 sections · 32 bars
+   chords: verse <Am F C G> · chorus <F^7 G Am Am> · bridge <Dm Em F G>   hook: 0 2 4 2 3 2 0 ~
+   sections: intro 4, A 8, B 8, A 8, outro 4
+   parts code:
+     setcpm(200/4)
+     const pad_main = (prog) => chord(prog).voicing().s("triangle").gain(slider(0.4, 0, 1.2))
+     const drums_half = note("c5 ~").s("square").decay(0.05).sustain(0).gain(slider(0.5, 0, 1.2))
+     const drums_main = note("c5*4").s("square").decay(0.05).sustain(0).gain(slider(0.5, 0, 1.2))
+     const bass_main = (prog) => chord(prog).rootNotes(2).s("sawtooth").gain(slider(0.4, 0, 1.2))
+     const hook_main = n("0 2 4 2 3 2 0 ~").scale("A:minor").s("square").gain(slider(0.3, 0, 1.2))
+     const drums_fill = note("c5*8").s("square").decay(0.05).sustain(0).gain(slider(0.5, 0, 1.2))
+
+--- SONGS AS JSON (import this file in 🎵 Songs → 📁 My songs → ⬆ import) ---
+[
+ {
+  "format": "strudel-ai-song",
+  "version": 1,
+  "app": "1.21.0",
+  "saved": "2026-10-01T23:59:56.175Z",
+  "title": "Song One",
+  "desc": "test song one",
+  "sheet": {
+   "form": "short",
+   "bpm": 200,
+   "key": "A minor",
+   "scale": "A:minor",
+   "chords": {
+    "verse": "<Am F C G>",
+    "chorus": "<F^7 G Am Am>",
+    "bridge": "<Dm Em F G>"
+   },
+   "hook": "0 2 4 2 3 2 0 ~",
+   "parts": [
+    {
+     "id": "drums",
+     "role": "drums",
+     "sound": "sawtooth",
+     "desc": "beat",
+     "variants": [
+      "main",
+      "half",
+      "fill"
+     ]
+    },
+    {
+     "id": "bass",
+     "role": "bass",
+     "sound": "sawtooth",
+     "desc": "roots",
+     "variants": [
+      "main"
+     ]
+    },
+    {
+     "id": "pad",
+     "role": "pad",
+     "sound": "triangle",
+     "desc": "chords",
+     "variants": [
+      "main"
+     ]
+    },
+    {
+     "id": "hook",
+     "role": "melody",
+     "sound": "square",
+     "desc": "plays the hook",
+     "variants": [
+      "main"
+     ]
+    }
+   ],
+   "sections": [
+    {
+     "name": "intro",
+     "type": "intro",
+     "bars": 4,
+     "chords": "verse",
+     "play": [
+      {
+       "part": "pad",
+       "variant": "main"
+      },
+      {
+       "part": "drums",
+       "variant": "half"
+      }
+     ]
+    },
+    {
+     "name": "A",
+     "type": "verse",
+     "bars": 8,
+     "chords": "verse",
+     "play": [
+      {
+       "part": "pad",
+       "variant": "main"
+      },
+      {
+       "part": "drums",
+       "variant": "main"
+      },
+      {
+       "part": "bass",
+       "variant": "main"
+      }
+     ]
+    },
+    {
+     "name": "B",
+     "type": "bridge",
+     "bars": 8,
+     "chords": "chorus",
+     "play": [
+      {
+       "part": "drums",
+       "variant": "main"
+      },
+      {
+       "part": "bass",
+       "variant": "main"
+      },
+      {
+       "part": "pad",
+       "variant": "main"
+      },
+      {
+       "part": "hook",
+       "variant": "main"
+      }
+     ]
+    },
+    {
+     "name": "A",
+     "type": "verse",
+     "bars": 8,
+     "chords": "verse",
+     "play": [
+      {
+       "part": "pad",
+       "variant": "main"
+      },
+      {
+       "part": "drums",
+       "variant": "main"
+      },
+      {
+       "part": "bass",
+       "variant": "main"
+      }
+     ]
+    },
+    {
+     "name": "outro",
+     "type": "outro",
+     "bars": 4,
+     "chords": "verse",
+     "play": [
+      {
+       "part": "pad",
+       "variant": "main"
+      }
+     ]
+    }
+   ]
+  },
+  "library": "setcpm(200/4)\nconst pad_main = (prog) => chord(prog).voicing().s(\"triangle\").gain(slider(0.4, 0, 1.2))\nconst drums_half = note(\"c5 ~\").s(\"square\").decay(0.05).sustain(0).gain(slider(0.5, 0, 1.2))\nconst drums_main = note(\"c5*4\").s(\"square\").decay(0.05).sustain(0).gain(slider(0.5, 0, 1.2))\nconst bass_main = (prog) => chord(prog).rootNotes(2).s(\"sawtooth\").gain(slider(0.4, 0, 1.2))\nconst hook_main = n(\"0 2 4 2 3 2 0 ~\").scale(\"A:minor\").s(\"square\").gain(slider(0.3, 0, 1.2))\nconst drums_fill = note(\"c5*8\").s(\"square\").decay(0.05).sustain(0).gain(slider(0.5, 0, 1.2))",
+  "pads": [
+   {
+    "label": "drums",
+    "code": "(note(\"c5*4\").s(\"square\").decay(0.05).sustain(0).gain(slider(0.5, 0, 1.2)))",
+    "mode": "toggle",
+    "color": "#4cc9f0",
+    "part": "drums",
+    "variant": "main"
+   },
+   {
+    "label": "bass",
+    "code": "((prog) => chord(prog).rootNotes(2).s(\"sawtooth\").gain(slider(0.4, 0, 1.2)))((typeof sectionChords === 'undefined' ? \"<Am F C G>\" : sectionChords))",
+    "mode": "toggle",
+    "color": "#4cc9f0",
+    "part": "bass",
+    "variant": "main"
+   },
+   {
+    "label": "pad",
+    "code": "((prog) => chord(prog).voicing().s(\"triangle\").gain(slider(0.4, 0, 1.2)))((typeof sectionChords === 'undefined' ? \"<Am F C G>\" : sectionChords))",
+    "mode": "toggle",
+    "color": "#4cc9f0",
+    "part": "pad",
+    "variant": "main"
+   },
+   {
+    "label": "hook",
+    "code": "(n(\"0 2 4 2 3 2 0 ~\").scale(\"A:minor\").s(\"square\").gain(slider(0.3, 0, 1.2)))",
+    "mode": "toggle",
+    "color": "#4cc9f0",
+    "part": "hook",
+    "variant": "main"
+   },
+   {
+    "label": "drums half",
+    "code": "(note(\"c5 ~\").s(\"square\").decay(0.05).sustain(0).gain(slider(0.5, 0, 1.2)))",
+    "mode": "toggle",
+    "color": "#4cc9f0",
+    "part": "drums",
+    "variant": "half"
+   },
+   {
+    "label": "drums fill",
+    "code": "(note(\"c5*8\").s(\"square\").decay(0.05).sustain(0).gain(slider(0.5, 0, 1.2)))",
+    "mode": "once",
+    "color": "#ffd166",
+    "part": "drums",
+    "variant": "fill"
+   },
+   {
+    "label": "tempo −¼",
+    "code": "all(x => x.slow(4/3))",
+    "mode": "hold",
+    "color": "#ff8fa3"
+   },
+   {
+    "label": "tempo +¼",
+    "code": "all(x => x.fast(5/4))",
+    "mode": "hold",
+    "color": "#ff8fa3"
+   },
+   {
+    "label": "filter all",
+    "code": "all(x => x.lpf(500))",
+    "mode": "hold",
+    "color": "#7c5cff"
+   },
+   {
+    "label": "snare roll",
+    "code": "s(\"sd*16\").gain(saw.range(0.2, 0.9))",
+    "mode": "once",
+    "color": "#ffd166"
+   },
+   {
+    "label": "crash",
+    "code": "s(\"cr\").gain(0.6)",
+    "mode": "once",
+    "color": "#ffd166"
+   },
+   {
+    "label": "riser",
+    "code": "s(\"white\").lpf(saw.range(200, 8000)).gain(0.25)",
+    "mode": "hold",
+    "color": "#7c5cff"
+   },
+   {
+    "label": "echo all",
+    "code": "all(x => x.delay(0.5).delaytime(0.1875).delayfeedback(0.6))",
+    "mode": "hold",
+    "color": "#7c5cff"
+   },
+   {
+    "label": "half time",
+    "code": "all(x => x.slow(2))",
+    "mode": "hold",
+    "color": "#7c5cff"
+   },
+   {
+    "label": "arp",
+    "code": "n(\"0 2 4 7 4 2\").scale(\"A:minor\").fast(2).s(\"triangle\").gain(0.4)",
+    "mode": "toggle",
+    "color": "#20d3a6"
+   },
+   {
+    "label": "jam lead",
+    "code": "n(\"<0 [2 4] 7 [4 2]>\").scale(\"A:minor\").add(note(12)).s(\"sawtooth\").lpf(2000).decay(0.2).sustain(0.3).gain(0.3)",
+    "mode": "toggle",
+    "color": "#20d3a6"
+   }
+  ]
+ }
+]
