@@ -2,7 +2,19 @@ import { createWorkspace } from './workspace.js';
 import { loadDockview, createDockviewWorkspace } from './workspace-dockview.js';
 import { HumRecorder, transcribe, intervalsToSemitones, tonicPc, midiToName, freqToMidi, polyBarsToMini } from './hum.js';
 // Strudel AI — browser app
-const $ = (id) => document.getElementById(id);
+/**
+ * Element by id. Remembered once found, so panels keep working when the layout engine takes them out of the
+ * page (a hidden tab) or into another window (a popped-out panel), where document.getElementById can't see them.
+ */
+const $els = new Map();
+const $ = (id) => {
+  const known = $els.get(id);
+  if (known?.isConnected && known.id === id) return known;
+  const el = document.getElementById(id);
+  if (el) { $els.set(id, el); return el; }
+  return known || null;
+};
+for (const el of document.querySelectorAll('[id]')) $els.set(el.id, el); // every element the page starts with
 
 const INITIAL_CODE = `setcpm(120/4)
 

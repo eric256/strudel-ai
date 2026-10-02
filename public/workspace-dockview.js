@@ -61,6 +61,9 @@ export function createDockviewWorkspace({ dv, root, center, panels, saved, onSav
   const api = dv.createDockview(host, {
     theme: dv.themeDark,
     popoutUrl: '/popout.html',
+    // keep every panel's content in the page while another tab covers it: the app finds its elements by id,
+    // and the visualizer, meters and timers keep running in background tabs
+    defaultRenderer: 'always',
     createComponent: ({ id, name }) => {
       const p = P.get(name);
       const element = p?.el || document.createElement('div');
