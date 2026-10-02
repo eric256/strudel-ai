@@ -245,7 +245,7 @@ Every finished song has a toolbar:
 - **🎛 code in the editor:** the section playing now, as before.
 - **🎵 whole song:** the open or playing song's whole structure. Every message sends the song's sheet and parts, and the AI answers with the updated sheet and parts instead of editor code. Sections, form, chords, parts and variants change across the song. The section playing now switches to its new version on the next bar, and the rest follow as they come up.
 - **🔲 pads:** the pad dock.
-- **auto:** the code, or the song or pads when your message mentions them.
+- **auto:** the whole song while one of the song's sections is playing in the editor, otherwise the code (or the pads when your message mentions them).
 
 **Chat edits the song, too:** with a song playing (or open in the Songs tab), ask things like *"make the chorus 16 bars"*, *"add a breakdown before the last chorus"* or *"give the bass a funkier line"*. The chat changes the song's sheet and parts, and they're checked and re-arranged the same way. The song is only sent to the AI when your message is about the song (sections, chorus, chords, parts …), which keeps requests small.
 
