@@ -2,6 +2,9 @@
 
 The version is in `package.json`. Bump it when you release. Open pages also notice *any* redeploy through the build id, which is a hash of the app files, even if the version wasn't bumped.
 
+## 1.31.1
+- **The window no longer scrolls away:** the page is a fixed frame. Focusing a text box, or the editor bringing its cursor into view, could scroll the whole window and push everything off the top. The page and the workspace can no longer scroll; only the panels inside them do.
+
 ## 1.31.0
 - **🎛 Master styles:** every song now has a mastering style on the whole mix: clean, lo-fi, warm, pop, techno, house, edm, dnb, hiphop, synthwave, ambient, dub, cinematic, rock, chiptune or radio. The songwriter picks it (or takes the band's), it shows in the song's details, and ✎ Edit song and the chat can change it.
   - The chain: 3-band EQ, DJ filter, drive, bit crush, vinyl noise, reverb, tempo-synced echo, stereo width, glue compressor and a limiter.
