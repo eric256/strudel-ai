@@ -2,6 +2,13 @@
 
 The version is in `package.json`. Bump it when you release. Open pages also notice *any* redeploy through the build id, which is a hash of the app files, even if the version wasn't bumped.
 
+## 1.25.0
+- **🎚 The mixer is a console for the whole song:**
+  - There's a channel for every part in the song sheet, even ones the current section doesn't play (they're dimmed, and their settings apply when they come in), plus your own labelled parts and the master.
+  - Each strip has a live **EQ display** (the curve over the channel's spectrum), H / M / L EQ, **pan**, M / S, a **fader** and a **level meter** with peak hold.
+  - Every labelled part now plays on its own output bus, where the channel strip sits. Mixer changes are instant, stay out of the code, and are remembered per part name for the whole song (and the next ones).
+  - The mixer dock opens tall enough for the strips.
+
 ## 1.24.0
 - **🎚 Mixer panel:** a channel strip for every part, plus the master. Each strip has a volume fader (the part's `.postgain` slider in the code, moved live), a 3-band EQ (low, mid, high, ±12 dB), and mute and solo. **+ fader** adds a group fader to a part that has none. A part with EQ gets its own output bus, so EQ changes are instant and leave the code alone. EQ is remembered per part name.
 - **🎯 Chat target:** a selector under the chat picks what it works on: the code in the editor, the **whole song**, the pads, or auto. In whole-song mode the AI changes the song's sections, chords, parts and variants across the whole song. The section playing now switches to its new version on the next bar, and the rest follow as they play.
