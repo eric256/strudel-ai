@@ -130,7 +130,7 @@
           <b>🎵 This session</b>
           <span class="muted small nowrap" title="Create a song from the 💬 Chat: pick 🎯 ✨ new song and describe it">new: 💬 → ✨ new song</span>
           <span class="spacer"></span>
-          <label title="Start over at the first song after the last one"><input type="checkbox" id="setLoop" /> loop</label>
+          <button id="playlistOpen" class="link" title="The songs coming up: reorder, remove, play now">📃 Playlist ↗</button>
         </div>
         <div id="setStatus" class="songs"></div>
         <div class="sl-buttons">
@@ -171,7 +171,7 @@
         <div class="sl-buttons">
           <button id="stationStart">📻 Start station</button>
           <button id="stationStop" disabled>■ Stop</button>
-          <label title="How many future songs the agent keeps planned">songs ahead
+          <label title="How many songs the station keeps coming up in the playlist">keep ahead
             <select id="stationAhead"><option selected>1</option><option>2</option><option>3</option></select></label>
         </div>
         <div class="sl-buttons">
@@ -187,6 +187,15 @@
         <div id="stationNow" class="on-air" hidden></div>
         <div class="sl-buttons"><span class="spacer"></span><button class="link log-dl" title="Download every song played this session as a text file">⬇ played this session</button></div>
         <div id="stationStatus" class="songs"></div>
+      </section>
+      <section id="playlistPanel" class="panel tab">
+        <div class="pl-bar">
+          <span id="plStation" class="small"></span>
+          <span class="spacer"></span>
+          <label title="After the last song, start over at the first one (not while a station is adding songs)"><input type="checkbox" id="setLoop" /> 🔁 loop</label>
+          <button id="plClear" class="link" title="Remove every song coming up (the one playing plays on)">clear upcoming</button>
+        </div>
+        <div id="playlist" class="playlist"></div>
       </section>
       <section id="songPanel" class="panel tab">
         <div id="nowTransport" class="now-transport">

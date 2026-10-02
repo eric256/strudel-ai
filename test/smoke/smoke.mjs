@@ -128,8 +128,40 @@ try {
     await p.waitForFunction(() => /^▶ /.test(document.getElementById('nowLine').textContent), null, { timeout: 3000 });
   });
 
+  await step('📃 playlist: a station joins without stopping the song; ■ Stop keeps its written songs; ＋ Playlist, move, remove', async () => {
+    const before = await ev(() => ({ title: strudelAI.queue.songs[strudelAI.queue.current]?.title, current: strudelAI.queue.current }));
+    expect(before.title, 'nothing playing before the station starts');
+    await ev(() => { strudelAI.ws.open('station'); document.getElementById('stationStart').click(); });
+    await p.waitForTimeout(1500);
+    const during = await ev(() => ({ running: strudelAI.queue.running, current: strudelAI.queue.current, playing: document.querySelector('strudel-editor').editor.repl.scheduler.started, station: !!strudelAI.queue.station }));
+    expect(during.running && during.playing && during.station && during.current === before.current, `the song was interrupted: ${JSON.stringify(during)}`);
+    // its songs join the end of the playlist and are written in the background
+    await p.waitForFunction(() => strudelAI.queue.songs.some((s) => s.from === 'station' && s.blocks?.length), null, { timeout: 40000 });
+    // switch to another station: nothing stops
+    await ev(() => { const sel = document.getElementById('stationSelect'); sel.value = '1'; sel.onchange(); document.getElementById('stationStart').click(); });
+    expect(await ev(() => strudelAI.queue.station?.name === document.getElementById('stationSelect').selectedOptions[0].textContent), 'did not switch station');
+    // ■ Stop: no new songs; written ones stay, only-named ones go; the music keeps playing
+    await ev(() => document.getElementById('stationStop').click());
+    const after = await ev(() => ({ station: strudelAI.queue.station, written: strudelAI.queue.songs.filter((s, k) => k > strudelAI.queue.current && s.from === 'station' && s.blocks?.length).length, named: strudelAI.queue.songs.filter((s, k) => k > strudelAI.queue.current && s.from === 'station' && s.status === 'waiting' && !s.blocks).length, playing: document.querySelector('strudel-editor').editor.repl.scheduler.started }));
+    expect(!after.station && after.playing && after.written >= 1 && after.named === 0, `after stop: ${JSON.stringify(after)}`);
+    // ＋ Playlist from This session, then move it up and remove it in the 📃 Playlist panel
+    await ev(() => strudelAI.ws.open('playlist'));
+    const n = await ev(() => strudelAI.queue.songs.length);
+    await ev(() => strudelAI.addToPlaylist(strudelAI.sessionSongs[0], { at: 'end' }));
+    await p.waitForTimeout(300);
+    expect(await ev(() => strudelAI.queue.songs.length) === n + 1, 'not added');
+    const last = n;
+    await ev((k) => document.querySelector(`#playlist .pl-row[data-k="${k}"] [data-pl="up"]`).click(), last);
+    await p.waitForTimeout(300);
+    const moved = await ev((k) => strudelAI.queue.songs[k - 1].copyOf === strudelAI.sessionSongs[0], last);
+    expect(moved, 'not moved up');
+    await ev((k) => document.querySelector(`#playlist .pl-row[data-k="${k - 1}"] [data-pl="remove"]`).click(), last);
+    await p.waitForTimeout(300);
+    expect(await ev(() => strudelAI.queue.songs.length) === n, 'not removed');
+  });
+
   await step('✎ Edit song applies changes (a longer chorus, another master style)', async () => {
-    await ev(() => document.querySelector('#nowSongView [data-act="edit"]').click());
+    await ev(() => { window.__edited = strudelAI.queue.songs[strudelAI.queue.current]; document.querySelector('#nowSongView [data-act="edit"]').click(); });
     await p.waitForTimeout(600);
     await ev(() => {
       const f = document.getElementById('editForm');
@@ -139,7 +171,7 @@ try {
       f.querySelector('[data-act="edit-save"]').click();
     });
     await p.waitForFunction(() => /applied/.test(document.querySelector('#editForm .sv-edit-msg')?.textContent || ''), null, { timeout: 15000 });
-    const s = await ev(() => { const sh = strudelAI.queue.songs[0].sheet; return { master: sh.master, chorus: sh.sections.find((x) => x.name === 'chorus').bars }; });
+    const s = await ev(() => { const sh = window.__edited.sheet; return { master: sh.master, chorus: sh.sections.find((x) => x.name === 'chorus').bars }; });
     expect(s.master === 'dub' && s.chorus === 8, JSON.stringify(s));
   });
 
@@ -149,8 +181,9 @@ try {
     await p.waitForFunction(() => strudelAI.queue.songs.some((s) => s.status === 'failed'), null, { timeout: 40000 });
     expect(log.filter((x) => x.kind === 'code').length === before, 'the song was written block by block');
     const k = await ev(() => strudelAI.queue.songs.findIndex((s) => s.status === 'failed'));
+    const row = await ev(() => strudelAI.sessionSongs.findIndex((s) => s.status === 'failed'));
     await ev(() => strudelAI.ws.open('songs'));
-    await ev((k) => document.querySelector(`#setStatus [data-k="${k}"]`)?.click(), k);
+    await ev((r) => document.querySelector(`#setStatus [data-k="${r}"]`)?.click(), row);
     await p.waitForTimeout(400);
     expect(await ev(() => !!document.querySelector('#setStatus [data-act="retry"]')), 'no ↻ Try again button');
     await ev(() => document.querySelector('#setStatus [data-act="retry"]').click());
@@ -216,7 +249,7 @@ try {
     const p2 = await ctx.newPage();
     p2.on('pageerror', (e) => errors.push(`(share tab) ${e.message}`));
     await p2.goto(url.replace(/^https?:\/\/[^/]+/, `http://127.0.0.1:${APP_PORT}`));
-    await p2.waitForFunction((t) => window.strudelAI?.queue.songs.some((s) => s.title === t && s.blocks?.length), title, { timeout: 20000 });
+    await p2.waitForFunction((t) => window.strudelAI?.sessionSongs.some((s) => s.title === t && s.blocks?.length), title, { timeout: 20000 });
     await p2.close();
   });
 
@@ -224,7 +257,7 @@ try {
     await ev(() => { document.getElementById('stop').click(); strudelAI.ws.open('station'); });
     await p.waitForTimeout(500);
     await ev(() => document.getElementById('stationStart').click());
-    await p.waitForFunction(() => strudelAI.queue.mode === 'station' && strudelAI.queue.songs.some((s) => s.status === 'playing'), null, { timeout: 40000 });
+    await p.waitForFunction(() => strudelAI.queue.station && strudelAI.queue.songs.some((s) => s.from === 'station' && s.status === 'playing'), null, { timeout: 40000 });
     expect(log.some((x) => x.kind === 'songs'), 'the station did not ask for songs');
     await ev(() => document.getElementById('stationStop').click());
   });

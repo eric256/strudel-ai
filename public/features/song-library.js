@@ -2,14 +2,15 @@
 // block-by-block songs, + its pads) is plain JSON, so it can be exported to a file,
 // imported on any Strudel AI server, kept in "My songs", edited and logged.
 // (split out of app.js: start-up code runs in setup(), called from app.js)
+import { addSessionSong, addToPlaylist } from './playlist.js';
 import { APP_VERSION } from './share.js';
 import { arrangeSong } from '../lib/arrange.js';
 import { JAM_ARP, JAM_LEAD, padProg, songPads } from './song-pads.js';
 import { esc } from '../lib/util.js';
-import { $, LOG_JSON_MARK, addMsg, clog, queue, showPanel, stopSetlist, warnUser } from '../app.js';
+import { $, LOG_JSON_MARK, addMsg, clog, queue, showPanel, warnUser } from '../app.js';
 import { normalizeSheet } from './bands.js';
 import { songSel, songsChanged, renderSongs, sharedLinkHTML, songAction, songMeta, songToolbarHTML } from './song-lists.js';
-import { startSet, stopSet } from './song-writer.js';
+
 export let mySongs;
 const SONG_FORMAT = 'strudel-ai-song';
 /** Song → JSON. Sheet songs store just the sheet and parts (the sections are re-arranged from them). */
@@ -94,16 +95,14 @@ export function myListHTML() {
     </div>`;
   }).join('');
 }
-/** Load a song into the Songs tab's player (replaces the set list's running songs). */
+/** A song opened from a link or a file: listed in 🎵 Songs → This session, ready to play or queue. */
 export function loadSongIntoSet(song) {
-  stopSet(); stopSetlist();
-  Object.assign(queue, { mode: 'set', songs: [song], current: -1, nextSong: 0, textDirty: false });
+  addSessionSong(song);
   songsChanged();
 }
+/** ▶ Play: the song plays now (from the next bar line) and joins the 📃 Playlist; what was coming up still follows. */
 export function playSong(song) {
-  loadSongIntoSet(song);
-  startSet('set', { keepSongs: true });
-  queue.single = true; // one song: stop after its last section, never loop
+  addToPlaylist(song, { at: 'now' });
 }
 /** A click on a song's buttons inside a list row. Returns true when handled. */
 function rowToolsClick(e, sg) {

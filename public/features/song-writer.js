@@ -13,10 +13,9 @@ import { patternLines } from '../lib/labels.js';
 import { wrapCode } from '../format.js';
 import { arrangeSong, sectionCode } from '../lib/arrange.js';
 import { songPads } from './song-pads.js';
-import { songSel, songsChanged, updateSetButtons, setNowSong } from './song-lists.js';
+import { songsChanged, updateSetButtons, setNowSong } from './song-lists.js';
 import { mp3SongStep, mp3TakeEnd } from './mp3.js';
 import { loadPads, padsState } from './pads.js';
-import { currentStation } from './stations.js';
 import { $, addMsg, appendSteps, clog, dropUpcomingSteps, dryRun, engine, jumpTo, logPlayed, parseSongs, player, queue, startSetlist, stopSetlist, warnUser } from '../app.js';
 // ---------------------------------------------------------------------------
 // ✍ Song writer: for every song of the set / station the AI writes a song sheet, then its part library; the app
@@ -55,7 +54,7 @@ async function sheetSounds() {
   return guide.length ? `${catalog}\n\nSOUND GUIDE — what the most useful sounds are good for (role · character · genres); pick sounds that fit the genre and each other:\n${guide.join('\n')}` : catalog;
 }
 async function writeSongSheet(song, signal) {
-  const choice = formChoice(), bandPick = bandChoice();
+  const choice = formChoice(song), bandPick = bandChoice(song);
   const prev = queue.songs[queue.songs.indexOf(song) - 1]?.sheet;
   let msg = (song.autoTitle ? `SONG (no title yet — give it one in "title"): ${song.desc}\n` : `SONG: "${song.title}" — ${song.desc}\n`) +
     (prev ? `The previous song was ${prev.bpm} bpm, ${normMeter(prev.meter)}, in ${prev.key}; this one should flow from it (a related key or a nearby tempo is nice).\n` : '') +
@@ -245,12 +244,13 @@ async function appendSong(k) {
 
 async function stationMoreSongs() {
   const n = 3;
+  const station = queue.station;
   const recent = queue.songs.slice(-12).map((sg) => `${sg.title} (${sg.desc.slice(0, 60)})`);
   const text = await requestLLM({
     mode: 'songs',
     messages: [{
       role: 'user',
-      content: `STATION THEME: ${queue.station.theme}\n` +
+      content: `STATION THEME: ${station.theme}\n` +
         (recent.length ? `Already played or queued — do NOT repeat these, but keep a good flow from the last one:\n- ${recent.join('\n- ')}\n` : '') +
         `Write the next ${n} songs.`,
     }],
@@ -258,7 +258,10 @@ async function stationMoreSongs() {
   });
   const songs = parseSongs(stripThinking(text).replace(/```[a-z]*\n?|```/g, '')).slice(0, n);
   if (!songs.length) throw new Error('the model did not return songs as "title | description" lines');
+  if (queue.station !== station) return; // stopped or switched while it was planning
+  for (const sg of songs) Object.assign(sg, { from: 'station', station: station.name || 'Station' });
   queue.songs.push(...songs);
+  songsChanged();
 }
 
 async function feedLoop() {
@@ -279,11 +282,11 @@ async function feedLoop() {
         failures = 0;
         continue;
       }
-      if (ahead < 1 && queue.mode === 'set' && $('setLoop').checked && !queue.single && queue.songs.length) {
+      if (ahead < 1 && !queue.station && $('setLoop').checked && queue.songs.length) {
         queue.nextSong = 0;
         continue;
       }
-      if (queue.mode === 'station' && queue.songs.length - (queue.current + 1) < Number($('stationAhead').value)) {
+      if (queue.station && queue.songs.length - (queue.current + 1) < Number($('stationAhead').value)) {
         const before = queue.songs.length;
         queue.planning = true;
         try { await stationMoreSongs(); } finally { queue.planning = false; }
@@ -294,9 +297,9 @@ async function feedLoop() {
       if (e.name === 'AbortError' || !queue.running) return;
       const sg = queue.songs[queue.nextSong - 1];
       if (sg && sg.status === 'writing') { sg.status = 'failed'; sg.error = e.message; sg.phase = null; songsChanged(); }
-      clog('error', `${queue.mode === 'station' ? 'Station' : 'Set list'}: ${e.message} (try ${failures + 1}/5)`);
+      clog('error', `Playlist: ${e.message} (try ${failures + 1}/5)`);
       failures++;
-      if (failures >= 5) { warnUser(`${queue.mode === 'station' ? 'Station' : 'Set list'} stopped: the AI failed 5 times in a row (last: ${e.message})`); addMsg('info', `■ ${queue.mode === 'station' ? 'station' : 'set'} stopped — see ⚠ in the status bar`); stopSet(); return; }
+      if (failures >= 5) { warnUser(`Playlist stopped: the AI failed 5 times in a row (last: ${e.message})`); addMsg('info', '■ playlist stopped — see ⚠ in the status bar'); stopSet(); return; }
       await sleep(3000 * failures);
     }
     await sleep(400);
@@ -305,9 +308,9 @@ async function feedLoop() {
 
 function makeFeeder() {
   return {
-    label: queue.mode === 'station' ? `station “${queue.station.name || 'untitled'}”` : 'set list',
-    active: () => queue.running && (queue.mode === 'station' || queue.nextSong < queue.songs.length || queue.forceJump !== null ||
-      ($('setLoop').checked && !queue.single && queue.songs.length > 0) || queue.songs.some((sg) => sg.status === 'writing')),
+    label: 'playlist',
+    active: () => queue.running && (!!queue.station || queue.nextSong < queue.songs.length || queue.forceJump !== null ||
+      ($('setLoop').checked && queue.songs.length > 0) || queue.songs.some((sg) => sg.status === 'writing')),
     onStepStart: (step) => {
       if (!step.song) return;
       mp3SongStep(step);
@@ -318,50 +321,75 @@ function makeFeeder() {
       queue.songs.forEach((sg) => { if (sg.status === 'playing' && sg !== step.song) sg.status = 'done'; });
       step.song.status = 'playing';
       step.song.playedAt = Date.now();
-      logPlayed(step.song, queue.mode === 'station' ? `station “${queue.station?.name || ''}”` : 'songs');
+      logPlayed(step.song, step.song.from === 'station' ? `station “${step.song.station || ''}”` : 'playlist');
       queue.current = k;
       addMsg('info', `🎵 now playing: “${step.song.title}” — ${step.song.desc}`);
       player.emit('song', { song: step.song });
-      if (queue.mode === 'station') document.title = `📻 ${step.song.title} · ${queue.station.name || 'Station'}`;
-      // keep the station's memory bounded
-      if (queue.mode === 'station' && queue.current > 30) {
+      document.title = step.song.from === 'station' ? `📻 ${step.song.title} · ${step.song.station || 'Station'}` : `${step.song.title} · Strudel AI`;
+      // keep the playlist's history bounded
+      if (queue.current > 30) {
         const cut = queue.current - 20;
         queue.songs.splice(0, cut);
         queue.current -= cut;
         queue.nextSong -= cut;
-        if (songSel.station != null) songSel.station = songSel.station >= cut ? songSel.station - cut : null;
       }
     },
     onStop: () => stopSet(false),
   };
 }
 
-export function startSet(mode, { at = 0, keepSongs = false } = {}) {
-  if (keepSongs && queue.mode === mode && queue.songs.length) {
-    // resume with the songs we already have (their written blocks/code are reused)
-    queue.songs.forEach((sg) => { sg.status = sg.blocks ? 'ready' : 'waiting'; sg.error = null; });
-  } else if (mode === 'set') {
-    if (queue.mode !== 'set' || !queue.songs.length) { addMsg('info', 'No songs yet — create one in 💬 Chat with 🎯 ✨ new song.'); return; }
-    queue.songs.forEach((sg) => { sg.status = sg.blocks ? 'ready' : 'waiting'; sg.error = null; });
-  } else {
-    const st = currentStation();
-    if (!st.theme.trim()) { addMsg('error', 'Give the station a theme first.'); return; }
-    queue.station = { ...st };
-    queue.songs = [];
-  }
-  stopSet(false);
-  songSel[mode] = null; // follow the song that is playing
-  Object.assign(queue, { running: true, mode, nextSong: at, current: at - 1, forceJump: null, abort: new AbortController(), textDirty: false, single: false });
+/**
+ * Play the playlist from song `at` (when it isn't playing yet). Whatever plays now keeps playing until the first
+ * section of that song is written and switches in on the bar line.
+ */
+export function startPlaylist({ at = queue.current + 1 } = {}) {
+  if (queue.running) return;
+  at = Math.max(0, Math.min(at, queue.songs.length));
+  if (!queue.songs[at] && !queue.station) return;
+  queue.songs.forEach((sg, k) => { if (k >= at && sg.status !== 'failed') { sg.status = sg.blocks ? 'ready' : 'waiting'; sg.error = null; } });
+  Object.assign(queue, { running: true, nextSong: at, current: at - 1, forceJump: null, abort: new AbortController() });
   startSetlist({ steps: [], feeder: makeFeeder() });
   updateSetButtons();
-  addMsg('info', mode === 'station'
-    ? `📻 station “${queue.station.name || 'untitled'}” on air — planning songs…`
-    : `▶ set started (${queue.songs.length} songs) — writing “${queue.songs[at].title}”…`);
+  songsChanged();
   feedLoop();
 }
 
+/**
+ * 📻 Put a station on air: it adds its songs to the end of the playlist and keeps enough of them ahead. The songs
+ * already there play first; another station takes over from this one without stopping anything.
+ */
+export function startStation(st) {
+  if (!st.theme.trim()) { addMsg('error', 'Give the station a theme first.'); return; }
+  const before = queue.station;
+  queue.station = { ...st };
+  addMsg('info', before
+    ? `📻 switched to “${st.name || 'untitled'}” — its songs follow the ones already in the 📃 Playlist`
+    : `📻 “${st.name || 'untitled'}” on air — it adds songs to the 📃 Playlist${queue.running && queue.songs[queue.current] ? ` after “${queue.songs[queue.current].title}”` : ''}`);
+  if (!queue.running) startPlaylist();
+  updateSetButtons();
+  songsChanged();
+}
+/** ■ Stop the station: no new songs. The ones it already wrote stay in the playlist and play; the ones it only named go. */
+export function stopStation() {
+  if (!queue.station) return;
+  const name = queue.station.name || 'the station';
+  queue.station = null;
+  for (let k = queue.songs.length - 1; k > queue.current; k--) {
+    const sg = queue.songs[k];
+    if (sg.from === 'station' && sg.status === 'waiting' && !sg.blocks) {
+      queue.songs.splice(k, 1);
+      if (k < queue.nextSong) queue.nextSong--;
+    }
+  }
+  addMsg('info', `■ ${name} stopped adding songs — the ones it wrote still play`);
+  updateSetButtons();
+  songsChanged();
+}
+
+/** ■ Stop the playlist (and the station adding to it). */
 export function stopSet(stopEngine = true) {
-  if (!queue.running) return;
+  if (stopEngine) queue.station = null;
+  if (!queue.running) { updateSetButtons(); return; }
   queue.running = false;
   queue.abort?.abort();
   queue.songs.forEach((sg) => { if (sg.status === 'writing') sg.status = 'waiting'; });
@@ -377,11 +405,11 @@ export function retrySong(sg) {
   if (k < 0) return;
   Object.assign(sg, { status: 'waiting', error: null, phase: null, sheet: null, library: null, blocks: null, firstStep: null, autoTitle: sg.autoTitle });
   songsChanged();
-  jumpToSong(k, queue.mode || 'set');
+  jumpToSong(k);
 }
-export function jumpToSong(k, from = 'set') {
-  const mode = queue.running ? queue.mode : 'set';
-  if (!queue.running) return startSet(from, { at: k, keepSongs: true });
+/** Play song k of the playlist now (from the next bar line, as soon as its first section is written). */
+export function jumpToSong(k) {
+  if (!queue.running) return startPlaylist({ at: k });
   const song = queue.songs[k];
   if (!song) return;
   const i = song.firstStep ? engine.steps.indexOf(song.firstStep) : -1;
@@ -391,5 +419,4 @@ export function jumpToSong(k, from = 'set') {
   queue.songs.forEach((sg, j) => { if (j !== queue.current && sg.status === 'ready' && !engine.steps.includes(sg.firstStep)) sg.status = 'waiting'; });
   queue.forceJump = k;
   addMsg('info', `⏭ writing “${song.title}” — it will start on the next bar line when ready`);
-  void mode;
 }

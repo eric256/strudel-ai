@@ -2,6 +2,26 @@
 
 The version is in `package.json`. Bump it when you release. Open pages also notice *any* redeploy through the build id, which is a hash of the app files, even if the version wasn't bumped.
 
+## 1.36.0
+- **📃 Playlist:** every song now plays from one playlist. It's a new panel next to Chat / Songs / Station, showing what played, what's playing (with its section) and what's coming up.
+  - **Upcoming songs:** ▶ play now, ⤴ play next, ↑ ↓ move, ✕ remove, ↻ rewrite a failed one.
+  - **Played songs:** ↺ queues one again.
+  - **clear upcoming** empties the queue; **🔁 loop** moved here.
+  - The playlist writes ahead while it plays.
+- **Adding songs from your lists:** every written song in 🎵 This session, ★ Favorites and 📁 My songs has **⤴ Play next** and **＋ Playlist** next to **▶ Play**. ▶ Play now plays the song without throwing away what was coming up, and ✨ new song from the chat plays next.
+- **📻 The station feeds the playlist:**
+  - **Start** no longer stops the song that's playing or clears what's queued, even when none of its songs are ready. Its songs are added to the end and written in the background while the queued ones play.
+  - **■ Stop** only stops it adding songs: the ones it already wrote stay and play.
+  - **Switching:** pick another station and press **📻 Switch to this station**, and its songs follow the ones already queued.
+  - **keep ahead** sets how many songs it keeps coming up.
+- A shared 🔗 link opens the song in 🎵 This session, ready to play.
+- **Smoke test:**
+  - a station starting while a song plays doesn't interrupt it;
+  - its songs are written in the background;
+  - switching stations works;
+  - ■ Stop keeps the written songs and the music;
+  - ＋ Playlist, move and remove work.
+
 ## 1.35.0
 - **Refactor, part 4: features in their own modules.** `app.js` went from about 5,900 to 1,700 lines. The features now live in 24 modules in `public/features/`:
   - **AI and chat:** the AI client, chat, sound checks;

@@ -112,6 +112,7 @@ export function createWorkspace({ dv, root, center, panels, saved, onSave }) {
     api.addPanel({ id: 'chat', component: 'chat', title: title(P.get('chat')), position: { referencePanel: EDITOR, direction: 'right' }, initialWidth: 430 });
     api.addPanel({ id: 'songs', component: 'songs', title: title(P.get('songs')), position: { referencePanel: 'chat', direction: 'within' }, inactive: true });
     api.addPanel({ id: 'station', component: 'station', title: title(P.get('station')), position: { referencePanel: 'chat', direction: 'within' }, inactive: true });
+    api.addPanel({ id: 'playlist', component: 'playlist', title: title(P.get('playlist')), position: { referencePanel: 'chat', direction: 'within' }, inactive: true });
     addFixed(NOW, { position: { referencePanel: 'chat', direction: 'below' }, initialHeight: 320 });
   }
   /** 🎶 Now playing: always there, alone in its group (so its transport is never hidden behind another tab), never shorter than the transport. */

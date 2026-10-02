@@ -27,7 +27,7 @@ export function debugContext() {
   ].join('\n');
   const now = [
     `${isPlaying() ? 'playing' : 'stopped'} · ${$('status')?.textContent || ''}${engine.paused ? ' · paused' : ''}`,
-    sg ? `song “${sg.title}” (${sg.status || '?'}${sg.phase ? `, ${sg.phase}` : ''}) · section ${step?.prompt || '—'} · ${queue.mode || ''} ${queue.running ? `${queue.current + 1}/${queue.songs.length}` : ''}` : 'no song',
+    sg ? `song “${sg.title}” (${sg.status || '?'}${sg.phase ? `, ${sg.phase}` : ''}) · section ${step?.prompt || '—'} · playlist ${queue.running ? `${queue.current + 1}/${queue.songs.length}` : `stopped (${queue.songs.length} songs)`}${queue.station ? ` · station “${queue.station.name}” on air` : ''}` : 'no song',
     `master ${master.style}${master.bypass ? ' (bypassed)' : ''} · follow ${master.follow} · ${JSON.stringify(diffParams(master.params, master.style))}`,
     `mixer: ${Object.entries(mixer.ch).filter(([, c]) => c.mute || c.solo || c.vol !== 1 || c.low || c.mid || c.high).map(([b, c]) => `${b}${c.mute ? ' M' : ''}${c.solo ? ' S' : ''} ${c.vol}`).join(', ') || 'flat'}`,
   ].join('\n');
