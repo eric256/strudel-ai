@@ -1,25 +1,45 @@
-import { dlog, debugReport, debugState, debugCounts } from './debuglog.js'; // first: it catches errors from everything after it
+import { dlog, debugReport, debugState } from './debuglog.js'; // first: it catches errors from everything after it
 import { loadDockview, createWorkspace } from './workspace.js';
 import { wrapCode } from './format.js';
-import { createMaster, MASTER_PARAMS, MASTER_DEFAULTS, MASTER_STYLES, STYLE_NAMES, styleParams, normStyle, clampParams, diffParams, stylesForPrompt } from './master.js';
-import { soundGuide } from './sounds.js';
-import { esc, sleep, stripThinking, parseJSONLoose, closest, signed, oneLine, sliderless } from './lib/util.js';
-import { setScales, getScales, colonScale, fixScaleString, scaleHelp } from './lib/scales.js';
-import { HARMONIC_ROLE, transposeProgression, METERS, normMeter, meterBeats, meterSteps, tempoLine, songMeter } from './lib/music.js';
-import { LABEL_LINE, parseLabel, makeLabel, patternLines } from './lib/labels.js';
-import { DEFAULT_FORMS, OLD_DEFAULT_FORMS, OLD_FORM_SECTIONS, parseFormSections, formBars, findIn, formsForRequest as formsRequest } from './lib/forms.js';
-import { DEFAULT_BANDS, BAND_ROLES, parseInstruments, bandsForRequest as bandsRequest } from './lib/bands.js';
-import { normalizeSheet as normalizeSheetWith, fillPart, libraryIds, isFnPart, definesId, partExpr, miniStrings } from './lib/sheet.js';
-import { SEC_START, sectionCode, arrangeSong, carryLiveState } from './lib/arrange.js';
+import { MASTER_PARAMS, STYLE_NAMES } from './master.js';
+import { esc, parseJSONLoose, oneLine, sliderless } from './lib/util.js';
+import { getScales, colonScale, scaleHelp } from './lib/scales.js';
+import { transposeProgression, meterBeats, songMeter } from './lib/music.js';
+import { libraryIds } from './lib/sheet.js';
+import { SEC_START, sectionCode, carryLiveState } from './lib/arrange.js';
 import { createEmitter, onceAFrame } from './lib/events.js';
-import { HumRecorder, transcribe, intervalsToSemitones, tonicPc, midiToName, freqToMidi, polyBarsToMini } from './hum.js';
+import { transcribe } from './hum.js';
+import { barBeat, resetLineControls, setup as setup_mute_solo } from './features/mute-solo.js';
+import { hum, audioCtx, setup as setup_hum_ui } from './features/hum-ui.js';
+import { upd, reloadForUpdate, setup as setup_share } from './features/share.js';
+import { viz, setup as setup_visualizer } from './features/visualizer.js';
+import { setup as setup_hydra } from './features/hydra.js';
+import { setup as setup_settings } from './features/settings.js';
+import { mixer, mixerChannels, setup as setup_mixer } from './features/mixer.js';
+import { master, masterChain, setup as setup_master_panel } from './features/master-panel.js';
+import { keysState, noteOn, noteOff, setup as setup_keys } from './features/keys.js';
+import { padsState, loadPads, pads, padIsOn, savePads, padOnce, setPad, renderPads, setup as setup_pads } from './features/pads.js';
+import { playSong, mySongs, favorites, download, songToJSON, songFromJSON, loadFavorites, setup as setup_song_library } from './features/song-library.js';
+import { rawSheet, songEdit, setup as setup_song_editor } from './features/song-editor.js';
+import { songPads } from './features/song-pads.js';
+import { mp3TakeEnd, mp3, songMp3, setup as setup_mp3 } from './features/mp3.js';
+import { downloadDebugLog, debugContext } from './features/debug.js';
+import { syntaxError, requestLLM, extractCode, session, money, setup as setup_llm } from './features/llm.js';
+import { pretty, preloadSoundfonts, prepareCode, soundRegistry, checkScales, checkSounds, ensureSliders, setup as setup_sound_check } from './features/sound-check.js';
+import { setup as setup_chat } from './features/chat.js';
+import { songForms, setup as setup_forms } from './features/forms.js';
+import { bands, normalizeSheet, setup as setup_bands } from './features/bands.js';
+import { partVisuals } from './features/part-visuals.js';
+import { stopSet, repairSong, startSet, jumpToSong } from './features/song-writer.js';
+import { songsChanged, nowSong, viewedSong, setup as setup_song_lists } from './features/song-lists.js';
+import { setup as setup_stations } from './features/stations.js';
 // Strudel AI — browser app
 /**
  * Element by id. Remembered once found, so panels keep working when the layout engine takes them out of the
  * page (a hidden tab) or into another window (a popped-out panel), where document.getElementById can't see them.
  */
 const $els = new Map();
-const $ = (id) => {
+export const $ = (id) => {
   const known = $els.get(id);
   if (known?.isConnected && known.id === id) return known;
   const el = document.getElementById(id);
@@ -42,8 +62,7 @@ bass: note("<c2 c2 eb2 g1>*8").s("sawtooth")
   .gain(slider(0.6, 0, 1.2))
 `;
 
-
-const MAX_FIX_ATTEMPTS = 2;
+export const MAX_FIX_ATTEMPTS = 2;
 const HISTORY_LIMIT = 8; // messages kept for context (current code is re-sent every turn anyway)
 const OMITTED = '// [older version omitted — always edit the CURRENT CODE]';
 /**
@@ -51,15 +70,15 @@ const OMITTED = '// [older version omitted — always edit the CURRENT CODE]';
  * model keeps answering in that format) but NOT their old code — otherwise models copy their
  * previous program and ignore manual edits made since.
  */
-function historyForModel() {
+export function historyForModel() {
   return state.history.slice(-HISTORY_LIMIT).map((m) =>
     m.role === 'assistant'
       ? { ...m, content: m.content.replace(/```[a-zA-Z]*\n[\s\S]*?(```|$)/g, '```javascript\n' + OMITTED + '\n```') }
       : m,
   );
 }
-const normCode = (c) => (c || '').replace(/\s+/g, ' ').trim();
-const STORE_KEY = 'strudel-ai:v1';
+export const normCode = (c) => (c || '').replace(/\s+/g, ' ').trim();
+export const STORE_KEY = 'strudel-ai:v1';
 
 /**
  * The player's events — the panels listen instead of checking on timers:
@@ -68,7 +87,7 @@ const STORE_KEY = 'strudel-ai:v1';
  *   'transport' playback started, paused, resumed or stopped { state: 'playing' | 'paused' | 'stopped' }
  *   'songs'     the song lists changed (written, saved, edited, selected …)
  */
-const player = createEmitter();
+export const player = createEmitter();
 
 // ---------------------------------------------------------------------------
 // Persistence
@@ -76,20 +95,20 @@ const player = createEmitter();
 // the settings are read from localStorage once and kept in memory; another tab saving them (or a backup being
 // restored) makes this tab read them again
 let store = null;
-const load = () => {
+export const load = () => {
   if (!store) { try { store = JSON.parse(localStorage.getItem(STORE_KEY)) || {}; } catch { store = {}; } }
   return { ...store };
 };
-const save = (patch) => {
+export const save = (patch) => {
   load();
   Object.assign(store, patch);
   try { localStorage.setItem(STORE_KEY, JSON.stringify(store)); } catch {}
 };
-const forgetStore = () => { store = null; };
+export const forgetStore = () => { store = null; };
 window.addEventListener('storage', (e) => { if (e.key === STORE_KEY || e.key === null) forgetStore(); });
-const saved = load();
+export const saved = load();
 
-const state = {
+export const state = {
   history: [],   // chat history sent to the LLM
   versions: [],  // undo stack of code
   busy: false,
@@ -101,22 +120,22 @@ const state = {
 // Recorder: every code switch that actually plays, with the cycle it takes effect on.
 // A "take" starts when playback starts and ends when it stops. Shared links can carry
 // the take so the whole song (AI-generated blocks, edits, mutes, fader moves) replays exactly.
-const rec = { take: null, last: null };
+export const rec = { take: null, last: null };
 // Live mode: hand edits in the editor are evaluated as you type
-const live = { seen: null, changedAt: 0, applied: null, failed: false };
+export const live = { seen: null, changedAt: 0, applied: null, failed: false };
 // True while the visualizer queries the playing pattern (must not trigger switch side effects)
-let vizQuerying = false;
+export let vizQuerying = false;
 
 // ---------------------------------------------------------------------------
 // Strudel editor
 // ---------------------------------------------------------------------------
-const replEl = document.createElement('strudel-editor');
+export const replEl = document.createElement('strudel-editor');
 replEl.setAttribute('code', saved.code || INITIAL_CODE);
 $('editor-wrap').appendChild(replEl);
-const mirror = () => replEl.editor; // StrudelMirror
-const scheduler = () => mirror()?.repl?.scheduler;
+export const mirror = () => replEl.editor; // StrudelMirror
+export const scheduler = () => mirror()?.repl?.scheduler;
 
-let lastReplState = {};
+export let lastReplState = {};
 replEl.addEventListener('update', (e) => {
   lastReplState = e.detail;
   const err = e.detail.error;
@@ -126,10 +145,10 @@ replEl.addEventListener('update', (e) => {
   if (e.detail.code !== undefined) save({ code: e.detail.code });
 });
 
-const getCode = () => mirror()?.code ?? replEl.getAttribute('code') ?? '';
-const isPlaying = () => !!scheduler()?.started;
-const nowCycle = () => scheduler()?.now() ?? 0;
-const cps = () => scheduler()?.cps ?? 0.5;
+export const getCode = () => mirror()?.code ?? replEl.getAttribute('code') ?? '';
+export const isPlaying = () => !!scheduler()?.started;
+export const nowCycle = () => scheduler()?.now() ?? 0;
+export const cps = () => scheduler()?.cps ?? 0.5;
 
 // ---------------------------------------------------------------------------
 // Autocomplete: Strudel's own completions (every function with its docs and
@@ -306,7 +325,7 @@ function finiteGuard(pat) {
 }
 
 /** Next cycle that is a multiple of `every`, leaving enough time to evaluate. */
-function nextBoundary(every) {
+export function nextBoundary(every) {
   const s = scheduler();
   const leadCycles = 0.06 * cps(); // ~60 ms: time to evaluate + one scheduler tick
   const ahead = Math.max(s.lastEnd ?? 0, nowCycle()) + leadCycles;
@@ -318,11 +337,13 @@ function nextBoundary(every) {
  * errors (bad scale names, bad chord symbols, "can only use X after Y", …)
  * only happen when notes are generated, not when the code is evaluated.
  */
-let inDryRun = false;
+export let inDryRun = false;
+/** The visualizer queries the playing pattern: errors meanwhile are the playing code's, already reported. */
+export function setPatternQuery(on, prevDry = false) { vizQuerying = on; inDryRun = on ? true : prevDry; }
 // Strudel errors while new code is test-played are expected (that's what the test is for): the debug log marks them
 Object.defineProperty(debugState, 'testPlaying', { get: () => inDryRun });
-const recentDryRunErrors = new Map(); // message → time, to avoid reporting the same error twice
-function dryRun(pat) {
+export const recentDryRunErrors = new Map(); // message → time, to avoid reporting the same error twice
+export function dryRun(pat) {
   const c = Math.floor(nowCycle());
   const logged = [];
   const onLog = (e) => {
@@ -378,7 +399,7 @@ function soundHint(reg, s, bank) {
  * The new pattern is test-queried first; if that fails, the old music keeps playing.
  * Returns the error (or null).
  */
-async function evaluateCode(code, { at = null, label = '', undo = true, fade = 0 } = {}) {
+export async function evaluateCode(code, { at = null, label = '', undo = true, fade = 0 } = {}) {
   const m = mirror();
   if (!m) return new Error('editor not ready');
   const sch = m.repl.scheduler;
@@ -447,7 +468,7 @@ async function evaluateCode(code, { at = null, label = '', undo = true, fade = 0
 }
 
 /** Undo an armed switch that has not happened yet. */
-function cancelPending(restore = true) {
+export function cancelPending(restore = true) {
   const p = state.pending;
   state.pending = null;
   if (!p) return;
@@ -470,15 +491,15 @@ const quantize = () => Number($('quantize').value);
  * The crossfade in bars (cycles). The beat options (1 or 2 beats) follow the meter of the song that is
  * switching in: a beat is ¼ bar in 4/4, ⅓ bar in 3/4, ½ bar in 6/8.
  */
-const fadeCycles = (song = queue.songs[queue.current]) => {
+export const fadeCycles = (song = queue.songs[queue.current]) => {
   const v = Number($('fade').value);
   return v > 0 && v < 1 ? (v * 4) / meterBeats(songMeter(song)) : v;
 };
 /** One beat of the playing song, in bars. */
-const beatCycles = () => 1 / meterBeats(songMeter(queue.songs[queue.current]));
+export const beatCycles = () => 1 / meterBeats(songMeter(queue.songs[queue.current]));
 
 /** Apply code using the current quantize setting. */
-function applyQuantized(code, label) {
+export function applyQuantized(code, label) {
   const q = quantize();
   const at = q > 0 && isPlaying() ? nextBoundary(q) : null;
   return evaluateCode(code, { at, label, fade: fadeCycles() });
@@ -546,7 +567,7 @@ $('pending').onclick = () => { cancelPending(true); addMsg('info', 'pending chan
 // cycle-based randomness comes out the same too.
 // ---------------------------------------------------------------------------
 /** Cycle from which a pattern set right now is heard (haps up to lastEnd are already scheduled). */
-function switchCycle(sch = scheduler()) {
+export function switchCycle(sch = scheduler()) {
   return Math.max(sch?.lastEnd ?? 0, nowCycle());
 }
 
@@ -579,7 +600,6 @@ function installRecorderHook() {
     return r;
   };
 }
-
 
 function pollEditor() {
   installRecorderHook();
@@ -627,7 +647,7 @@ $('liveMode').onchange = () => {
 };
 
 /** The current (or last) take in the compact share format: unique codes + timed events. */
-function recordingForShare() {
+export function recordingForShare() {
   const take = rec.take?.events.length ? rec.take : rec.last;
   if (!take?.events.length) return null;
   const c0 = take.events[0].c;
@@ -640,7 +660,7 @@ function recordingForShare() {
   return { v: 1, codes, events, end: Math.max(0, Math.round((take.end - c0) * 1e3) / 1e3) };
 }
 /** Expand a shared recording back into { events: [{c, code, label}], end }, or null if malformed. */
-function decodeRecording(r) {
+export function decodeRecording(r) {
   if (!r || !Array.isArray(r.codes) || !Array.isArray(r.events) || !r.events.length) return null;
   const events = r.events
     .filter((ev) => Number.isFinite(ev.c) && typeof r.codes[ev.i] === 'string')
@@ -648,9 +668,9 @@ function decodeRecording(r) {
     .sort((a, b) => a.c - b.c);
   return events.length ? { events, end: Number(r.end) || events[events.length - 1].c } : null;
 }
-const fmtTime = (secs) => `${Math.floor(secs / 60)}:${String(Math.round(secs % 60)).padStart(2, '0')}`;
+export const fmtTime = (secs) => `${Math.floor(secs / 60)}:${String(Math.round(secs % 60)).padStart(2, '0')}`;
 /** Rough length of a take in seconds (uses each switch's tempo). */
-function takeSeconds(take) {
+export function takeSeconds(take) {
   let secs = 0;
   const evs = take.events;
   for (let k = 0; k < evs.length; k++) {
@@ -669,7 +689,7 @@ function codeCps(code) {
 // --- replay
 const replay = { running: false, events: [], i: 0, end: 0, timer: null, title: '' };
 
-async function startReplay(take, title = '') {
+export async function startReplay(take, title = '') {
   if (!take?.events.length) return;
   stopReplay();
   stopSet?.();
@@ -785,7 +805,7 @@ const PANELS = [
   { id: 'master', title: 'Master', icon: '🎛', el: $('master-dock'), area: 'bottom' },
   { id: 'console', title: 'Console', icon: '🖥', el: $('console-dock'), area: 'bottom' },
 ];
-let ws;
+export let ws;
 try {
   ws = createWorkspace({ dv: await loadDockview(), root: $('workspace'), center: document.querySelector('#workspace .ws-center'), panels: PANELS, saved: saved.panelLayout || null, onSave: (layout) => save({ panelLayout: layout }) });
 } catch (e) {
@@ -809,7 +829,7 @@ try {
   window.addEventListener('scroll', () => { if (window.scrollX || window.scrollY) window.scrollTo(0, 0); });
 }
 /** Bring a panel to the front (opening it if it's closed). */
-const showPanel = (id) => ws.open(id);
+export const showPanel = (id) => ws.open(id);
 // the ▦ Panels menu: open / close any panel, reset the layout
 function renderLayoutMenu() {
   $('layoutMenu').innerHTML = ws.panels().map((p) => `<label${p.fixed ? ' title="Always shown"' : ''}><input type="checkbox" data-panel="${p.id}"${p.open ? ' checked' : ''}${p.fixed ? ' disabled' : ''} /> ${p.icon} ${esc(p.title)}</label>`).join('') +
@@ -833,14 +853,14 @@ document.addEventListener('click', () => { $('layoutMenu').hidden = true; });
 // Chat rendering
 // ---------------------------------------------------------------------------
 
-function renderMarkdownLite(text) {
+export function renderMarkdownLite(text) {
   return text
     .split(/```[a-zA-Z]*\n?/)
     .map((p, i) => (i % 2 ? `<pre>${esc(p.replace(/\n$/, ''))}</pre>` : esc(p).replace(/\n/g, '<br>')))
     .join('');
 }
 
-function addMsg(role, html, { raw = false } = {}) {
+export function addMsg(role, html, { raw = false } = {}) {
   const div = document.createElement('div');
   div.className = `msg ${role}`;
   if (raw) div.innerHTML = html; else div.textContent = html;
@@ -861,7 +881,7 @@ function tail(el) {
 }
 tail($('messages'));
 tail($('consoleLog'));
-const scrollChat = () => { const m = $('messages'); m.__follow = true; m.scrollTop = m.scrollHeight; };
+export const scrollChat = () => { const m = $('messages'); m.__follow = true; m.scrollTop = m.scrollHeight; };
 
 // ---------------------------------------------------------------------------
 // 🖥 Console: a running log of what happens behind the scenes — every AI request
@@ -873,7 +893,7 @@ const CONSOLE_MAX = 400;
  * A problem the app couldn't resolve (AI errors after retries, budget, …): it goes to the console,
  * and the status bar shows ⚠ with the message as its tooltip — never into the chat or the page.
  */
-function warnUser(msg) {
+export function warnUser(msg) {
   clog('error', msg);
   const w = $('sbWarn');
   w.hidden = false;
@@ -882,7 +902,7 @@ function warnUser(msg) {
   w.textContent = `⚠ ${w.dataset.count}`;
 }
 /** Add a console line. kind: ai | ok | fix | warn | error | info. Returns { set(text), done(text, kind) }. */
-function clog(kind, text) {
+export function clog(kind, text) {
   const log = $('consoleLog');
   const row = document.createElement('div');
   row.className = `con-row ${kind}`;
@@ -919,707 +939,16 @@ $('clearChat').onclick = () => {
   $('messages').querySelectorAll('.msg:not(.system)').forEach((n) => n.remove());
 };
 
-// ---------------------------------------------------------------------------
-// LLM
-// ---------------------------------------------------------------------------
-
-const CODE_LINE = /^\s*(\$:|_\$:|setcp[ms]\(|stack\(|s\(|sound\(|note\(|n\(|chord\(|samples\(|\.|\/\/|\)|let |const )/;
-
-function extractCode(text) {
-  // never treat the history placeholder as code
-  const clean = stripThinking(text).replace(/```[a-zA-Z]*\n\s*\/\/ \[older version omitted[^\n]*\n```/g, '');
-  // only code fences count — ```song / ```parts / ```pads blocks are handled separately
-  const isCode = (lang) => ['', 'javascript', 'js', 'strudel'].includes(lang.toLowerCase());
-  const blocks = [...clean.matchAll(/```([\w-]*)[^\n]*\n([\s\S]*?)```/g)]
-    .filter((m) => isCode(m[1]))
-    .map((m) => m[2].trim())
-    .filter(Boolean);
-  if (blocks.length) return blocks[blocks.length - 1];
-  if ([...clean.matchAll(/```([\w-]*)/g)].some((m) => m[1] && !isCode(m[1]))) return null; // only song / pads blocks
-  const open = clean.match(/```(?:javascript|js|strudel)?[^\n]*\n([\s\S]+)$/);
-  if (open && open[1].trim()) return open[1].trim();
-  const lines = clean.split('\n').filter((l) => l.trim());
-  const codeLines = lines.filter((l) => CODE_LINE.test(l));
-  if (codeLines.length >= 1 && codeLines.length >= lines.length - 1) {
-    return lines.filter((l) => CODE_LINE.test(l) || /^\s/.test(l)).join('\n').trim();
-  }
-  return null;
-}
-
-/** The body of the last ```<lang> block in a reply, or null. */
-function fencedBlock(text, lang) {
-  const all = [...stripThinking(text).matchAll(new RegExp('```' + lang + '[^\\n]*\\n([\\s\\S]*?)```', 'g'))];
-  return all.length ? all[all.length - 1][1].trim() : null;
-}
-
-/** Cheap syntax check ("$:" lines are valid JS labels). Returns error message or null. */
-function syntaxError(code) {
-  try { new Function(code); return null; } catch (e) { return e.message; }
-}
-
-/**
- * Stream a completion. onUpdate({content, thinking}) is called as tokens arrive.
- * mode: 'code' (edit the given code) | 'songs' | 'sheet' | 'library' (the song writer's steps)
- */
-async function requestLLM({ messages, code = '', mode = 'code', onUpdate, signal, edited = false, label = '', sounds = null, onError = null, fixing = false }) {
-  try { return await requestLLMLogged({ messages, code, mode, onUpdate, signal, edited, label, sounds, fixing }); }
-  catch (e) { onError?.(e); throw e; }
-}
-async function requestLLMLogged({ messages, code, mode, onUpdate, signal, edited, label, sounds, fixing }) {
-  // session budget (Claude reports usage, so its cost is known): stop before spending more
-  const budget = Number(load().aiBudget ?? 2);
-  if (budget > 0 && session.cost >= budget) {
-    const e = new Error(`session AI budget reached (${money(session.cost)} of ${money(budget)}) — raise it in ⚙ Settings → AI`);
-    clog('error', `✗ AI · ${mode}: ${e.message}`);
-    throw e;
-  }
-  sounds ??= await soundCatalog().catch(() => '');
-  const lastUser = String(messages[messages.length - 1]?.content || '').split('\n')[0].slice(0, 140);
-  const t0 = performance.now();
-  const entry = clog('ai', `→ AI · ${mode}${label ? ` · ${label}` : ''} · ${$('model').value || 'default model'}: ${lastUser}`);
-  const update = onUpdate;
-  onUpdate = (u) => { entry.stream((u.thinking ? `[thinking] ${u.thinking.slice(-600)}\n\n` : '') + u.content); update?.(u); };
-  try {
-    lastUsage = null;
-    const text = await requestLLMRaw({ messages, code, mode, onUpdate, signal, edited, sounds, fixing });
-    entry.done(`✓ AI · ${mode}${label ? ` · ${label}` : ''}: ${text.length} chars in ${((performance.now() - t0) / 1000).toFixed(1)}s${usageText(lastUsage)}`, 'ok');
-    addSessionCost(lastUsage);
-    return text;
-  } catch (e) {
-    entry.done(`✗ AI · ${mode}${label ? ` · ${label}` : ''}: ${e.name === 'AbortError' ? 'stopped' : e.message}`, e.name === 'AbortError' ? 'info' : 'error');
-    throw e;
-  }
-}
-
-let lastUsage = null; // token usage of the last Claude reply (other providers don't report it)
-const money = (v) => `$${v.toFixed(v < 0.1 ? 3 : 2)}`;
-// running AI cost for this browser session (shown in the status bar, checked against the budget)
-const session = (() => { try { return JSON.parse(sessionStorage.getItem('strudel-ai:session')) || { cost: 0, requests: 0, tokensIn: 0, tokensOut: 0 }; } catch { return { cost: 0, requests: 0, tokensIn: 0, tokensOut: 0 }; } })();
-function usageCost(u) {
-  const p = u && CLAUDE_PRICES[u.model];
-  // 1-hour cache writes cost 2× input
-  return p ? (u.input * p[0] + u.output * p[1] + u.cache_read * p[2] + u.cache_write * p[0] * 2) / 1e6 : 0;
-}
-function addSessionCost(u) {
-  if (!u) return;
-  session.cost += usageCost(u);
-  session.requests++;
-  session.tokensIn += (u.input || 0) + (u.cache_read || 0) + (u.cache_write || 0);
-  session.tokensOut += u.output || 0;
-  try { sessionStorage.setItem('strudel-ai:session', JSON.stringify(session)); } catch {}
-}
-// $ per million tokens: input, output, cache read, cache write (5 min)
-const CLAUDE_PRICES = { 'claude-sonnet-5-5': [2, 10, 0.2, 2.5], 'claude-opus-5-5': [4, 20, 0.2, 5], 'claude-haiku-4-5': [1, 5, 0.1, 1.25] };
-function usageText(u) {
-  if (!u) return '';
-  const cost = CLAUDE_PRICES[u.model] ? usageCost(u) : null;
-  return ` · ${u.input + u.cache_read + u.cache_write} in (${u.cache_read} cached) / ${u.output} out` + (cost != null ? ` · ≈${(cost * 100).toFixed(1)}¢` : '');
-}
-
-async function requestLLMRaw({ messages, code, mode, onUpdate, signal, edited, sounds, fixing }) {
-  const res = await fetch('/api/chat', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      provider: $('provider').value,
-      model: $('model').value,
-      messages,
-      code,
-      mode,
-      edited,
-      sounds,
-      fixing: !!fixing,
-      systemPrompt: promptOverride(mode),
-      temperature: Number($('temp').value),
-      effort: $('claudeEffort').value,
-    }),
-    signal,
-  });
-  if (!res.ok) {
-    const j = await res.json().catch(() => ({}));
-    throw new Error(j.error || `HTTP ${res.status}`);
-  }
-  let content = '', thinking = '';
-  if ((res.headers.get('content-type') || '').includes('application/json')) {
-    const j = await res.json();
-    content = j.choices?.[0]?.message?.content || '';
-    onUpdate?.({ content, thinking });
-    return content;
-  }
-  const reader = res.body.getReader();
-  const dec = new TextDecoder();
-  let buf = '';
-  for (;;) {
-    const { value, done } = await reader.read();
-    if (done) break;
-    buf += dec.decode(value, { stream: true });
-    const lines = buf.split('\n');
-    buf = lines.pop();
-    for (const line of lines) {
-      const l = line.trim();
-      if (!l.startsWith('data:')) continue;
-      const data = l.slice(5).trim();
-      if (!data || data === '[DONE]') continue;
-      let j;
-      try { j = JSON.parse(data); } catch { continue; }
-      if (j.error) throw new Error(j.error.message || JSON.stringify(j.error));
-      if (j.usage) { lastUsage = j.usage; continue; }
-      const d = j.choices?.[0]?.delta || j.choices?.[0]?.message || {};
-      if (d.reasoning_content || d.reasoning) thinking += d.reasoning_content || d.reasoning;
-      if (d.content) content += d.content;
-    }
-    onUpdate?.({ content, thinking });
-  }
-  return content;
-}
-
-/** Render a streaming reply into a chat bubble. */
-function bubbleRenderer(bubble) {
-  const contentEl = document.createElement('div');
-  contentEl.className = 'typing';
-  bubble.appendChild(contentEl);
-  let thinkEl = null;
-  return {
-    update({ content, thinking }) {
-      if (thinking) {
-        if (!thinkEl) {
-          thinkEl = document.createElement('details');
-          thinkEl.innerHTML = '<summary>thinking…</summary><div></div>';
-          bubble.insertBefore(thinkEl, contentEl);
-        }
-        thinkEl.querySelector('div').textContent = thinking;
-      }
-      contentEl.innerHTML = renderMarkdownLite(content);
-      scrollChat();
-    },
-    done() {
-      contentEl.classList.remove('typing');
-      if (thinkEl) thinkEl.querySelector('summary').textContent = 'reasoning';
-    },
-  };
-}
-
-// ---------------------------------------------------------------------------
-// Sound registry: validate / auto-correct instrument names against what is
-// actually loaded, preload soundfonts, and tell the LLM the real names.
-// ---------------------------------------------------------------------------
-const SOUNDFONT_URL = 'https://felixroos.github.io/webaudiofontdata/sound';
-
-async function soundRegistry() {
-  try { await mirror()?.prebaked; } catch {}
-  await installSoundfontGuard();
-  const m = globalThis.soundMap?.get?.();
-  return m && Object.keys(m).length ? m : null;
-}
-
-// registry keys are lowercase; show well-known banks in their usual spelling
-const pretty = (b) => b.replace(/^roland/, 'Roland').replace(/tr(\d)/, 'TR$1').replace(/^linn/, 'Linn');
-
-let catalogCache = null;
-async function soundCatalog() {
-  if (catalogCache) return catalogCache;
-  const reg = await soundRegistry();
-  if (!reg) return '';
-  const keys = Object.keys(reg);
-  const synths = keys.filter((k) => reg[k].data?.type === 'synth' && !['user', 'bus', 'one'].includes(k));
-  const fonts = keys.filter((k) => reg[k].data?.type === 'soundfont');
-  const samples = keys.filter((k) => reg[k].data?.type === 'sample');
-  const bankCount = {};
-  const drumSuffixes = new Set();
-  for (const k of samples) {
-    const i = k.lastIndexOf('_');
-    if (i > 0) {
-      const b = k.slice(0, i);
-      bankCount[b] = (bankCount[b] || 0) + 1;
-    }
-  }
-  const banks = Object.keys(bankCount).filter((b) => bankCount[b] >= 3 && !b.startsWith('gm'));
-  for (const k of samples) {
-    const i = k.lastIndexOf('_');
-    if (i > 0 && banks.includes(k.slice(0, i))) drumSuffixes.add(k.slice(i + 1));
-  }
-  const plain = samples.filter((k) => !k.includes('_'));
-  catalogCache =
-    `Synths: ${synths.join(' ')}\n` +
-    `Soundfont instruments (play pitches with note() or n().scale()): ${fonts.join(' ')}\n` +
-    `Samples: ${plain.join(' ')}${plain.includes('space') ? ' (use "space" rarely)' : ''}\n` +
-    `Drum machine banks (use as s("bd sd hh").bank("name"), bank names are case-insensitive): ${banks.map(pretty).join(' ')}\n` +
-    `Drum names available inside banks: ${[...drumSuffixes].join(' ')}`;
-  return catalogCache;
-}
-
-
-
-function stringArgs(code, fnRegex) {
-  const out = [];
-  for (const m of code.matchAll(fnRegex)) out.push(m[2]);
-  return out;
-}
-const MINI_WORD = /[A-Za-z][A-Za-z0-9_]*/g;
-
-/**
- * Check every sound / bank name used in s(), sound(), .bank() against the registry.
- * Returns { code, corrections: [[from,to]], unknown: [{name, suggestions}] }.
- */
-async function checkSounds(code) {
-  const reg = await soundRegistry();
-  if (!reg) return { code, corrections: [], unknown: [] };
-  const keys = Object.keys(reg);
-  const has = (k) => Object.prototype.hasOwnProperty.call(reg, k.toLowerCase());
-  const plainKeys = keys.filter((k) => !/_(?!.*_)/.test(k) || k.startsWith('gm_') || reg[k].data?.type !== 'sample');
-  const bankSet = new Set();
-  for (const k of keys) { const i = k.lastIndexOf('_'); if (i > 0 && !k.startsWith('gm_')) bankSet.add(k.slice(0, i)); }
-
-  const soundStrs = stringArgs(code, /(?:^|[^\w$])(?:s|sound)\(\s*(["'`])([\s\S]*?)\1/g);
-  const bankStrs = stringArgs(code, /\.bank\(\s*(["'`])([\s\S]*?)\1/g);
-  const banks = [...new Set(bankStrs.flatMap((s) => s.match(MINI_WORD) || []))];
-  const sounds = [...new Set(soundStrs.flatMap((s) => s.match(MINI_WORD) || []))];
-
-  const corrections = [];
-  const unknown = [];
-  const validBanks = [];
-  for (const b of banks) {
-    if (bankSet.has(b.toLowerCase())) { validBanks.push(b); continue; }
-    const { best, dist, top } = closest(b, [...bankSet]);
-    if (best && dist <= Math.max(2, Math.floor(b.length / 4))) { corrections.push([b, pretty(best)]); validBanks.push(best); }
-    else unknown.push({ name: b, kind: 'bank', suggestions: top });
-  }
-  for (const t of sounds) {
-    if (has(t) || validBanks.some((b) => has(`${b}_${t}`))) continue;
-    const { best, dist, top } = closest(t, plainKeys);
-    if (best && dist <= Math.max(1, Math.floor(t.length / 4))) corrections.push([t, best]);
-    else unknown.push({ name: t, kind: 'sound', suggestions: top });
-  }
-  let fixed = code;
-  for (const [from, to] of corrections) {
-    fixed = fixed.replace(new RegExp(`(?<![\\w])${from.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![\\w])`, 'g'), to);
-  }
-  return { code: fixed, corrections, unknown };
-}
-
-
-// ---------------------------------------------------------------------------
-// Soundfont range guard: every gm_* instrument only has recordings for a
-// certain key range. Strudel throws "no soundfont zone found for preset" for
-// notes outside it. We wrap each soundfont so out-of-range notes are moved by
-// octaves into the instrument's range instead of failing.
-// ---------------------------------------------------------------------------
-const fontRangeCache = {};
-function fontRange(font) {
-  if (!fontRangeCache[font]) {
-    fontRangeCache[font] = fetch(`${SOUNDFONT_URL}/${font}.js`, { cache: 'force-cache' })
-      .then((r) => r.text())
-      .then((txt) => {
-        const lows = [...txt.matchAll(/keyRangeLow\s*:\s*(\d+)/g)].map((m) => +m[1]);
-        const highs = [...txt.matchAll(/keyRangeHigh\s*:\s*(\d+)/g)].map((m) => +m[1]);
-        return lows.length ? { lo: Math.min(...lows), hi: Math.max(...highs) + 1 } : null;
-      })
-      .catch(() => { delete fontRangeCache[font]; return null; });
-  }
-  return fontRangeCache[font];
-}
-
-const NOTE_BASE = { c: 0, d: 2, e: 4, f: 5, g: 7, a: 9, b: 11 };
-function toMidi(value) {
-  if (value.freq) return 12 * Math.log2(value.freq / 440) + 69;
-  const note = value.note ?? 'c3';
-  if (typeof note === 'number') return note;
-  const m = String(note).trim().match(/^([a-gA-G])([#sbf]*)(-?\d+)?$/);
-  if (!m) return NaN;
-  const acc = [...m[2]].reduce((a, c) => a + (c === '#' || c === 's' ? 1 : -1), 0);
-  return NOTE_BASE[m[1].toLowerCase()] + acc + (m[3] !== undefined ? +m[3] + 1 : 4) * 12;
-}
-
-const transposeLog = new Set();
-async function installSoundfontGuard() {
-  const map = globalThis.soundMap;
-  const reg = map?.get?.();
-  if (!reg || installSoundfontGuard.done) return;
-  installSoundfontGuard.done = true;
-  for (const [name, entry] of Object.entries(reg)) {
-    if (entry.data?.type !== 'soundfont' || entry.guarded) continue;
-    const fonts = entry.data.fonts || [];
-    const orig = entry.onTrigger;
-    const guarded = async (time, value, onended, ...rest) => {
-      try {
-        const n = Math.round(Number(value.n) || 0);
-        const font = fonts[((n % fonts.length) + fonts.length) % fonts.length];
-        const range = font && (await fontRange(font));
-        const parsed = toMidi(value);
-        let midi = Number.isFinite(parsed) ? parsed : 48; // unparseable note → c3
-        if (range) {
-          let shifted = midi;
-          while (shifted < range.lo) shifted += 12;
-          while (shifted > range.hi) shifted -= 12;
-          if (shifted < range.lo) shifted = range.lo; // range narrower than an octave
-          if (shifted !== midi || !Number.isFinite(parsed)) {
-            const key = `${name}:${value.note ?? value.freq}`;
-            if (!transposeLog.has(key)) {
-              transposeLog.add(key);
-              console.info(Number.isFinite(parsed)
-                ? `[strudel-ai] ${name}: note ${Math.round(midi)} outside ${range.lo}-${range.hi}, playing ${Math.round(shifted)}`
-                : `[strudel-ai] ${name}: can't read note "${value.note}", playing ${Math.round(shifted)}`);
-            }
-            value = { ...value, note: shifted };
-            delete value.freq;
-          }
-        }
-      } catch {}
-      return orig(time, value, onended, ...rest);
-    };
-    map.setKey(name, { ...entry, onTrigger: guarded, guarded: true });
-  }
-}
-
-/** Warm up soundfont downloads so the first notes after a switch aren't silent. */
-async function preloadSoundfonts(code) {
-  const reg = await soundRegistry();
-  if (!reg) return [];
-  const names = [...new Set((code.match(/gm_[a-z0-9_]+/gi) || []).map((n) => n.toLowerCase()))];
-  const failed = [];
-  await Promise.all(
-    names.map(async (n) => {
-      const font = reg[n]?.data?.fonts?.[0];
-      if (!font) return;
-      try {
-        const r = await fetch(`${SOUNDFONT_URL}/${font}.js`, { cache: 'force-cache', signal: AbortSignal.timeout(8000) });
-        if (!r.ok) throw new Error(r.status);
-        fontRange(font);
-      } catch { failed.push(n); }
-    }),
-  );
-  return failed;
-}
-
-const unknownMessage = (unknown) =>
-  'These sound/bank names do not exist: ' +
-  unknown.map((u) => `"${u.name}" (closest real ${u.kind}s: ${u.suggestions.join(', ')})`).join('; ') +
-  '. Use ONLY names from the AVAILABLE SOUNDS list, spelled exactly.';
-
-
-// ---------------------------------------------------------------------------
-// Scale names: Strudel wants "Tonic:name" with spaces in the name replaced by
-// colons, e.g. .scale("C:minor:pentatonic"). Models often write
-// "C:minorpentatonic", "C minor pentatonic" or "C:pentatonic minor".
-// ---------------------------------------------------------------------------
-// (scale names are checked and repaired in lib/scales.js)
-const scalesReady = fetch('/scales.json').then((r) => r.json()).then(setScales).catch(() => setScales([]));
-
-
-
-async function checkScales(code) {
-  await scalesReady;
-  const corrections = [], unknown = [];
-  const fixedCode = code.replace(/\.scale\(\s*(["'`])([\s\S]*?)\1/g, (whole, q, str) => {
-    const r = fixScaleString(str);
-    corrections.push(...r.corrections);
-    unknown.push(...r.unknown);
-    return `.scale(${q}${r.fixed}${q}`;
-  });
-  return { code: fixedCode, corrections, unknown };
-}
-
-
-
-// ---------------------------------------------------------------------------
-// Sliders: every gain / group postgain gets a live fader; slider() arguments must be
-// plain non-negative numbers (Strudel's transpiler ignores anything else).
-// ---------------------------------------------------------------------------
-function ensureSliders(code) {
-  let added = 0, fixed = 0;
-  const num = String.raw`(\d+(?:\.\d+)?|\.\d+)`;
-  let out = code.replace(new RegExp(String.raw`\.(gain|postgain)\(\s*` + num + String.raw`\s*\)`, 'g'), (m, fn, v) => {
-    added++;
-    const max = Math.max(fn === 'gain' ? 1.2 : 1.5, Number(v));
-    return `.${fn}(slider(${v}, 0, ${max}))`;
-  });
-  out = out.replace(/slider\(\s*([^,()]+?)\s*,\s*([^,()]+?)\s*,\s*([^,()]+?)\s*(,\s*[^,()]+?\s*)?\)/g, (m, v, lo, hi, step) => {
-    let [V, L, H] = [v, lo, hi].map(Number);
-    if (![V, L, H].every(Number.isFinite)) return m;
-    if (V < 0) return m; // negative values can't be sliders — leave for the model
-    let changed = false;
-    if (L < 0) { L = 0; changed = true; }
-    if (V < L) { L = V; changed = true; }
-    if (V > H) { H = V; changed = true; }
-    if (!changed && /^[\d.]+$/.test(lo.trim()) && /^[\d.]+$/.test(hi.trim())) return m;
-    fixed++;
-    return `slider(${v.trim()}, ${L}, ${H}${step || ''})`;
-  });
-  return { code: out, added, fixed };
-}
-
-/** Validate + correct + preload. Reports to chat. Returns { code, error } */
-/**
- * Mistakes in the program's shape that Strudel reports cryptically: a label holding a function
- * ("bass_main: (prog) => …" → ".p is not a function"), or only const definitions and nothing that plays
- * ("unexpected ast format without body expression").
- */
-function codeShapeError(code) {
-  const fnLabel = code.match(/^([A-Za-z_$][\w$]*):\s*\(?\s*[A-Za-z_$]*\s*\)?\s*=>/m);
-  if (fnLabel) {
-    return `"${fnLabel[1]}:" holds a function, but a label must hold a PATTERN. Define functions with const ` +
-      `(const ${fnLabel[1]} = (prog) => …) and play them from a labelled line with the chords: ${fnLabel[1].replace(/_\w+$/, '')}: ${fnLabel[1]}("<Am F C G>").`;
-  }
-  const body = code.replace(/\/\/.*$/gm, '').split('\n').filter((l) => l.trim());
-  if (body.length && !patternLines(code).length && body.every((l) => /^\s*(const|let|var|setcp[ms]|[)\].,]|\.)/.test(l) || /^\s+/.test(l))) {
-    return 'the program only defines consts and plays nothing: add labelled lines that play them (name: pattern).';
-  }
-  return null;
-}
-async function prepareCode(code, { quiet = false, library = false } = {}) {
-  const shape = library ? null : codeShapeError(code); // a song's part library is only consts, by design
-  if (shape) return { code, error: shape, corrections: [] };
-  const sl = ensureSliders(code);
-  if (sl.added || sl.fixed) {
-    clog('fix', `🎚 ${[sl.added && `added ${sl.added} gain slider${sl.added > 1 ? 's' : ''}`, sl.fixed && `fixed ${sl.fixed} slider range${sl.fixed > 1 ? 's' : ''}`].filter(Boolean).join(', ')}`);
-  }
-  code = sl.code;
-  const sc = await checkScales(code);
-  if (sc.corrections.length) {
-    clog('fix', '🔧 fixed scale names: ' + sc.corrections.map(([a, b]) => `${a} → ${b}`).join(', '));
-  }
-  if (sc.unknown.length) {
-    return { code: sc.code, error: `Unknown scale name(s): ${sc.unknown.join(', ')}. ${scaleHelp()}`, corrections: sc.corrections };
-  }
-  code = sc.code;
-  const chk = await checkSounds(code);
-  if (chk.corrections.length) {
-    clog('fix', '🔧 fixed sound names: ' + chk.corrections.map(([a, b]) => `${a} → ${b}`).join(', '));
-  }
-  const allCorrections = [...sc.corrections, ...chk.corrections];
-  if (chk.unknown.length) return { code: chk.code, error: unknownMessage(chk.unknown), corrections: allCorrections };
-  const failed = await preloadSoundfonts(chk.code);
-  if (failed.length && !quiet) {
-    addMsg('error', `Couldn't download soundfont(s) ${failed.join(', ')} from felixroos.github.io — they will be silent. Check the browser's internet access.`);
-  }
-  return { code: wrapCode(chk.code), error: null, corrections: allCorrections };
-}
-
-// Surface runtime sound errors (e.g. "sound xyz not found", soundfont load failures)
-const seenLogs = new Map();
-document.addEventListener('strudel.log', (e) => {
-  if (inDryRun) return; // reported by the caller instead
-  const msg = String(e.detail?.message || '');
-  if (msg.startsWith('[strudel-ai]')) return;
-  for (const [m, t] of recentDryRunErrors) {
-    if (performance.now() - t > 5000) recentDryRunErrors.delete(m);
-    else if (msg.includes(m)) return; // already reported by the test run
-  }
-  if (!/not found|could not load|no soundfont|error/i.test(msg)) return;
-  const t = performance.now();
-  if (seenLogs.has(msg) && t - seenLogs.get(msg) < 15000) return;
-  seenLogs.set(msg, t);
-  const bar = $('error-bar');
-  bar.hidden = false;
-  bar.textContent = '⚠ ' + msg;
-  clearTimeout(bar._t);
-  bar._t = setTimeout(() => { if (!lastReplState.error) bar.hidden = true; }, 6000);
-  // the chat only hears about problems with code the app has finished checking; details go to the console
-  clog('error', `engine: ${msg}`);
-});
-
-// ---------------------------------------------------------------------------
-// Chat turn
-// ---------------------------------------------------------------------------
-/**
- * One chat request. The first reply streams into a chat bubble; if its code needs
- * fixing (no code, unknown names, errors when test-played), the retries run quietly
- * — they stream into the 🖥 Console — and the bubble is updated with the final, working
- * reply. Only when every attempt fails does an error reach the chat.
- */
-async function runTurn(userText, attempt = 0, bubble = null, failedCode = null) {
-  state.history.push({ role: 'user', content: userText });
-  let r = null;
-  if (!bubble) {
-    bubble = addMsg('assistant', '', { raw: true });
-    r = bubbleRenderer(bubble);
-  } else {
-    setBubbleNote(bubble, `🔧 checking and fixing (attempt ${attempt + 1}/${MAX_FIX_ATTEMPTS + 1}) — see 🖥 Console`);
-  }
-  // song / pads context only rides along on this request (not stored in the history)
-  const messages = historyForModel();
-  const ctx = chatContext(userText);
-  if (ctx) messages[messages.length - 1] = { role: 'user', content: `${ctx}\n\n${messages[messages.length - 1].content}` };
-  const text = await requestLLM({
-    messages,
-    // a fix request works on the AI's failed attempt — not on what's in the editor
-    code: failedCode ?? getCode(),
-    fixing: failedCode != null,
-    onError: () => { if (!bubble.textContent.trim()) bubble.remove(); },
-    edited: state.lastAICode != null && normCode(getCode()) !== normCode(state.lastAICode),
-    onUpdate: r?.update,
-    signal: state.abort.signal,
-    label: attempt ? `fix ${attempt}` : 'chat',
-  });
-  r?.done();
-  let code = extractCode(text);
-
-  const retry = (why, msg, fixCode = null) => {
-    clog('warn', `✗ ${why} — asking the AI again (${attempt + 1}/${MAX_FIX_ATTEMPTS})`);
-    return runTurn(msg, attempt + 1, bubble, fixCode);
-  };
-  // couldn't fix it: details stay in the console; the reply only gets a ⚠ with the reason as tooltip
-  const giveUp = (msg) => { setBubbleNote(bubble, '⚠ not applied', msg); warnUser(msg); };
-
-  // song structure / parts / pads answers
-  const songBlock = fencedBlock(text, 'song'), padsBlock = fencedBlock(text, 'pads');
-  let partsBlock = fencedBlock(text, 'parts');
-  // a reply that rewrote the song's part library as editor code (consts or "part_variant:" labels) is a parts edit
-  if (!partsBlock && code && chatTarget() !== 'code') {
-    const lib = libraryFromReply(code, activeSong());
-    if (lib) { clog('fix', '🎵 the reply rewrote the song’s parts as editor code — applying it to the song’s parts instead'); partsBlock = lib; code = null; }
-  }
-  const notes = [];
-  if (padsBlock) {
-    try { const done = applyPadsReply(padsBlock); if (done) notes.push(`🔲 ${done}`); }
-    catch (e) { clog('warn', `pads reply unusable: ${e.message}`); }
-  }
-  if (songBlock || partsBlock) {
-    const sg = activeSong();
-    if (!sg) notes.push('🎵 no song is open — open one in 🎵 Songs to edit it');
-    else {
-      let raw = null;
-      try { raw = songBlock ? parseJSONLoose(songBlock) : rawSheet(sg.sheet); } catch (e) { raw = null; clog('warn', `song reply unusable: ${e.message}`); }
-      const err = raw ? await applySongEdit(sg, raw, partsBlock) : 'the ```song block is not valid JSON';
-      if (err) {
-        if (attempt < MAX_FIX_ATTEMPTS) {
-          return retry(`song edit: ${err}`, `${userText.replace(/\n\nTHE SONG EDIT FAILED[\s\S]*$/, '')}\n\nTHE SONG EDIT FAILED: ${err}. Return the corrected \`\`\`song and \`\`\`parts blocks.`);
-        }
-        notes.push('⚠ song not changed');
-        warnUser(`Song edit failed: ${err}`);
-      } else {
-        // say what the song really does now (tempo / key moves), not just what the reply claims
-        const moved = sg.sheet.sections.filter((x) => x.bpm || x.shift).map((x) => `${x.name}: ${[x.bpm ? `${x.bpm} bpm` : '', x.shift ? `key ${signed(x.shift)}` : ''].filter(Boolean).join(', ')}`);
-        // the section playing now switches to its new version on the next bar (the rest already did)
-        const nowToo = await refreshPlayingSection(sg);
-        const when = queue.songs.includes(sg) && queue.running ? (nowToo ? ' — from the next bar' : ' — from its next section') : '';
-        notes.push(`🎵 “${sg.title}” updated${when} · ${sg.sheet.bpm} bpm${moved.length ? `; ${moved.join(' · ')}` : ', one tempo throughout'}`);
-      }
-    }
-  }
-  // whole-song mode: the song blocks are the answer; editor code would only change the section playing now
-  if (chatTarget() === 'song' && (songBlock || partsBlock) && code) { clog('info', 'whole-song mode: ignored the reply’s editor code'); code = null; }
-  if (!code && notes.length) {
-    // a song / pads answer without new editor code
-    state.history.push({ role: 'assistant', content: stripThinking(text) });
-    setBubbleNote(bubble, notes.join(' · '));
-    return;
-  }
-
-  if (!code) {
-    state.history.pop(); // don't let the model imitate a code-less reply
-    if (attempt < MAX_FIX_ATTEMPTS) {
-      const base = userText.replace(/\n\nIMPORTANT: your previous reply[\s\S]*$/, '');
-      if (chatTarget() === 'song') {
-        return retry('no song in the reply', base + '\n\nIMPORTANT: your previous reply changed nothing. Reply with the COMPLETE updated sheet in a ```song block ' +
-          '(and a ```parts block if parts change).');
-      }
-      return retry('no code in the reply', base + '\n\nIMPORTANT: your previous reply had no code. Answer with ONE short sentence, then the COMPLETE ' +
-        'updated program in a single ```javascript code block.');
-    }
-    return giveUp('The model did not return any code. Try rephrasing, clearing the chat, or a different model.');
-  }
-  const prep = await prepareCode(code);
-  code = prep.code;
-  let reply = stripThinking(text);
-  for (const [a, b] of prep.corrections) reply = reply.split(a).join(b); // don't let the model learn wrong names
-  state.history.push({ role: 'assistant', content: reply });
-  state.lastAICode = code;
-  // show the corrected code, not the misspelled one
-  if (prep.corrections.length && attempt === 0) { const d = bubble.querySelector(':scope > .typing, :scope > div:not(.note):not(.actions)'); if (d) d.innerHTML = renderMarkdownLite(reply); }
-
-  if (prep.error) {
-    if (attempt < MAX_FIX_ATTEMPTS) return retry(prep.error, prep.error + ' Return the full corrected program.', code);
-    return giveUp(`Couldn't get working code: ${prep.error}`);
-  }
-
-  const finish = () => {
-    // the bubble shows the reply that actually worked
-    if (attempt > 0) { bubble.innerHTML = ''; const d = document.createElement('div'); d.innerHTML = renderMarkdownLite(reply); bubble.appendChild(d); }
-    setBubbleNote(bubble, [attempt > 0 ? `🔧 fixed automatically (${attempt} retr${attempt > 1 ? 'ies' : 'y'})` : '', ...notes].filter(Boolean).join(' · '));
-    const actions = document.createElement('div');
-    actions.className = 'actions';
-    const now = document.createElement('button');
-    now.textContent = '▶ Apply now';
-    now.onclick = () => evaluateCode(code);
-    const q = document.createElement('button');
-    q.textContent = '⏱ Apply on bar';
-    q.onclick = () => applyQuantized(code, 'chat change');
-    actions.append(now, q);
-    bubble.appendChild(actions);
-  };
-
-  if (!$('autoApply').checked) { finish(); return; }
-
-  const err = await applyQuantized(code, 'chat change');
-  if (!err) {
-    finish();
-    clog('ok', state.pending ? `✓ chat change armed for bar ${state.pending.at + 1}` : '✓ chat change applied');
-    addMsg('info', state.pending ? `✓ armed — switching at bar ${state.pending.at + 1}` : '✓ applied & playing');
-    return;
-  }
-  if ($('autoFix').checked && attempt < MAX_FIX_ATTEMPTS) {
-    return retry(`error when test-played: ${err.message}`,
-      `The code you returned threw this error when it played:\n${err.message}\n` +
-        (/scale/i.test(err.message) ? scaleHelp() + '\n' : '') +
-        'Fix it and return the full corrected program. Only use functions from the reference.', code);
-  }
-  finish();
-  giveUp(`Not applied (the old music keeps playing): ${err.message}`);
-}
-
-/** A small status line under a chat reply. */
-function setBubbleNote(bubble, text, tooltip = '') {
-  let n = bubble.querySelector(':scope > .note');
-  if (!text) { n?.remove(); return; }
-  if (!n) { n = document.createElement('div'); n.className = 'note'; bubble.appendChild(n); }
-  n.textContent = text;
-  n.title = tooltip;
-  n.classList.toggle('warn', !!tooltip);
-}
-
-function setBusy(b) {
-  state.busy = b;
-  $('send').textContent = b ? 'Stop' : 'Send';
-  $('send').classList.toggle('stop', b);
-}
-
-$('chat-form').onsubmit = async (e) => {
-  e.preventDefault();
-  if (state.busy) { state.abort?.abort(); return; }
-  const text = $('input').value.trim();
-  if (!text) return;
-  $('input').value = '';
-  addMsg('user', text);
-  if ($('chatTarget').value === 'new') { createSongFromChat(text); return; }
-  setBusy(true);
-  state.abort = new AbortController();
-  try {
-    await runTurn(text);
-  } catch (err) {
-    if (err.name === 'AbortError') addMsg('info', 'stopped');
-    else warnUser(`AI request failed: ${err.message}`);
-  } finally {
-    setBusy(false);
-    $('input').focus({ preventScroll: true });
-  }
-};
-
-$('input').addEventListener('keydown', (e) => {
-  if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
-    e.preventDefault();
-    $('chat-form').requestSubmit();
-  }
-});
-
-
+setup_llm(); // features/llm.js
+setup_sound_check(); // features/sound-check.js
+setup_chat(); // features/chat.js
 // ---------------------------------------------------------------------------
 // Setlist: a list of timed changes. Code for each step is generated ahead of
 // time (each step builds on the previous step's code) and each step is
 // switched in exactly on its bar.
 // ---------------------------------------------------------------------------
 
-const engine = {
+export const engine = {
   running: false,
   steps: [],     // { bars, prompt, code, status, error }
   genIndex: 0,   // next step to generate
@@ -1641,7 +970,6 @@ const SECTION_GUIDE =
   'energy or feel, switch up the beat: rewrite the drum patterns (kick placement, hat rhythm, swing, half-time, broken ' +
   'beat, fills) instead of only stacking new layers on the same groove.';
 const autoAdvance = () => !engine.hold;
-
 
 async function generateStep(i) {
   const step = engine.steps[i];
@@ -1772,7 +1100,7 @@ function skipBlocksBefore(i) {
 }
 
 /** Manually switch to step i (on the next "switch on" boundary). */
-function jumpTo(i) {
+export function jumpTo(i) {
   if (!engine.running || !engine.steps[i]) return;
   // cancel a step that is armed but hasn't started yet
   for (const s of engine.steps) {
@@ -1888,7 +1216,7 @@ async function tickSetlist() {
   engine.jumpTarget = null;
 }
 
-function startSetlist({ at = 0, steps = null, feeder = null } = {}) {
+export function startSetlist({ at = 0, steps = null, feeder = null } = {}) {
   steps = steps || [];
   if (!steps.length && !feeder) return;
   stopSetlist();
@@ -1904,7 +1232,7 @@ function startSetlist({ at = 0, steps = null, feeder = null } = {}) {
 }
 
 /** Add blocks to a running engine (used by Set list / Station). Old finished blocks are trimmed. */
-function appendSteps(steps) {
+export function appendSteps(steps) {
   engine.steps.push(...steps);
   const keepFrom = Math.min(engine.playIndex - 3, engine.genIndex);
   if (keepFrom > 40) {
@@ -1919,7 +1247,7 @@ function appendSteps(steps) {
 }
 
 /** Remove blocks that haven't started yet (after the playing/armed one). */
-function dropUpcomingSteps() {
+export function dropUpcomingSteps() {
   let keep = engine.steps.length;
   for (let i = 0; i < engine.steps.length; i++) {
     const st = engine.steps[i].status;
@@ -1936,7 +1264,7 @@ function dropUpcomingSteps() {
   songsChanged();
 }
 
-function stopSetlist() {
+export function stopSetlist() {
   engine.paused = null;
   mp3.paused = false;
   if (!engine.running) return;
@@ -1950,8 +1278,7 @@ function stopSetlist() {
   engine.steps.forEach((s) => { if (s.status === 'generating' || s.status === 'armed') s.status = 'waiting'; });
 }
 
-
-const STATUS_ICON = { waiting: '·', generating: '…', ready: '✓', armed: '⏱', playing: '▶', failed: '✗', done: '✔', skipped: '↷' };
+export const STATUS_ICON = { waiting: '·', generating: '…', ready: '✓', armed: '⏱', playing: '▶', failed: '✗', done: '✔', skipped: '↷' };
 /** Armed blocks become "playing" once their bar arrives (the song views render from these states). */
 /** Mark the section that starts at cycle `at` as playing right when it starts (the 100 ms check is the fallback). */
 function switchAt(at) {
@@ -2015,7 +1342,7 @@ $('nowPause').onclick = () => {
  * ✨ New song (🎯 in the chat): the message describes it ("Title | description", or just a description — then its
  * first words become the title). It's written and plays next: after the song playing now, or right away.
  */
-function createSongFromChat(text) {
+export function createSongFromChat(text) {
   const [song] = parseSongs(text.replace(/\n+/g, ' '));
   if (!song) return;
   if (!/[|–—:]\s/.test(text)) { song.title = 'New song'; song.autoTitle = true; } // the AI names it with the song sheet
@@ -2094,7 +1421,7 @@ $('codeBar').addEventListener('click', (e) => { const b = e.target.closest('[dat
 }
 
 /** Hold: stay on the current section until another one is picked (or hold is released). */
-function setHold(on) {
+export function setHold(on) {
   engine.hold = on;
   // releasing: continue with the section after the current one on the next boundary
   if (!on && engine.running && engine.nextAt === null) engine.nextAt = nextBoundary(Math.max(1, quantize() || 1));
@@ -2121,521 +1448,16 @@ if (!window.isSecureContext) {
 loadConfig().catch((e) => addMsg('error', `Config load failed: ${e.message}`));
 soundRegistry(); // install soundfont guard as soon as Strudel has loaded
 
-
-
-// ---------------------------------------------------------------------------
-// Mute / solo per line. Every labelled pattern line ("$:", "bass:", …) gets
-// M and S buttons. They toggle Strudel's own syntax — "_$:" mutes a line,
-// "S$:" solos it — and the change switches in exactly on the next beat.
-// ---------------------------------------------------------------------------
-const barBeat = (at) => {
-  const bar = Math.floor(at + 1e-9) + 1;
-  const beat = Math.round(((at % 1) + 1) % 1 * 4) + 1;
-  return beat === 1 ? `bar ${bar}` : `bar ${bar} beat ${beat}`;
-};
-
-
-
-const mixerPending = new Map(); // line → cycle at which the toggle takes effect
-
-async function toggleLine(line, what) {
-  const code = getCode();
-  const lines = code.split('\n');
-  const m = lines[line]?.match(LABEL_LINE);
-  if (!m) return;
-  const st = parseLabel(m[1]);
-  if (what === 'mute') { st.muted = !st.muted; if (st.muted) st.solo = false; }
-  else { st.solo = !st.solo; if (st.solo) st.muted = false; }
-  lines[line] = lines[line].replace(LABEL_LINE, makeLabel(st) + ':');
-  const next = lines.join('\n');
-  if (!isPlaying()) { mirror().setCode(next); renderMixer(); return; }
-  const at = nextBoundary(0.25); // next beat (¼ cycle)
-  const verb = what === 'mute' ? (st.muted ? 'mute' : 'unmute') : (st.solo ? 'solo' : 'unsolo');
-  const err = await evaluateCode(next, { at, label: `${verb} ${st.base === '$' ? 'line ' + (line + 1) : st.base}`, undo: false });
-  if (err) { addMsg('error', `Couldn't ${what}: ${err.message}`); return; }
-  mixerPending.set(line, at);
-  renderMixer();
-}
-
-let mixerEl = null;
-let lastMixerKey = '';
-function renderMixer() {
-  const view = mirror()?.editor;
-  const host = $('editor-wrap')?.querySelector(':scope > div');
-  if (!view?.coordsAtPos || !host) return;
-  if (!mixerEl || !host.contains(mixerEl)) {
-    mixerEl = document.createElement('div');
-    mixerEl.className = 'mixer';
-    host.style.position = 'relative';
-    host.appendChild(mixerEl);
-    mixerEl.addEventListener('mousedown', (e) => e.preventDefault()); // keep editor focus/selection
-    // the code scrolls inside the editor: keep the M/S buttons next to their lines
-    host.querySelector('.cm-scroller')?.addEventListener('scroll', () => renderMixer(), { passive: true });
-    mixerEl.addEventListener('click', (e) => {
-      const b = e.target.closest('button[data-line]');
-      if (b) toggleLine(Number(b.dataset.line), b.dataset.what);
-    });
-  }
-  const code = getCode();
-  const rows = patternLines(code);
-  const now = nowCycle();
-  for (const [l, at] of mixerPending) if (!isPlaying() || now >= at) mixerPending.delete(l);
-  const anySolo = rows.some((r) => r.solo);
-  const hostTop = host.getBoundingClientRect().top;
-  const doc = view.state.doc;
-  const pos = rows.map((r) => {
-    if (r.line >= doc.lines) return null;
-    const c = view.coordsAtPos(doc.line(r.line + 1).from);
-    return c ? Math.round(c.top - hostTop) : null;
-  });
-  const key = JSON.stringify([rows, pos, [...mixerPending.keys()], anySolo]);
-  if (key === lastMixerKey) return;
-  lastMixerKey = key;
-  mixerEl.innerHTML = rows
-    .map((r, i) => {
-      if (pos[i] == null) return '';
-      const pend = mixerPending.has(r.line) ? ' pending' : '';
-      const silenced = r.muted || (anySolo && !r.solo);
-      return `<div class="mixer-row${pend}${silenced ? ' silenced' : ''}" style="top:${pos[i]}px">
-        <button data-line="${r.line}" data-what="mute" class="m${r.muted ? ' on' : ''}" title="Mute this line (on the next beat)">M</button>
-        <button data-line="${r.line}" data-what="solo" class="s${r.solo ? ' on' : ''}" title="Solo this line (on the next beat)">S</button>
-      </div>`;
-    })
-    .join('');
-}
-replEl.addEventListener('update', () => requestAnimationFrame(renderMixer));
-window.addEventListener('resize', () => { lastMixerKey = ''; renderMixer(); });
-setInterval(renderMixer, 150);
-
-// ---------------------------------------------------------------------------
-// Hum → melody: hold the button (or the ` key), hum, release.
-// ---------------------------------------------------------------------------
-let SCALE_INTERVALS = null;
-fetch('/scale-intervals.json').then((r) => r.json()).then((j) => (SCALE_INTERVALS = j)).catch(() => {});
-
-/** Pitch classes of the first .scale("Tonic:name") in the code, or null. */
-function scaleFromCode(code) {
-  const m = code.match(/\.scale\(\s*["'`]<?\s*([A-Ga-g][#bsf]*-?\d*):([A-Za-z0-9#':-]+)/);
-  if (!m || !SCALE_INTERVALS) return null;
-  const name = m[2].replace(/:/g, ' ').toLowerCase();
-  const iv = SCALE_INTERVALS[name];
-  const t = tonicPc(m[1]);
-  if (!iv || t == null) return null;
-  return { label: `${m[1]}:${m[2]}`, pcs: intervalsToSemitones(iv).map((x) => (x + t) % 12) };
-}
-
-const hum = { rec: null, recording: false, frames: [], result: null, duckPrev: null, keyHeld: false };
-
-function audioCtx() {
-  try { return globalThis.getAudioContext?.() || (hum.ownCtx ||= new AudioContext()); }
-  catch { return (hum.ownCtx ||= new AudioContext()); }
-}
-/** Cycle position of what you *hear* right now, minus analysis delay; null when stopped. */
-function audibleCycle(analysisDelay = 0) {
-  if (!isPlaying()) return null;
-  const ctx = audioCtx();
-  const outLat = (ctx.outputLatency || ctx.baseLatency || 0) + 0.1; // Strudel schedules 0.1 s ahead
-  return nowCycle() - (outLat + analysisDelay) * cps();
-}
-function setDuck(on) {
-  hum.ducked = on;
-  applyMasterGain(on ? 0.05 : 0.1);
-}
-
-async function humStart() {
-  if (hum.recording) return;
-  hum.recording = true;
-  hum.startedAt = performance.now();
-  $('humBtn').classList.add('recording');
-  $('humBtn').textContent = '🔴 Humming… release to finish';
-  $('hum-panel').hidden = false;
-  $('humSendAI').disabled = $('humInsert').disabled = true;
-  $('humMini').textContent = '';
-  $('humStatus').textContent = '🎤 listening…';
-  hum.result = null;
-  hum.frames = [];
-  hum.rec ||= new HumRecorder({
-    getContext: audioCtx,
-    getCycle: audibleCycle,
-    onFrame: (f) => { hum.frames.push(f); },
-  });
-  try {
-    await hum.rec.start();
-    if ($('humDuck').checked && isPlaying()) setDuck(true);
-    drawHumLive();
-  } catch (e) {
-    hum.recording = false;
-    $('humBtn').classList.remove('recording');
-    $('humBtn').textContent = '🎤 Hum';
-    $('humStatus').textContent = '⚠ ' + (e.name === 'NotAllowedError' ? 'microphone permission denied' : e.message);
-  }
-}
-
-async function humStop() {
-  if (!hum.recording) return;
-  hum.recording = false;
-  $('humBtn').classList.remove('recording');
-  $('humBtn').textContent = '🎤 Hum';
-  const frames = hum.rec.stop();
-  setDuck(false);
-  if (performance.now() - hum.startedAt < 350) {
-    // a quick tap: just show the panel with its settings
-    $('humStatus').textContent = 'Hold the 🎤 button (or the ` key) and hum. Release to finish.';
-    return;
-  }
-  const scale = $('humSnap').checked ? scaleFromCode(getCode()) : null;
-  const r = transcribe(frames, { cps: cps(), grid: Number($('humGrid').value), pcs: scale?.pcs || null });
-  hum.result = r;
-  drawHumResult(frames, r);
-  if (!r.notes.length) {
-    $('humStatus').textContent = '🤷 no melody detected — hum louder / closer to the mic (headphones help)';
-    return;
-  }
-  $('humStatus').textContent =
-    `🎵 ${r.notes.length} notes, ${r.bars} bar${r.bars > 1 ? 's' : ''}` +
-    (scale ? ` · snapped to ${scale.label}` : '') + (isPlaying() ? ' · aligned to the beat' : '');
-  $('humMini').textContent = `note("${r.mini}")`;
-  $('humSendAI').disabled = $('humInsert').disabled = false;
-  const mode = $('humMode').value;
-  if (mode === 'ai') humSendToAI();
-  else if (mode === 'insert') humInsert();
-}
-
-function humInsert() {
-  const r = hum.result;
-  if (!r?.mini) return;
-  const existing = new Set(patternLines(getCode()).map((p) => p.base));
-  let name = 'hum';
-  for (let i = 2; existing.has(name); i++) name = `hum${i}`;
-  const line = `${name}: note("${r.mini}").s("triangle").attack(0.01).release(0.2)\n  .room(slider(0.3, 0, 1))\n  .gain(slider(0.8, 0, 1.2))`;
-  const code = getCode().trimEnd() + '\n' + line + '\n';
-  applyQuantized(code, 'hummed melody').then((err) => {
-    if (err) addMsg('error', `Couldn't insert melody: ${err.message}`);
-    else addMsg('info', state.pending ? `🎤 melody armed — starts at bar ${state.pending.at + 1}` : '🎤 melody inserted');
-  });
-}
-
-async function humSendToAI() {
-  const r = hum.result;
-  if (!r?.mini || state.busy) return;
-  const typed = $('input').value.trim();
-  $('input').value = '';
-  const instruction = typed || 'Add this hummed melody to the music as a new melodic part with a fitting instrument.';
-  const melody = `note("${r.mini}")`;
-  const msg =
-    `${instruction}\n\nHUMMED MELODY (${r.bars} bar${r.bars > 1 ? 's' : ''}, one bar per cycle):\n${melody}\n` +
-    'Use this note pattern EXACTLY as written (same notes, same rhythm, same mini-notation string). ' +
-    'You may choose the instrument, add .transpose(12) or .transpose(-12) for the octave, effects and gain.';
-  // switch to the chat tab so the reply is visible
-  showPanel('chat');
-  addMsg('user', `🎤 ${instruction}\n${melody}`);
-  setBusy(true);
-  state.abort = new AbortController();
-  try {
-    await runTurn(msg);
-    const norm = (x) => x.replace(/\s+/g, '');
-    if (!norm(getCode()).includes(norm(r.mini))) {
-      const div = addMsg('info', '⚠ the AI changed your melody. ', { raw: false });
-      const b = document.createElement('button');
-      b.textContent = '＋ insert my melody as-is';
-      b.className = 'link';
-      b.onclick = humInsert;
-      div.appendChild(b);
-    }
-  } catch (err) {
-    if (err.name === 'AbortError') addMsg('info', 'stopped');
-    else warnUser(`AI request failed: ${err.message}`);
-  } finally {
-    setBusy(false);
-  }
-}
-
-// --- drawing
-function humCanvas() {
-  const c = $('humCanvas');
-  const w = c.clientWidth || 600;
-  if (c.width !== w * devicePixelRatio) { c.width = w * devicePixelRatio; c.height = 110 * devicePixelRatio; }
-  const g = c.getContext('2d');
-  g.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
-  g.clearRect(0, 0, w, 110);
-  return { g, w, h: 110 };
-}
-function midiRange(ms) {
-  const v = ms.filter(Number.isFinite);
-  const lo = v.length ? Math.min(...v) - 3 : 48, hi = v.length ? Math.max(...v) + 3 : 72;
-  return { lo: Math.min(lo, hi - 12), hi: Math.max(hi, lo + 12) };
-}
-function drawHumLive() {
-  if (!hum.recording) return;
-  const { g, w, h } = humCanvas();
-  const frames = hum.frames;
-  const span = 8; // seconds visible
-  const tEnd = frames.length ? frames[frames.length - 1].t : 0;
-  const t0 = Math.max(0, tEnd - span);
-  const voiced = frames.filter((f) => f.freq && f.confidence > 0.75 && f.rms > 0.006);
-  const { lo, hi } = midiRange(voiced.map((f) => freqToMidi(f.freq)));
-  const y = (m) => h - ((m - lo) / (hi - lo)) * (h - 10) - 5;
-  // semitone lines at each C
-  g.strokeStyle = '#1d2029';
-  for (let m = Math.ceil(lo); m <= hi; m++) if (m % 12 === 0) { g.beginPath(); g.moveTo(0, y(m)); g.lineTo(w, y(m)); g.stroke(); }
-  g.fillStyle = '#7c5cff';
-  for (const f of voiced) {
-    if (f.t < t0) continue;
-    g.fillRect(((f.t - t0) / span) * w, y(freqToMidi(f.freq)) - 1.5, 3, 3);
-  }
-  const last = frames[frames.length - 1];
-  const lvl = last ? Math.min(1, last.rms * 8) : 0;
-  g.fillStyle = '#20d3a6';
-  g.fillRect(w - 6, h - lvl * h, 6, lvl * h);
-  if (last?.freq && last.confidence > 0.75 && last.rms > 0.006) {
-    $('humStatus').textContent = `🎤 ${midiToName(Math.round(freqToMidi(last.freq)))}`;
-  }
-  requestAnimationFrame(drawHumLive);
-}
-function drawHumResult(frames, r) {
-  const { g, w, h } = humCanvas();
-  if (!r.notes.length) return;
-  const grid = r.grid;
-  const total = r.bars * grid;
-  const first = r.startBar * grid;
-  const { lo, hi } = midiRange(r.notes.map((n) => n.midi));
-  const y = (m) => h - ((m - lo) / (hi - lo)) * (h - 14) - 7;
-  const x = (step) => ((step - first) / total) * w;
-  for (let s = 0; s <= total; s++) {
-    g.strokeStyle = s % grid === 0 ? '#3a3f4f' : s % (grid / 4) === 0 ? '#23262f' : '#16181f';
-    g.beginPath(); g.moveTo(x(first + s), 0); g.lineTo(x(first + s), h); g.stroke();
-  }
-  // the raw pitch track, faint
-  g.fillStyle = 'rgba(124,92,255,.35)';
-  for (const f of frames) {
-    if (!(f.freq && f.confidence > 0.75 && f.rms > 0.006)) continue;
-    const pos = (f.c ?? null);
-    if (pos == null) continue;
-    g.fillRect(x(pos * grid), y(freqToMidi(f.freq)) - 1, 2, 2);
-  }
-  // quantized notes
-  g.font = '10px ui-monospace, monospace';
-  for (const n of r.notes) {
-    const x0 = x(n.start * grid), x1 = x((n.start + n.dur) * grid);
-    g.fillStyle = '#20d3a6';
-    g.fillRect(x0 + 1, y(n.midi) - 4, Math.max(3, x1 - x0 - 2), 8);
-    g.fillStyle = '#e6e8ee';
-    g.fillText(n.name, x0 + 2, y(n.midi) - 6);
-  }
-}
-
-// --- wiring: hold the button, or hold the ` key
-const humBtn = $('humBtn');
-humBtn.addEventListener('pointerdown', (e) => { e.preventDefault(); humBtn.setPointerCapture?.(e.pointerId); humStart(); });
-for (const ev of ['pointerup', 'pointercancel']) humBtn.addEventListener(ev, () => humStop());
-humBtn.addEventListener('contextmenu', (e) => e.preventDefault());
-document.addEventListener('keydown', (e) => {
-  if (e.code !== 'Backquote' || e.repeat || e.ctrlKey || e.metaKey || e.altKey) return;
-  if (e.target.closest?.('input, textarea, select, .cm-editor, [contenteditable="true"]')) return;
-  e.preventDefault();
-  hum.keyHeld = true;
-  humStart();
-});
-document.addEventListener('keyup', (e) => {
-  if (e.code === 'Backquote' && hum.keyHeld) { hum.keyHeld = false; humStop(); }
-});
-$('humSendAI').onclick = humSendToAI;
-$('humInsert').onclick = humInsert;
-$('humClose').onclick = () => { $('hum-panel').hidden = true; };
-for (const id of ['humGrid', 'humSnap', 'humDuck', 'humMode']) {
-  const el = $(id);
-  const key = 'hum_' + id;
-  if (saved[key] !== undefined) el[el.type === 'checkbox' ? 'checked' : 'value'] = saved[key];
-  el.onchange = () => {
-    save({ [key]: el.type === 'checkbox' ? el.checked : el.value });
-    // re-quantize the last recording with the new grid / snap settings
-    if (hum.result && !hum.recording && (id === 'humGrid' || id === 'humSnap') && hum.rec?.frames?.length) {
-      const scale = $('humSnap').checked ? scaleFromCode(getCode()) : null;
-      hum.result = transcribe(hum.rec.frames, { cps: cps(), grid: Number($('humGrid').value), pcs: scale?.pcs || null });
-      drawHumResult(hum.rec.frames, hum.result);
-      $('humMini').textContent = hum.result.mini ? `note("${hum.result.mini}")` : '';
-    }
-  };
-}
-
-
-
-
-// ---------------------------------------------------------------------------
-// Version + self-update. The server stamps index.html with its build id; we poll
-// /api/version and, when a new build is deployed, save the session and reload —
-// right away if nothing is playing, otherwise as soon as playback stops.
-// ---------------------------------------------------------------------------
-const APP_VERSION = document.querySelector('meta[name="app-version"]')?.content || 'dev';
-const APP_BUILD = document.querySelector('meta[name="app-build"]')?.content || 'dev';
-$('appVersion').textContent = 'v' + APP_VERSION;
-$('appVersion').title = `build ${APP_BUILD}`;
-const RESUME_KEY = 'strudel-ai:resume';
-const upd = { available: null, reloading: false };
-
-function saveSession() {
-  try {
-    const msgs = $('messages').cloneNode(true);
-    msgs.querySelectorAll('.actions, .typing').forEach((n) => n.remove());
-    sessionStorage.setItem(RESUME_KEY, JSON.stringify({
-      messages: msgs.innerHTML,
-      history: state.history,
-      versions: state.versions.slice(-30),
-      lastAICode: state.lastAICode ?? null,
-      input: $('input').value,
-      fromVersion: APP_VERSION,
-      at: Date.now(),
-    }));
-  } catch {}
-}
-function restoreSession() {
-  let r;
-  try { r = JSON.parse(sessionStorage.getItem(RESUME_KEY) || 'null'); sessionStorage.removeItem(RESUME_KEY); } catch {}
-  if (!r || Date.now() - r.at > 5 * 60 * 1000) return;
-  $('messages').innerHTML = r.messages || $('messages').innerHTML;
-  state.history = r.history || [];
-  state.versions = r.versions || [];
-  state.lastAICode = r.lastAICode;
-  $('undo').disabled = state.versions.length === 0;
-  if (r.input) $('input').value = r.input;
-  addMsg('info', r.fromVersion !== APP_VERSION ? `⬆ updated v${r.fromVersion} → v${APP_VERSION} — your code and chat were kept` : `⬆ updated to build ${APP_BUILD} — your code and chat were kept`);
-}
-
-const canReloadNow = () => !isPlaying() && !state.busy && !hum.recording && !engine.running && !queue.running && !state.pending;
-function reloadForUpdate() {
-  if (upd.reloading) return;
-  upd.reloading = true;
-  saveSession();
-  location.reload();
-}
-async function checkForUpdate() {
-  try {
-    const v = await fetch('/api/version', { cache: 'no-store' }).then((r) => r.json());
-    if (!v.build || v.build === APP_BUILD || APP_BUILD === 'dev') return;
-    upd.available = v;
-    if (canReloadNow()) return reloadForUpdate();
-    const pill = $('updatePill');
-    pill.hidden = false;
-    pill.textContent = `⬆ v${v.version} ready — applies when you stop`;
-    pill.title = 'A new version was deployed. Click to update now (stops the music).';
-  } catch {}
-}
-$('updatePill').onclick = () => { mirror()?.stop(); stopSet(); stopSetlist(); reloadForUpdate(); };
-setInterval(() => {
-  if (upd.available && canReloadNow()) reloadForUpdate();
-}, 1000);
-setInterval(checkForUpdate, 20000);
-document.addEventListener('visibilitychange', () => { if (!document.hidden) checkForUpdate(); });
-restoreSession();
-
-// ---------------------------------------------------------------------------
-// Share links: /s/<id> opens a song stored on the server.
-// ---------------------------------------------------------------------------
-$('shareBtn').onclick = (e) => {
-  e.stopPropagation();
-  const pop = $('sharePop');
-  pop.hidden = !pop.hidden;
-  if (!pop.hidden) {
-    $('shareResult').hidden = true;
-    $('shareSetlist').checked = !!setListText() && load().shareSetlist !== false;
-    const take = rec.take?.events.length ? rec.take : rec.last;
-    $('shareRecWrap').hidden = !take;
-    $('shareRec').checked = !!take && load().shareRec !== false;
-    if (take) {
-      const n = take.events.length;
-      $('shareRecInfo').textContent = `${n} change${n > 1 ? 's' : ''} · ${fmtTime(takeSeconds(take))}${rec.take === take ? ' so far' : ''}`;
-    }
-    $('shareTitle').focus({ preventScroll: true });
-  }
-};
-document.addEventListener('click', (e) => {
-  if (!$('sharePop').hidden && !e.target.closest('.share-wrap')) $('sharePop').hidden = true;
-});
-$('shareSetlist').onchange = () => save({ shareSetlist: $('shareSetlist').checked });
-$('shareRec').onchange = () => save({ shareRec: $('shareRec').checked });
-$('shareCreate').onclick = async () => {
-  const btn = $('shareCreate');
-  btn.disabled = true;
-  btn.textContent = 'creating…';
-  try {
-    const r = await fetch('/api/share', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        code: getCode(),
-        title: $('shareTitle').value.trim(),
-        setText: $('shareSetlist').checked ? setListText() : null,
-        recording: $('shareRec').checked && !$('shareRecWrap').hidden ? recordingForShare() : null,
-      }),
-    });
-    const j = await r.json();
-    if (!r.ok) throw new Error(j.error || r.status);
-    const url = location.origin + j.path;
-    $('shareUrl').value = url;
-    $('shareOpen').href = url;
-    $('shareResult').hidden = false;
-    $('shareUrl').select();
-    try { await navigator.clipboard.writeText(url); $('shareCopy').textContent = '✓ Copied'; } catch { $('shareCopy').textContent = '📋 Copy'; }
-  } catch (e) {
-    addMsg('error', `Share failed: ${e.message}`);
-  } finally {
-    btn.disabled = false;
-    btn.textContent = 'Create link';
-  }
-};
-$('shareCopy').onclick = async () => {
-  try { await navigator.clipboard.writeText($('shareUrl').value); $('shareCopy').textContent = '✓ Copied'; }
-  catch { $('shareUrl').select(); document.execCommand?.('copy'); }
-};
-
-async function openSharedSong() {
-  const m = location.pathname.match(/^\/s\/([A-Za-z0-9]{6,16})$/);
-  if (!m) return;
-  history.replaceState(null, '', '/'); // a refresh shouldn't overwrite later edits with the shared song again
-  try {
-    const r = await fetch(`/api/share/${m[1]}`);
-    const song = await r.json();
-    if (!r.ok) throw new Error(song.error || r.status);
-    const prev = getCode();
-    if (prev.trim() && prev.trim() !== song.code.trim()) {
-      state.versions.push(prev); // your previous code stays reachable via ↶ Undo
-      $('undo').disabled = false;
-    }
-    mirror().setCode(song.code);
-    if (song.setText && !queue.running) Object.assign(queue, { mode: 'set', songs: parseSongs(song.setText), current: -1, nextSong: 0 });
-    state.lastAICode = song.code;
-    live.applied = song.code;
-    const title = song.title ? `“${song.title}”` : 'a shared song';
-    const take = decodeRecording(song.recording);
-    if (song.song?.steps?.length) {
-      const sg = loadSharedSong(song.song);
-      addMsg('info', `🔗 Opened the song ${title} — ${sg.blocks.length} sections, ${sg.bars} bars${sg.sheet ? `, ${sg.sheet.bpm} bpm in ${sg.sheet.key}` : ''}. Press ▶ Play this song in the 🎵 Songs tab. Your previous code is one ↶ Undo away.`);
-    } else if (take) {
-      rec.last = take; // sharing again keeps the recording
-      mirror().setCode(take.events[0].code);
-      const div = addMsg('info', `🔗 Opened ${title} — a recording of ${take.events.length} timed change${take.events.length > 1 ? 's' : ''} (${fmtTime(takeSeconds(take))}). Your previous code is one ↶ Undo away. `);
-      const b = document.createElement('button');
-      b.textContent = '⏺ Play the recording';
-      b.onclick = () => startReplay(take, song.title);
-      div.appendChild(b);
-    } else {
-      addMsg('info', `🔗 Opened ${title}${song.setText ? ' (with its set list)' : ''} — press ▶ Play. Your previous code is one ↶ Undo away.`);
-    }
-    document.title = song.title ? `${song.title} · Strudel AI` : document.title;
-  } catch (e) {
-    addMsg('error', `Couldn't open shared song: ${e.message}`);
-  }
-}
-openSharedSong();
-
-
+setup_mute_solo(); // features/mute-solo.js
+setup_hum_ui(); // features/hum-ui.js
+setup_share(); // features/share.js
 // ---------------------------------------------------------------------------
 // Master volume: scales Strudel's final output (and is what "duck music" lowers).
 // ---------------------------------------------------------------------------
 function masterGainNode() {
   try { return globalThis.getSuperdoughAudioController?.().output.destinationGain.gain || null; } catch { return null; }
 }
-function applyMasterGain(ramp = 0.03) {
+export function applyMasterGain(ramp = 0.03) {
   const g = masterGainNode();
   if (!g) return;
   const v = Number($('masterGain').value) * (hum.ducked ? 0.3 : 1);
@@ -2656,7 +1478,7 @@ setTimeout(applyMasterGain, 500);
 // the AI while the previous song plays, then fed into the song-blocks engine.
 // A station is an agent that keeps inventing new songs for a theme.
 // ---------------------------------------------------------------------------
-const queue = {
+export const queue = {
   running: false,
   mode: null,          // 'set' | 'station'
   songs: [],           // { title, desc, status, blocks, firstStep, error }
@@ -2668,8 +1490,8 @@ const queue = {
 };
 
 /** This session's songs as "title | description" lines (shared with a link). */
-const setListText = () => (queue.mode === 'set' ? queue.songs.map((sg) => `${sg.title} | ${sg.desc}`).join('\n') : '');
-function parseSongs(text) {
+export const setListText = () => (queue.mode === 'set' ? queue.songs.map((sg) => `${sg.title} | ${sg.desc}`).join('\n') : '');
+export function parseSongs(text) {
   return text
     .split('\n')
     .map((l) => l.trim().replace(/^\s*(?:[-*•]|\d+[.)])\s*/, ''))
@@ -2681,176 +1503,8 @@ function parseSongs(text) {
     });
 }
 
-// ---------------------------------------------------------------------------
-// Song forms: the order and length of a song's sections. Users can edit and add
-// forms (saved in the browser); the song-sheet request lists them for the AI, and
-// the chosen form's bar counts are enforced on the sheet that comes back.
-// ---------------------------------------------------------------------------
-/** Add built-in items the user hasn't seen yet (deleted built-ins stay deleted). */
-function addNewDefaults(list, defaults, kind, oldNames) {
-  const st = load();
-  save({ defaultsSeen: { ...(st.defaultsSeen || {}), [kind]: defaults.map((d) => d.name) } });
-  if (!list) return defaults.map((d) => ({ ...d }));
-  const seen = new Set(st.defaultsSeen?.[kind] || oldNames);
-  const out = [...list];
-  for (const d of defaults) if (!seen.has(d.name) && !out.some((x) => x.name === d.name)) out.push({ ...d });
-  return out;
-}
-let songForms = addNewDefaults(load().songForms, DEFAULT_FORMS, 'forms', OLD_DEFAULT_FORMS);
-for (const f of songForms) {
-  const d = DEFAULT_FORMS.find((x) => x.name === f.name);
-  if (d && OLD_FORM_SECTIONS[f.name] === f.sections) f.sections = d.sections;
-}
-save({ songForms });
-let formIdx = 0;
-
-const findForm = (name) => findIn(songForms, name);
-const formsForRequest = (choice) => formsRequest(songForms, choice);
-
-const formChoice = () => $(queue.mode === 'station' ? 'stationForm' : 'setForm')?.value || 'auto';
-
-function renderFormSelects() {
-  for (const id of ['setForm', 'stationForm']) {
-    const el = $(id);
-    const keep = el.value || load()[id] || 'auto';
-    el.innerHTML = '<option value="auto">auto (fits the genre)</option>' +
-      songForms.map((f) => `<option value="${esc(f.name)}">${esc(f.name)} · ${formBars(f)} bars</option>`).join('');
-    el.value = keep === 'auto' || findForm(keep) ? keep : 'auto';
-  }
-}
-function saveForms() { save({ songForms }); renderFormSelects(); }
-function renderFormsEditor() {
-  formIdx = Math.max(0, Math.min(formIdx, songForms.length - 1));
-  $('formSelect').innerHTML = songForms.map((f, i) => `<option value="${i}">${esc(f.name || 'untitled')}</option>`).join('');
-  $('formSelect').value = String(formIdx);
-  const f = songForms[formIdx] || { name: '', use: '', sections: '' };
-  $('formName').value = f.name;
-  $('formUse').value = f.use;
-  $('formSections').value = f.sections;
-  renderFormPreview();
-}
-function renderFormPreview() {
-  const secs = parseFormSections($('formSections').value);
-  $('formPreview').innerHTML = secs.length
-    ? secs.map((x) => `<span class="chip" style="--w:${x.bars}"><b>${esc(x.name)}</b> ${x.bars}</span>`).join('') +
-      `<div class="muted small">${secs.length} sections · ${formBars({ sections: $('formSections').value })} bars</div>`
-    : '<span class="muted small">no sections yet</span>';
-}
-for (const id of ['formName', 'formUse', 'formSections']) {
-  $(id).oninput = () => {
-    const f = songForms[formIdx];
-    if (!f) return;
-    f.name = $('formName').value.trim();
-    f.use = $('formUse').value.trim();
-    f.sections = $('formSections').value;
-    if (id === 'formName') $('formSelect').options[formIdx].textContent = f.name || 'untitled';
-    if (id === 'formSections') renderFormPreview();
-    saveForms();
-  };
-}
-$('formSelect').onchange = () => { formIdx = Number($('formSelect').value); renderFormsEditor(); };
-$('formNew').onclick = () => {
-  songForms.push({ name: 'my form', use: '', sections: 'intro 4, A 8, B 8, A 8, outro 4' });
-  formIdx = songForms.length - 1;
-  saveForms(); renderFormsEditor(); $('formName').select();
-};
-$('formDelete').onclick = () => {
-  if (!songForms[formIdx] || !confirm(`Delete the form “${songForms[formIdx].name}”?`)) return;
-  songForms.splice(formIdx, 1);
-  if (!songForms.length) songForms = DEFAULT_FORMS.map((f) => ({ ...f }));
-  saveForms(); renderFormsEditor();
-};
-$('formReset').onclick = () => {
-  for (const d of DEFAULT_FORMS) {
-    const f = findForm(d.name);
-    if (f) Object.assign(f, d); else songForms.push({ ...d });
-  }
-  saveForms(); renderFormsEditor();
-};
-for (const b of document.querySelectorAll('.forms-edit')) b.onclick = () => openSettings('setForms');
-for (const id of ['setForm', 'stationForm']) $(id).onchange = () => save({ [id]: $(id).value });
-renderFormSelects();
-
-// ---------------------------------------------------------------------------
-// Bands: a line-up of instruments (role, sound, what it plays) and a master style. A song is written for a band:
-// the song-sheet request gives the AI the band's instruments, and the sheet that comes back is held to them (each
-// part takes the band's sound for its role). Auto: the AI picks the band that fits the genre. Editable in ⚙ Settings.
-// ---------------------------------------------------------------------------
-let bands = addNewDefaults(load().bands, DEFAULT_BANDS, 'bands', []);
-save({ bands });
-let bandIdx = 0;
-const findBand = (name) => findIn(bands, name);
-const bandsForRequest = (choice) => bandsRequest(bands, choice);
-/** Check and repair a song sheet against the user's forms and bands (lib/sheet.js). */
-const normalizeSheet = (raw, choice = 'auto', opts = {}) => normalizeSheetWith(raw, choice, { ...opts, forms: songForms, bands });
-/** A song's master style: its own, else its band's, else one that fits its form, else clean. */
-const songStyle = (sg) => normStyle(sg?.sheet?.master) || normStyle(findBand(sg?.sheet?.band)?.master) || normStyle(sg?.sheet?.form) || 'clean';
-const bandChoice = () => $(queue.mode === 'station' ? 'stationBand' : 'setBand')?.value || 'auto';
-function renderBandSelects() {
-  for (const id of ['setBand', 'stationBand']) {
-    const el = $(id);
-    const keep = el.value || load()[id] || 'auto';
-    el.innerHTML = '<option value="auto">auto (fits the genre)</option>' + bands.map((b) => `<option value="${esc(b.name)}">${esc(b.name)} · ${esc(normStyle(b.master) || 'clean')}</option>`).join('');
-    el.value = keep === 'auto' || findBand(keep) ? keep : 'auto';
-  }
-}
-function saveBands() { save({ bands }); renderBandSelects(); }
-function renderBandsEditor() {
-  bandIdx = Math.max(0, Math.min(bandIdx, bands.length - 1));
-  $('bandSelect').innerHTML = bands.map((b, i) => `<option value="${i}">${esc(b.name || 'untitled')}</option>`).join('');
-  $('bandSelect').value = String(bandIdx);
-  $('bandMaster').innerHTML = STYLE_NAMES.map((n) => `<option value="${n}">${n} — ${esc(MASTER_STYLES[n].desc)}</option>`).join('');
-  const b = bands[bandIdx] || { name: '', use: '', master: 'clean', instruments: '' };
-  $('bandName').value = b.name;
-  $('bandUse').value = b.use;
-  $('bandMaster').value = normStyle(b.master) || 'clean';
-  $('bandInstruments').value = b.instruments;
-  renderBandPreview();
-}
-async function renderBandPreview() {
-  const inst = parseInstruments($('bandInstruments').value);
-  const reg = await soundRegistry().catch(() => null);
-  const known = (snd) => !reg || reg[snd.toLowerCase()] || Object.keys(reg).some((k) => k.startsWith(snd.toLowerCase() + '_'));
-  $('bandPreview').innerHTML = inst.length
-    ? inst.map((i) => `<span class="chip${BAND_ROLES.includes(i.role) && known(i.sound) ? '' : ' bad'}" title="${esc(i.desc)}${known(i.sound) ? '' : ' — this sound is not loaded'}${BAND_ROLES.includes(i.role) ? '' : ' — unknown role'}"><b>${esc(i.role)}</b> ${esc(i.sound)}</span>`).join('') + `<div class="muted small">${inst.length} instruments · master ${esc($('bandMaster').value)}</div>`
-    : '<span class="muted small">no instruments yet</span>';
-}
-for (const id of ['bandName', 'bandUse', 'bandInstruments', 'bandMaster']) {
-  $(id)[id === 'bandMaster' ? 'onchange' : 'oninput'] = () => {
-    const b = bands[bandIdx];
-    if (!b) return;
-    b.name = $('bandName').value.trim();
-    b.use = $('bandUse').value.trim();
-    b.master = $('bandMaster').value;
-    b.instruments = $('bandInstruments').value;
-    if (id === 'bandName') $('bandSelect').options[bandIdx].textContent = b.name || 'untitled';
-    if (id === 'bandInstruments' || id === 'bandMaster') renderBandPreview();
-    saveBands();
-  };
-}
-$('bandSelect').onchange = () => { bandIdx = Number($('bandSelect').value); renderBandsEditor(); };
-$('bandNew').onclick = () => {
-  bands.push({ name: 'my band', use: '', master: 'clean', instruments: 'drums: RolandTR909 — the beat\nbass: gm_synth_bass_1 — the low end\nchords: gm_epiano1 — the harmony\nmelody: gm_lead_2_sawtooth — the hook' });
-  bandIdx = bands.length - 1;
-  saveBands(); renderBandsEditor(); $('bandName').select();
-};
-$('bandDelete').onclick = () => {
-  if (!bands[bandIdx] || !confirm(`Delete the band “${bands[bandIdx].name}”?`)) return;
-  bands.splice(bandIdx, 1);
-  if (!bands.length) bands = DEFAULT_BANDS.map((b) => ({ ...b }));
-  saveBands(); renderBandsEditor();
-};
-$('bandReset').onclick = () => {
-  for (const d of DEFAULT_BANDS) {
-    const b = findBand(d.name);
-    if (b) Object.assign(b, d); else bands.push({ ...d });
-  }
-  saveBands(); renderBandsEditor();
-};
-for (const b of document.querySelectorAll('.bands-edit')) b.onclick = () => openSettings('setBands');
-for (const id of ['setBand', 'stationBand']) $(id).onchange = () => save({ [id]: $(id).value });
-renderBandSelects();
-
+setup_forms(); // features/forms.js
+setup_bands(); // features/bands.js
 // ---------------------------------------------------------------------------
 // Song sheets: for the Songs tab and the Station, the AI first plans the whole song
 // as data (tempo, key, chord progressions, hook, parts, form), then writes every
@@ -2860,1229 +1514,28 @@ renderBandSelects();
 // crossfade keeps them steady).
 // ---------------------------------------------------------------------------
 
-
-
-
 /** Every part of a section is anchored to the bar the section starts on (set when it's armed), so phrases and chord progressions start on their first bar. */
 const SECTION_START_RE = /^const sectionStart = -?[\d.]+.*$/m;
 // (the finished section is wrapped to about 150 characters a line: see format.js)
-const atSectionStart = (code, bar) => wrapCode(partVisuals(SECTION_START_RE.test(code) ? code.replace(SECTION_START_RE, `const sectionStart = ${Math.round(bar)} // the bar this section started on`) : code));
+export const atSectionStart = (code, bar) => wrapCode(partVisuals(SECTION_START_RE.test(code) ? code.replace(SECTION_START_RE, `const sectionStart = ${Math.round(bar)} // the bar this section started on`) : code));
 
-// 🎨 Part visuals: each part of a song section gets one of Strudel's inline visuals under its line, in the part's
-// colour, picked by what the part does — drums a punchcard, bass a scrolling piano roll, chords and pads a spiral,
-// melodies a pitch wheel, arps a dense piano roll, fx a scope. (⚙ Settings → General → 🎨 part visuals)
-const PART_VIS_ANY = /\s*\.color\('#[0-9a-f]{6}'\)\s*\._(pianoroll|punchcard|spiral|pitchwheel|scope)\(\{[^}]*\}\)/g;
-function hslHex(css) {
-  const m = /hsl\((\d+),\s*(\d+)%,\s*(\d+)%\)/.exec(css);
-  if (!m) return '#7c5cff';
-  const [h, sat, l] = [Number(m[1]), Number(m[2]) / 100, Number(m[3]) / 100];
-  const f = (n) => { const k = (n + h / 30) % 12; const c = l - sat * Math.min(l, 1 - l) * Math.max(-1, Math.min(k - 3, 9 - k, 1)); return Math.round(c * 255).toString(16).padStart(2, '0'); };
-  return `#${f(0)}${f(8)}${f(4)}`;
-}
-function partVisual(name, line) {
-  const t = `${name} ${line}`.toLowerCase();
-  if (/drum|perc|beat|kick|hats?\b|clap|snare|bank\(/.test(t)) return '_punchcard({ cycles: 2, labels: 0, vertical: 0, fold: 0 })';
-  if (/\bfx\b|noise|riser|white|pink|brown|crackle/.test(t)) return '_scope({ thickness: 2, scale: 0.4, pos: 0.5 })';
-  if (/arp/.test(t)) return '_pianoroll({ cycles: 2, fold: 1, labels: 0, smear: 1 })';
-  if (/bass|sub\b/.test(t)) return '_pianoroll({ cycles: 4, fold: 1, labels: 0, autorange: 1 })';
-  if (/chord|pad|keys|piano|organ|string|voicing/.test(t)) return '_spiral({ steady: 0.96, stretch: 0.6, thickness: 4 })';
-  if (/hook|lead|melod|counter|riff|harm|vox|flute|bell/.test(t)) return '_pitchwheel({ edo: 12, thickness: 3 })';
-  return '_pianoroll({ cycles: 2, fold: 1, labels: 0 })';
-}
-/** Add (or remove) the part visuals on the part lines of a section's code. */
-function partVisuals(code) {
-  const at = code.indexOf(SEC_START);
-  if (at < 0) return code;
-  const on = $('partVisuals').checked;
-  // take the visuals off first (they may sit on a wrapped continuation line), then add them at the end of each part
-  const lines = code.slice(at).replace(PART_VIS_ANY, '').split('\n');
-  for (let i = 0; i < lines.length; i++) {
-    const m = lines[i].match(LABEL_LINE);
-    if (!m || /^\s*pad\d+:/.test(lines[i])) continue;
-    let end = i; // a wrapped part continues on the indented lines below its label
-    while (end + 1 < lines.length && /^\s+\S/.test(lines[end + 1]) && !LABEL_LINE.test(lines[end + 1].trim())) end++;
-    lines[end] = lines[end].trimEnd();
-    if (on) {
-      const base = parseLabel(m[1]).base, whole = lines.slice(i, end + 1).join(' ');
-      lines[end] += `.color('${hslHex(vizColor(base))}').${partVisual(base, whole)}`;
-    }
-    i = end;
-  }
-  return code.slice(0, at) + lines.join('\n');
-}
-
-
-
-
-/**
- * Play the library silently (no editor, no scheduler): build every part with every
- * progression and query a few bars. Returns an Error or null.
- */
-function testLibrary(lib, sheet) {
-  const ids = libraryIds(sheet);
-  const body = miniStrings(lib.replace(/^\s*setcp[ms]\([^)]*\)\s*;?\s*$/gm, '')).replace(/\bslider\(/g, '__slider(') +
-    `\nreturn (sectionChords) => stack(${ids.map((id) => partExpr(lib, id)).join(', ')});`;
-  let make;
-  try { make = new Function('__slider', '"use strict";\n' + body)((v) => v); }
-  catch (e) { return e; }
-  for (const prog of Object.values(sheet.chords)) {
-    let pat;
-    try { pat = make(globalThis.mini ? globalThis.mini(prog) : prog); } catch (e) { return e; }
-    if (!pat || typeof pat.queryArc !== 'function') return new Error('the parts are not Strudel patterns');
-    const err = dryRun(pat);
-    if (err) return err;
-  }
-  return null;
-}
-
-/** The sounds for a song sheet: the full list plus the sound guide (what each sound is good for). */
-async function sheetSounds() {
-  const catalog = await soundCatalog().catch(() => '');
-  const reg = await soundRegistry().catch(() => null);
-  if (!reg) return catalog;
-  const avail = new Set(Object.keys(reg));
-  for (const k of Object.keys(reg)) { const i = k.lastIndexOf('_'); if (i > 0 && reg[k].data?.type === 'sample') avail.add(k.slice(0, i)); }
-  const guide = soundGuide(avail);
-  return guide.length ? `${catalog}\n\nSOUND GUIDE — what the most useful sounds are good for (role · character · genres); pick sounds that fit the genre and each other:\n${guide.join('\n')}` : catalog;
-}
-async function writeSongSheet(song, signal) {
-  const choice = formChoice(), bandPick = bandChoice();
-  const prev = queue.songs[queue.songs.indexOf(song) - 1]?.sheet;
-  let msg = (song.autoTitle ? `SONG (no title yet — give it one in "title"): ${song.desc}\n` : `SONG: "${song.title}" — ${song.desc}\n`) +
-    (prev ? `The previous song was ${prev.bpm} bpm, ${normMeter(prev.meter)}, in ${prev.key}; this one should flow from it (a related key or a nearby tempo is nice).\n` : '') +
-    `\n${formsForRequest(choice)}\n\n${bandsForRequest(bandPick)}\n\nMASTER STYLES — set "master" to the one that fits (the band's, unless the description asks for another):\n${stylesForPrompt()}\n\nWrite the song sheet JSON.`;
-  const sounds = await sheetSounds();
-  let lastErr;
-  for (let attempt = 0; attempt < 3; attempt++) {
-    song.phase = 'writing the song sheet';
-    const text = await requestLLM({ mode: 'sheet', messages: [{ role: 'user', content: msg }], signal, label: `“${song.title}” sheet`, sounds });
-    try {
-      const raw = parseJSONLoose(text);
-      const sh = normalizeSheet(raw, choice, { band: bandPick });
-      // a song created from a description gets its name from the songwriter
-      if (song.autoTitle && typeof raw.title === 'string' && raw.title.trim()) { song.title = raw.title.trim().slice(0, 60); song.autoTitle = false; }
-      clog('ok', `✓ “${song.title}” sheet: ${sh.form || 'form ?'}${sh.band ? ` · 🎸 ${sh.band}` : ''} · 🎛 ${sh.master} · ${sh.bpm} bpm · ${sh.key} · ${sh.sections.length} sections · parts ${sh.parts.map((p) => p.id).join(', ')}`);
-      return sh;
-    } catch (e) {
-      lastErr = e;
-      clog('warn', `✗ “${song.title}” sheet unusable: ${e.message}`);
-      msg = msg.replace(/\n\nYOUR PREVIOUS REPLY[\s\S]*$/, '') +
-        `\n\nYOUR PREVIOUS REPLY could not be used (${e.message}). Reply with ONLY the JSON object, exactly in the example's format.`;
-    }
-  }
-  throw new Error(`no usable song sheet (${lastErr?.message})`);
-}
-
-/** The sounds a song's parts may use: the sheet's choices, their drum machines' drums, plus the basic synths. */
-async function partsCatalog(sh) {
-  const reg = await soundRegistry();
-  if (!reg) return '';
-  const keys = Object.keys(reg);
-  const want = new Set(['sawtooth', 'square', 'triangle', 'sine', 'supersaw', 'white', 'pink', 'brown']);
-  const lines = [];
-  for (const p of sh.parts) {
-    const snd = String(p.sound || '').trim();
-    const key = snd.toLowerCase();
-    const drums = keys.filter((k) => k.startsWith(key + '_') && reg[k].data?.type === 'sample').map((k) => k.slice(key.length + 1));
-    if (drums.length) lines.push(`Drum machine ${snd}: s("…").bank("${snd}") with drums: ${drums.join(' ')}`);
-    else if (reg[key]) want.add(key);
-    else {
-      const { best } = closest(snd || 'x', keys);
-      if (best) want.add(best);
-    }
-  }
-  // plain drum samples for parts without a bank
-  for (const k of ['bd', 'sd', 'hh', 'oh', 'cp', 'rim', 'lt', 'mt', 'ht', 'cr', 'perc']) if (reg[k]) want.add(k);
-  return `Sounds for this song: ${[...want].filter((k) => reg[k]).join(' ')}\n${lines.join('\n')}`;
-}
-
-/** Write (or repair) the part library. Returns checked, corrected library code. */
-async function writeSongLibrary(song, signal, { fix = null, prev = null } = {}) {
-  const sh = song.sheet;
-  const fp = fillPart(sh);
-  const need = libraryIds(sh).map((id) => {
-    const p = sh.parts.find((q) => id.startsWith(q.id + '_'));
-    const variant = id.slice(p.id.length + 1);
-    const kind = HARMONIC_ROLE.test(p.role) ? 'function of prog' : 'plain pattern';
-    const extra = p.role === 'melody' && /hook/.test(p.id + p.desc) ? ` — plays the hook: n("${sh.hook}").scale("${sh.scale}")` : '';
-    const vdesc = variant === 'main' ? ''
-      : variant === 'fill' && p === fp ? ' (ONE-bar fill leading into the next section)'
-      : /^alt/.test(variant) ? ` (an ALTERNATE ${p.role || 'part'}: same sound and register as ${p.id}_main, but a clearly different line — new rhythm, contour or figure — that still fits the chords and the other parts; it gives the sections that use it their own character)`
-      : /harm/.test(variant) ? ` (a HARMONY of ${p.id}_main: same rhythm, a third or sixth above — e.g. the same degrees .add(2) — softer gain)`
-      : ` (${variant} version of ${p.id}_main)`;
-    return `- ${id}  [${kind}]  ${p.role}, sound ${p.sound || '(your choice)'}: ${p.desc}${vdesc}${extra}`;
-  });
-  const base =
-    `SONG: "${song.title}" — ${song.desc}\n` +
-    `Tempo line: ${tempoLine(sh.bpm, sh.meter)}   Key / scale: ${sh.key} → .scale("${sh.scale}")\n` +
-    `Meter: ${normMeter(sh.meter)} — one cycle is ONE BAR of ${meterSteps(sh.meter)} ${/\/8$/.test(normMeter(sh.meter)) ? 'eighth notes' : 'beats'}: ` +
-    `write every rhythm with ${meterSteps(sh.meter)} (or ${meterSteps(sh.meter) * 2}) steps per bar${normMeter(sh.meter) === '4/4' ? '' : ' — NOT 4 or 8'}.\n` +
-    `Chord progressions the sections use: ${Object.entries(sh.chords).map(([k, v]) => `${k} ${v}`).join(' · ')}\n` +
-    `Hook (scale degrees): "${sh.hook}"\n\n` +
-    `Write the part library. Define EXACTLY these consts:\n${need.join('\n')}`;
-  let content = fix && prev
-    ? `${base}\n\nTHE CURRENT LIBRARY:\n\`\`\`javascript\n${prev}\n\`\`\`\nIt failed when played: ${fix}${/scale/i.test(fix) ? '\n' + scaleHelp() : ''}\nReturn the corrected COMPLETE library.`
-    : base;
-  let lastErr;
-  // the parts step only needs the sounds the sheet chose (a fraction of the full list → far fewer tokens)
-  const sounds = await partsCatalog(sh);
-  let partial = null; // a library that only lacked some consts: the next reply adds just those
-  for (let attempt = 0; attempt < 3; attempt++) {
-    song.phase = fix ? 'fixing the parts' : partial ? 'writing the missing parts' : 'writing the parts';
-    const text = await requestLLM({ mode: 'library', messages: [{ role: 'user', content }], signal, sounds, label: `“${song.title}” parts${fix ? ' fix' : partial ? ' (missing)' : ''}` });
-    let lib = extractCode(text);
-    let err = null;
-    if (!lib) err = 'no ```javascript code block in the reply';
-    else {
-      // parts written as labels ("bass_main: …") are meant as consts
-      lib = lib.replace(/^([A-Za-z_$][\w$]*):(?!:)\s*/gm, (m, n) => (libraryIds(sh).includes(n) ? `const ${n} = ` : m));
-      // the missing consts were asked for: add them to what we had (a repeated one keeps the first version)
-      if (partial) {
-        const extra = lib.split(/\n(?=\s*const\s)/).filter((d) => { const id = d.match(/^\s*const\s+([\w$]+)/)?.[1]; return !id || !definesId(partial, id); });
-        lib = `${partial}\n${extra.join('\n')}`;
-      }
-      // the app owns the tempo line
-      lib = `${tempoLine(sh.bpm, sh.meter)}\n` + lib.replace(/^\s*setcp[ms]\([^)]*\)\s*;?\s*$/gm, '').trim();
-      const missing = libraryIds(sh).filter((id) => !definesId(lib, id));
-      if (missing.length) err = `these consts are missing: ${missing.join(', ')}`;
-      else if (patternLines(lib).length) err = 'the library must not contain labelled lines like "drums:" or "$:" — only const definitions';
-      else err = syntaxError(lib);
-      if (!err) {
-        const prep = await prepareCode(lib, { quiet: true, library: true });
-        lib = prep.code;
-        err = prep.error || testLibrary(lib, sh)?.message || null;
-      }
-    }
-    if (!err) { clog('ok', `✓ “${song.title}” parts checked and test-played`); return wrapCode(lib); }
-    lastErr = err;
-    clog('warn', `✗ “${song.title}” parts: ${err}`);
-    // only some consts are missing: ask for just those (much shorter than the whole library again)
-    const missing = lib ? libraryIds(sh).filter((id) => !definesId(lib, id)) : [];
-    if (lib && missing.length && missing.length < libraryIds(sh).length && !syntaxError(lib)) {
-      partial = lib;
-      content = `${base}\n\nTHE LIBRARY SO FAR (keep it as it is):\n\`\`\`javascript\n${lib}\n\`\`\`\n` +
-        `It is missing these consts: ${missing.join(', ')}. Reply with ONE \`\`\`javascript block that defines ONLY the missing consts, ` +
-        'in the same style, sounds and key, fitting the parts above.';
-      continue;
-    }
-    partial = null;
-    content = `${base}\n\nYOUR PREVIOUS LIBRARY:\n\`\`\`javascript\n${lib || ''}\n\`\`\`\nIt can't be used: ${err}${/scale/i.test(err) ? '\n' + scaleHelp() : ''}\nReturn the corrected COMPLETE library.`;
-  }
-  throw new Error(`no usable part library (${lastErr})`);
-}
-
-
-
-/** A section failed when it was about to play: fix the library and re-arrange the song's unplayed sections. */
-function repairSong(song, err) {
-  song.repairing ||= (async () => {
-    clog('warn', `🔧 “${song.title}”: a section failed when test-played (${err}) — fixing the parts…`);
-    song.library = await writeSongLibrary(song, queue.abort?.signal, { fix: err, prev: song.library });
-    for (const st of song.blocks || []) {
-      if (['playing', 'done', 'armed'].includes(st.status)) continue;
-      st.code = sectionCode(song, st.section, { fill: !!st.fillStep });
-      st.status = 'ready';
-      st.error = null;
-    }
-  })().finally(() => { song.repairing = null; });
-  return song.repairing;
-}
-
-
-/** Write (or reuse) a song's blocks and append them to the engine. */
-/** Sheet → library → arranged steps; null when that fails (the song is then written block by block). */
-/**
- * Sheet → library → arranged sections. When that fails, the song is started over once from a fresh sheet (the sheet
- * and the parts each already had 3 tries); a second failure throws: the song is marked failed (✗, with ↻ Try again)
- * and the set / station moves on. (Songs are no longer written block by block.)
- */
-async function sheetSteps(song) {
-  song.status = 'writing';
-  for (let round = 1; ; round++) {
-    try {
-      song.sheet = await writeSongSheet(song, queue.abort.signal);
-      song.library = await writeSongLibrary(song, queue.abort.signal);
-      song.phase = null;
-      const steps = arrangeSong(song);
-      song.pads = songPads(song);
-      return steps;
-    } catch (e) {
-      if (e.name === 'AbortError') throw e;
-      song.sheet = null;
-      song.library = null;
-      if (round >= 2) { song.phase = null; throw new Error(`“${song.title}” couldn't be written: ${e.message}`); }
-      clog('warn', `“${song.title}”: ${e.message} — starting the song over from a new sheet`);
-    }
-  }
-}
-
-async function appendSong(k) {
-  const song = queue.songs[k];
-  if (!song) return;
-  let steps;
-  if (song.blocks?.length) {
-    // already written (loop / jump back): reuse blocks and their code
-    steps = song.blocks.map((b) => ({ ...b, status: b.code ? 'ready' : 'waiting', startedAt: undefined, genPromise: undefined, error: null }));
-  } else {
-    // song sheet → part library → sections arranged by the app
-    steps = await sheetSteps(song);
-  }
-  steps.forEach((st, j) => Object.assign(st, { song, songPos: j, songLen: steps.length, songStart: j === 0 }));
-  song.blocks = steps;
-  song.firstStep = steps[0];
-  song.bars = steps.reduce((a, b) => a + b.bars, 0);
-  if (song.status !== 'playing') song.status = 'ready';
-  song.phase = null;
-  appendSteps(steps);
-  return steps;
-}
-
-async function stationMoreSongs() {
-  const n = 3;
-  const recent = queue.songs.slice(-12).map((sg) => `${sg.title} (${sg.desc.slice(0, 60)})`);
-  const text = await requestLLM({
-    mode: 'songs',
-    messages: [{
-      role: 'user',
-      content: `STATION THEME: ${queue.station.theme}\n` +
-        (recent.length ? `Already played or queued — do NOT repeat these, but keep a good flow from the last one:\n- ${recent.join('\n- ')}\n` : '') +
-        `Write the next ${n} songs.`,
-    }],
-    signal: queue.abort.signal,
-  });
-  const songs = parseSongs(stripThinking(text).replace(/```[a-z]*\n?|```/g, '')).slice(0, n);
-  if (!songs.length) throw new Error('the model did not return songs as "title | description" lines');
-  queue.songs.push(...songs);
-}
-
-async function feedLoop() {
-  let failures = 0;
-  while (queue.running) {
-    try {
-      if (queue.forceJump !== null) {
-        const k = queue.forceJump;
-        queue.forceJump = null;
-        queue.nextSong = k + 1;
-        const steps = await appendSong(k);
-        if (steps?.length && queue.running) jumpTo(engine.steps.indexOf(steps[0]));
-        continue;
-      }
-      const ahead = queue.nextSong - 1 - queue.current; // songs written but not yet playing
-      if (ahead < 1 && queue.nextSong < queue.songs.length) {
-        await appendSong(queue.nextSong++);
-        failures = 0;
-        continue;
-      }
-      if (ahead < 1 && queue.mode === 'set' && $('setLoop').checked && !queue.single && queue.songs.length) {
-        queue.nextSong = 0;
-        continue;
-      }
-      if (queue.mode === 'station' && queue.songs.length - (queue.current + 1) < Number($('stationAhead').value)) {
-        const before = queue.songs.length;
-        queue.planning = true;
-        try { await stationMoreSongs(); } finally { queue.planning = false; }
-        if (queue.songs.length > before) failures = 0;
-        continue;
-      }
-    } catch (e) {
-      if (e.name === 'AbortError' || !queue.running) return;
-      const sg = queue.songs[queue.nextSong - 1];
-      if (sg && sg.status === 'writing') { sg.status = 'failed'; sg.error = e.message; sg.phase = null; songsChanged(); }
-      clog('error', `${queue.mode === 'station' ? 'Station' : 'Set list'}: ${e.message} (try ${failures + 1}/5)`);
-      failures++;
-      if (failures >= 5) { warnUser(`${queue.mode === 'station' ? 'Station' : 'Set list'} stopped: the AI failed 5 times in a row (last: ${e.message})`); addMsg('info', `■ ${queue.mode === 'station' ? 'station' : 'set'} stopped — see ⚠ in the status bar`); stopSet(); return; }
-      await sleep(3000 * failures);
-    }
-    await sleep(400);
-  }
-}
-
-function makeFeeder() {
-  return {
-    label: queue.mode === 'station' ? `station “${queue.station.name || 'untitled'}”` : 'set list',
-    active: () => queue.running && (queue.mode === 'station' || queue.nextSong < queue.songs.length || queue.forceJump !== null ||
-      ($('setLoop').checked && !queue.single && queue.songs.length > 0) || queue.songs.some((sg) => sg.status === 'writing')),
-    onStepStart: (step) => {
-      if (!step.song) return;
-      mp3SongStep(step);
-      nowSong = step.song; // 🎶 Now playing keeps showing it after it ends
-      if (padsState.follow && step.song.pads && padsState.owner !== step.song) loadPads(step.song.pads, step.song);
-      const k = queue.songs.indexOf(step.song);
-      if (k < 0 || (k === queue.current && step.song.status === 'playing')) return;
-      queue.songs.forEach((sg) => { if (sg.status === 'playing' && sg !== step.song) sg.status = 'done'; });
-      step.song.status = 'playing';
-      step.song.playedAt = Date.now();
-      logPlayed(step.song, queue.mode === 'station' ? `station “${queue.station?.name || ''}”` : 'songs');
-      queue.current = k;
-      addMsg('info', `🎵 now playing: “${step.song.title}” — ${step.song.desc}`);
-      player.emit('song', { song: step.song });
-      if (queue.mode === 'station') document.title = `📻 ${step.song.title} · ${queue.station.name || 'Station'}`;
-      // keep the station's memory bounded
-      if (queue.mode === 'station' && queue.current > 30) {
-        const cut = queue.current - 20;
-        queue.songs.splice(0, cut);
-        queue.current -= cut;
-        queue.nextSong -= cut;
-        if (songSel.station != null) songSel.station = songSel.station >= cut ? songSel.station - cut : null;
-      }
-    },
-    onStop: () => stopSet(false),
-  };
-}
-
-function startSet(mode, { at = 0, keepSongs = false } = {}) {
-  if (keepSongs && queue.mode === mode && queue.songs.length) {
-    // resume with the songs we already have (their written blocks/code are reused)
-    queue.songs.forEach((sg) => { sg.status = sg.blocks ? 'ready' : 'waiting'; sg.error = null; });
-  } else if (mode === 'set') {
-    if (queue.mode !== 'set' || !queue.songs.length) { addMsg('info', 'No songs yet — create one in 💬 Chat with 🎯 ✨ new song.'); return; }
-    queue.songs.forEach((sg) => { sg.status = sg.blocks ? 'ready' : 'waiting'; sg.error = null; });
-  } else {
-    const st = currentStation();
-    if (!st.theme.trim()) { addMsg('error', 'Give the station a theme first.'); return; }
-    queue.station = { ...st };
-    queue.songs = [];
-  }
-  stopSet(false);
-  songSel[mode] = null; // follow the song that is playing
-  Object.assign(queue, { running: true, mode, nextSong: at, current: at - 1, forceJump: null, abort: new AbortController(), textDirty: false, single: false });
-  startSetlist({ steps: [], feeder: makeFeeder() });
-  updateSetButtons();
-  addMsg('info', mode === 'station'
-    ? `📻 station “${queue.station.name || 'untitled'}” on air — planning songs…`
-    : `▶ set started (${queue.songs.length} songs) — writing “${queue.songs[at].title}”…`);
-  feedLoop();
-}
-
-function stopSet(stopEngine = true) {
-  if (!queue.running) return;
-  queue.running = false;
-  queue.abort?.abort();
-  queue.songs.forEach((sg) => { if (sg.status === 'writing') sg.status = 'waiting'; });
-  if (stopEngine) mp3TakeEnd(false); // stopped mid-song: drop the partial recording
-  if (stopEngine && engine.feeder) stopSetlist();
-  updateSetButtons();
-  document.title = 'Strudel AI';
-}
-
-/** ↻ Try again: a song that couldn't be written is written from scratch and plays next. */
-function retrySong(sg) {
-  const k = queue.songs.indexOf(sg);
-  if (k < 0) return;
-  Object.assign(sg, { status: 'waiting', error: null, phase: null, sheet: null, library: null, blocks: null, firstStep: null, autoTitle: sg.autoTitle });
-  songsChanged();
-  jumpToSong(k, queue.mode || 'set');
-}
-function jumpToSong(k, from = 'set') {
-  const mode = queue.running ? queue.mode : 'set';
-  if (!queue.running) return startSet(from, { at: k, keepSongs: true });
-  const song = queue.songs[k];
-  if (!song) return;
-  const i = song.firstStep ? engine.steps.indexOf(song.firstStep) : -1;
-  if (i >= 0) { song.status = 'ready'; jumpTo(i); return; }
-  // not written yet (or trimmed): drop upcoming blocks of other songs and write this one next
-  dropUpcomingSteps();
-  queue.songs.forEach((sg, j) => { if (j !== queue.current && sg.status === 'ready' && !engine.steps.includes(sg.firstStep)) sg.status = 'waiting'; });
-  queue.forceJump = k;
-  addMsg('info', `⏭ writing “${song.title}” — it will start on the next bar line when ready`);
-  void mode;
-}
-
-function updateSetButtons() {
-  const set = queue.running && queue.mode === 'set', st = queue.running && queue.mode === 'station';
-  void set;
-  $('stationStart').disabled = st; $('stationStop').disabled = !st;
-}
-
-const SONG_ICON = { waiting: '·', writing: '✎', ready: '✓', playing: '▶', done: '✔', failed: '✗' };
-let lastSongsKey = '';
-/** Something in the song lists changed: re-render them on the next frame. */
-function songsChanged() { lastSongsKey = ''; player.emit('songs'); }
-const songSel = { set: null, station: null }; // index of the song shown in each tab's song view
-
-function songMeta(sg) {
-  const sh = sg.sheet;
-  if (sg.phase) return `✎ ${sg.phase}…`;
-  if (!sg.blocks) return sh ? `${sh.bpm} bpm · ${sh.key}` : '';
-  const coded = sg.blocks.filter((b) => b.code).length;
-  return sh && sg.library
-    ? `${sh.bpm} bpm · ${sh.key} · ${sh.sections.length} sections · ${sg.bars} bars · ~${fmtTime((sg.bars * 4 * 60) / sh.bpm)}`
-    : `${sg.blocks.length} blocks · ${sg.bars} bars · ${coded}/${sg.blocks.length} coded`;
-}
-const NOW_LINK = '<button class="open-now" data-open-now title="Open the 🎶 Now playing panel: the song\'s sheet, sections and progress">🎶 Now playing ↗</button>';
-const sharedLinkHTML = (sg) => (sg.shareUrl ? `<div class="sv-shared">🔗 <input readonly value="${esc(sg.shareUrl)}" /><button class="sv-copy">📋 Copy</button><a href="${esc(sg.shareUrl)}" target="_blank" rel="noopener">open ↗</a></div>` : '');
-/** A song list. With `tools`, the selected song shows its toolbar in place (the station list: details live in 🎶 Now playing). */
-function songsHTML(songs, live, sel, { tools = false } = {}) {
-  return songs.map((sg, k) => {
-    const meta = songMeta(sg);
-    const isCurrent = live && queue.songs[queue.current] === sg;
-    const toolbar = tools && k === sel ? `<div class="song-tools">${songToolbarHTML(sg, live)}${isCurrent ? NOW_LINK : ''}${sharedLinkHTML(sg)}</div>` : '';
-    return `<div class="song ${sg.status}${k === sel ? ' selected' : ''}" data-k="${k}" title="${tools ? 'Show this song’s buttons' : 'Show this song’s sheet and sections'}">
-      <span class="ico">${SONG_ICON[sg.status] || '·'}</span>
-      <div class="body"><div class="t">${k + 1}. ${esc(sg.title)}</div><div class="d">${esc(sg.desc)}</div>
-        ${meta ? `<div class="meta">${esc(meta)}</div>` : ''}${sg.error ? `<span class="err-icon" title="${esc(sg.error)}">⚠</span>` : ''}${toolbar}</div>
-      <button class="jump" data-song="${k}" title="Switch to this song">⏭ go</button>
-    </div>`;
-  }).join('') + (live && queue.planning ? '<div class="song writing"><span class="ico">✎</span><div class="body"><div class="d">planning the next songs…</div></div></div>' : '');
-}
-
-/** A song's toolbar: play, edit, favorite, save, song pads, MP3, JSON, link (only once the song is written). */
-function songToolbarHTML(sg, live) {
-  const sh = sg.sheet;
-  const isCurrent = live && queue.songs[queue.current] === sg;
-  const complete = sg.blocks?.length && sg.blocks.every((b) => b.code) && !sg.phase;
-  if (!complete) {
-    return sg.status === 'failed' && !sg.phase
-      ? `<div class="sv-toolbar"><button data-act="retry" title="${esc(`Write this song again from scratch${sg.error ? ` (last time: ${sg.error})` : ''}`)}">↻ Try again</button></div>`
-      : '';
-  }
-  const mine = isMine(sg);
-  const canPlay = complete && !(isCurrent);
-  const btn = (act, label, title) => `<button data-act="${act}" title="${esc(title)}">${label}</button>`;
-  return `<div class="sv-toolbar">
-      ${canPlay ? btn('play', '▶ Play', 'Play this song from the start (already written — no AI needed)') : ''}
-      ${sh && sg.library ? btn('edit', songEdit.sg === sg ? '✎ editing…' : '✎ Edit', 'Open this song in the ✎ Edit song panel: sections, chords, parts and their code (or ask the chat)') : ''}
-      ${btn('fav', favOf(sg) ? '★ favorite' : '☆ Favorite', favOf(sg) ? 'A favorite on this server — click to remove it from the shared list' : 'Add to ★ Favorites: everyone on this server sees it, and it survives restarts')}
-      ${mine ? '' : btn('save', '📁 Save to My songs', 'Copy this song into 📁 My songs, where you can edit it, keep it and export it')}
-      ${sg.pads ? btn('pads', padsState.follow ? '🔲 song pads ✓' : '🔲 Song pads', padsState.follow ? 'Song pads are on: the pad dock switches to each song’s pads as the songs change — click to go back to your own pads' : 'Load this song’s 16 pads (its own parts, key and chords) into the pad dock — and keep switching to each new song’s pads as the songs change') : ''}
-      ${sg.take ? btn('mp3', `⬇ MP3 <span class="muted">${fmtTime(sg.take.secs)}</span>`, `Download the recording of this song (${(sg.take.size / 1e6).toFixed(1)} MB) — kept until the page is reloaded`)
-        : mp3.seg?.sg === sg ? btn('mp3', '🎙 recording…', 'Recording this song as it plays — ⬇ MP3 appears when it has played to its end')
-        : btn('mp3', mp3.want.has(sg) ? '🎙 MP3 next time' : '🎙 MP3', queue.running ? 'Record this song the next time it plays from the start (the music keeps playing)' : 'Play this song from the start and record it — download the MP3 when it ends')}
-      ${btn('json', '⬇ JSON', 'Download the whole song (sheet, parts, sections, pads) as a .json file — import it on any Strudel AI server')}
-      ${btn('link', '🔗 Link', 'Create a link that plays this whole song on this server')}
-    </div>`;
-}
-
-/** A short name for a block-written section: "intro", "verse 2" … from its instruction, else "section n". */
-function shortPrompt(prompt, j) {
-  const p = String(prompt || '').trim();
-  const m = p.match(/^\s*(intro|verse|pre-?chorus|chorus|hook|bridge|breakdown|break|build|drop|outro|interlude|solo|groove|[AB]\b)[\w\s'-]{0,10}?(?=[:—–,.(-]|\s{2}|$)/i);
-  if (m) return m[0].trim();
-  const words = p.split(/\s+/).slice(0, 3).join(' ');
-  return words.length > 2 ? `${words}…` : `section ${j + 1}`;
-}
-
-/** The song sheet and the sections of one song, with live status and jump buttons. */
-function songViewHTML(sg, live) {
-  if (!sg) return '';
-  const sh = sg.sheet;
-  const isCurrent = live && queue.songs[queue.current] === sg;
-  const mine = isMine(sg);
-  let h = `<div class="sv-head"><b>${esc(sg.title)}</b>${isCurrent ? ' <span class="sv-live">▶ playing</span>' : ''}${mine ? ' <span class="sv-mine">📁 My songs</span>' : ''}</div>
-    <div class="sv-desc">${esc(sg.desc)}</div>`;
-  h += songToolbarHTML(sg, live);
-  if (sg.shareUrl) {
-    h += `<div class="sv-shared">🔗 <input readonly value="${esc(sg.shareUrl)}" /><button class="sv-copy">📋 Copy</button><a href="${esc(sg.shareUrl)}" target="_blank" rel="noopener">open ↗</a></div>`;
-  }
-  if (sg.phase) h += `<div class="sv-phase">✎ ${esc(sg.phase)}…</div>`;
-  if (sh) {
-    h += `<div class="sv-grid">
-      ${sh.form ? `<span class="k">form</span><span>${esc(sh.form)} · ${sh.sections.length} sections · ${sh.sections.reduce((a, x) => a + x.bars, 0)} bars</span>` : ''}
-      <span class="k">sound</span><span>${sh.band ? `🎸 ${esc(sh.band)} · ` : ''}<span class="chip master-chip" title="${esc(MASTER_STYLES[songStyle(sg)]?.desc || '')} — change it in ✎ Edit or live in 🎛 Master">🎛 ${esc(songStyle(sg))}${sh.masterParams && Object.keys(sh.masterParams).length ? ' <small>+ own mix</small>' : ''}</span></span>
-      <span class="k">tempo</span><span>${sh.bpm} bpm · ${normMeter(sh.meter)} · ${esc(sh.key)} <code>${esc(sh.scale)}</code></span>
-      <span class="k">chords</span><span>${Object.entries(sh.chords).map(([k, v]) => `<span class="chip"><b>${esc(k)}</b> ${esc(v.replace(/^<|>$/g, ''))}</span>`).join(' ')}</span>
-      <span class="k">hook</span><span><code>${esc(sh.hook)}</code></span>
-      <span class="k">parts</span><span>${sh.parts.map((p) => `<span class="chip part" style="--c:${vizColor(p.id)}" title="${esc(`${p.role} · ${p.desc}${p.variants.length > 1 ? ` · variants: ${p.variants.join(', ')}` : ''}`)}"><b>${esc(p.id)}</b> ${esc(p.sound)}</span>`).join(' ')}</span>
-    </div>`;
-  }
-  const steps = sg.blocks || (sh ? sh.sections.map((sec) => ({ section: sec, bars: sec.bars, prompt: sec.name, status: 'waiting' })) : []);
-  if (steps.length) {
-    if (isCurrent) {
-      h += `<div class="sv-tools"><button class="sv-hold" title="Stay on the current section until you pick another one">${engine.hold ? '▶ continue the song' : '⏸ hold this section'}</button>
-        <small class="muted">Alt+1…9 jump to a section</small></div>`;
-    }
-    // tempo and key of every section, so the lines can mark where they change
-    const tempos = steps.map(stepTempo), shifts = steps.map((st) => st.section?.shift || 0);
-    h += '<div class="sv-sections">' + steps.map((st, j) => {
-      const i = engine.steps.indexOf(st);
-      const queued = i >= 0 && engine.jumpTarget === i && st.status !== 'armed' && st.status !== 'playing';
-      const sec = st.section;
-      // a section written block by block (no song sheet): its instruments are the labelled parts in its code
-      const blockParts = !sec && st.code ? [...new Set(patternLines(st.code).filter((r) => !/^pad\d+$/.test(r.base)).map((r) => r.base))] : [];
-      const parts = !sec ? blockParts.map((b) => `<span class="chip part" style="--c:${vizColor(b)}">${esc(b)}</span>`).join('') : sec.play.map((x) => `<span class="chip part" style="--c:${vizColor(x.part)}">${esc(x.part)}${x.variant !== 'main' ? `<small>.${esc(st.fillStep && fillPart(sh)?.id === x.part ? 'fill' : x.variant)}</small>` : st.fillStep && fillPart(sh)?.id === x.part ? '<small>.fill</small>' : ''}${x.enter && !st.fillStep ? `<small title="${{ in: 'comes in halfway through', out: 'drops out halfway through', alt: '2 bars on, 2 bars off' }[x.enter]}">@${x.enter}</small>` : ''}</span>`).join('');
-      // mark tempo / key changes against the section before (the first one shows the song's tempo)
-      const bpm = tempos[j], prevBpm = j ? tempos[j - 1] : null;
-      const moves = [
-        bpm && (j === 0 || (prevBpm && bpm !== prevBpm)) ? (j === 0 ? `♩ ${bpm} bpm` : `♩ ${bpm > prevBpm ? '↑' : '↓'} ${bpm} bpm`) : '',
-        j > 0 && shifts[j] !== shifts[j - 1] ? `key ${shifts[j] ? signed(shifts[j]) : 'home'}` : '',
-      ].filter(Boolean).join(' · ');
-      const moveTitle = j === 0 ? 'The song’s tempo' : `Changes here: ${prevBpm && bpm !== prevBpm ? `tempo ${prevBpm} → ${bpm} bpm ` : ''}${shifts[j] !== shifts[j - 1] ? `key ${signed(shifts[j - 1])} → ${signed(shifts[j])} semitones` : ''}`;
-      // block sections: a short name (the instruction's first words), the whole instruction as a tooltip
-      const label = sec ? esc(st.prompt) : `<span title="${esc(st.prompt)}">${esc(shortPrompt(st.prompt, j))}</span>`;
-      const name = `${label}${sec && !st.fillStep ? ` <span class="sv-chords">${esc(sec.chords)}</span>` : ''}${moves ? ` <span class="sv-move${j === 0 ? ' first' : ''}" title="${esc(moveTitle)}">${esc(moves)}</span>` : ''}`;
-      return `<details class="step ${st.status}${queued ? ' queued' : ''}${st.fillStep ? ' fill' : ''}" data-j="${j}">
-        <summary><span class="ico">${queued ? '⏭' : STATUS_ICON[st.status] || ''}</span>
-          <span class="bars">${st.bars}</span><span class="prompt">${name}${parts ? `<span class="sv-parts">${parts}</span>` : ''}</span>
-          ${i >= 0 ? `<span class="sv-left" data-i="${i}"></span>` : ''}${st.error ? `<span class="err-icon" title="${esc(st.error)}">⚠</span>` : ''}${queued ? '<span class="next">next</span>' : ''}
-          ${i >= 0 ? `<button class="jump" data-i="${i}" title="Switch to this section${j < 9 && isCurrent ? ` (Alt+${j + 1})` : ''}">⏭ go</button>` : ''}</summary>
-        ${st.code ? `<pre>${esc(st.code.slice(st.code.indexOf(SEC_START) >= 0 ? st.code.indexOf(SEC_START) : 0))}</pre>` : ''}
-      </details>`;
-    }).join('') + '</div>';
-  }
-  if (sg.library) h += `<details class="sv-lib"><summary>parts code (shared by every section)</summary><pre>${esc(sg.library)}</pre></details>`;
-  return h;
-}
-
-/** A section's tempo in bpm: from its code's setcpm / setcps line, else its sheet. */
-function stepTempo(st) {
-  const m = st?.code && /setcp([ms])\(\s*([\d.]+)\s*(?:\/\s*([\d.]+))?\s*\)/.exec(st.code);
-  const b = meterBeats(st?.song?.sheet?.meter);
-  if (m) { const v = Number(m[2]) / (Number(m[3]) || 1); return Math.round(m[1] === 'm' ? v * b : v * 60 * b); }
-  return st?.section?.bpm || st?.song?.sheet?.bpm || null;
-}
-/** How far the playing section is: { bar, bars, frac, left (seconds until the next section), hold } or null. */
-function sectionProgress(st) {
-  if (st?.status !== 'playing' || st.startedAt == null || !isPlaying()) return null;
-  const now = nowCycle();
-  const k = engine.steps.indexOf(st);
-  const next = engine.steps.slice(k + 1).find((x) => x.status === 'armed' && x.startedAt != null);
-  // the switch: an armed next section, else where the set list will switch next (its bar count when nothing is due)
-  const end = next?.startedAt ?? (engine.nextAt != null && engine.nextAt > st.startedAt ? engine.nextAt : st.startedAt + st.bars);
-  const len = Math.max(1, end - st.startedAt);
-  const pos = Math.max(0, now - st.startedAt);
-  const hold = engine.hold && !next;
-  return { bar: Math.min(len, Math.floor(pos % (hold ? len : Infinity)) + 1), bars: len, frac: hold ? (pos % len) / len : Math.min(1, pos / len),
-    left: Math.max(0, (end - now) / cps()), hold, waiting: !hold && pos >= len };
-}
-// progress of the playing section in the song views (updated without re-rendering the lists;
-// renderSongs calls it right after it rebuilds a view, so the bar never blinks out)
-function updateSectionProgress() {
-  for (const el of document.querySelectorAll('.sv-left[data-i]')) {
-    const st = engine.steps[Number(el.dataset.i)];
-    const sum = el.closest('summary');
-    if (engine.paused && engine.paused.step === st) {
-      el.textContent = `⏸ paused at bar ${engine.paused.bar + 1}/${st.bars}`;
-      sum?.style.setProperty('--p', `${((engine.paused.bar / Math.max(1, st.bars)) * 100).toFixed(1)}%`);
-      continue;
-    }
-    const pr = sectionProgress(st);
-    if (!pr) { if (el.textContent) { el.textContent = ''; sum?.style.removeProperty('--p'); } continue; }
-    sum?.style.setProperty('--p', `${(pr.frac * 100).toFixed(1)}%`);
-    // the next section changes the tempo: say so
-    const k = Number(el.dataset.i), nb = stepTempo(engine.steps[k + 1]), cb = stepTempo(st);
-    const tempo = !pr.hold && nb && cb && nb !== cb && engine.steps[k + 1]?.song === st.song ? ` · then ${nb > cb ? '↑' : '↓'} ${nb} bpm` : '';
-    const text = pr.hold ? `bar ${pr.bar}/${pr.bars} · ⏸ holding`
-      : pr.waiting ? 'next section is on its way…'
-      : `bar ${pr.bar}/${pr.bars} · next in ${fmtTime(Math.ceil(pr.left))}${tempo}`;
-    if (el.textContent !== text) el.textContent = text;
-  }
-}
-// the progress bars move every frame while something plays (smooth, and never a stale bar); stopped, they rest
-{
-  let running = false;
-  const loop = () => {
-    updateSectionProgress();
-    if (isPlaying() || engine.paused) requestAnimationFrame(loop); else running = false;
-  };
-  const start = () => { if (!running) { running = true; requestAnimationFrame(loop); } };
-  for (const e of ['section', 'transport', 'songs']) player.on(e, start);
-  setInterval(() => (isPlaying() ? start() : updateSectionProgress()), 1000);
-}
-
-let nowSong = null; // the last song that started playing
-function renderSongs() {
-  // Songs tab: the running/last set (until the text is edited), otherwise a preview of the text
-  const setSongs = queue.mode === 'set' ? queue.songs : [];
-  const stationSongs = queue.mode === 'station' ? queue.songs : [];
-  const now = queue.mode === 'station' ? queue.songs[queue.current] : null;
-  const pick = (tab, list) => {
-    if (typeof songSel[tab] === 'string') return null; // a My songs entry is open
-    // the station's playing song is in the On air box (and 🎶 Now playing): only an explicit pick opens a row
-    const k = songSel[tab]; // only an explicit pick opens a row's buttons (the playing song is in 🎶 Now playing)
-    return k != null && list[k] ? k : null;
-  };
-  const selSet = pick('set', setSongs), selSt = pick('station', stationSongs);
-  const setView = viewedSong('set');
-  const stepKey = (sg) => sg?.blocks?.map((b) => b.status + (b.code ? b.code.length : 0) + (b.error || '')).join() || '';
-  const key = JSON.stringify([queue.running, !!engine.paused, nowSong?.title, stepKey(nowSong), queue.songs.map((x) => x.phase || x.status).join(), queue.mode, queue.planning, now?.title, selSet, selSt, engine.hold, engine.jumpTarget, queue.current,
-    ...[setSongs, stationSongs].map((l) => l.map((sg) => [sg.title, sg.status, sg.phase, sg.bars, sg.blocks?.filter((b) => b.code).length, sg.error, !!sg.sheet, sg.shareUrl])),
-    stepKey(setView), stepKey(stationSongs[selSt]), stepKey(queue.songs[queue.current]), songSel.set, songEdit.sg?.title, padsState.owner?.title, padsState.follow,
-    mySongs.map((sg) => [sg.title, sg.bars, queue.songs[queue.current] === sg]), mp3.seg?.sg?.title || '', mp3.takes.length, mp3.want.size,
-    favorites.map((f) => [f.id, queue.songs[queue.current] === f.song])]);
-  if (key === lastSongsKey) return;
-  lastSongsKey = key;
-  $('setStatus').innerHTML = setSongs.length ? songsHTML(setSongs, queue.running && queue.mode === 'set', selSet, { tools: true })
-    : '<div class="muted small">No songs yet — in 💬 Chat pick 🎯 <b>✨ new song</b> and describe one, or play a favorite or one of My songs.</div>';
-  $('mySongs').innerHTML = myListHTML();
-  $('favSongs').innerHTML = favListHTML();
-  $('stationStatus').innerHTML = songsHTML(stationSongs, queue.running && queue.mode === 'station', selSt, { tools: true });
-  // 🎶 Now playing: the playing song — or, once it's over, the last one that played (stopped)
-  // while a set or station is still writing its first song, show that song (with what's being written)
-  const preparing = queue.running && !queue.songs[queue.current] ? queue.songs.find((x) => ['writing', 'waiting', 'ready'].includes(x.status)) : null;
-  const playingSong = (queue.running && queue.songs[queue.current]) || preparing || nowSong;
-  const nowLive = !!(queue.running && playingSong && queue.songs[queue.current] === playingSong);
-  $('nowEmpty').hidden = !!playingSong;
-  // ✎ Edit song panel: the editor (rendered when another song is opened) and the song's sections
-  const ed = songEdit.sg;
-  $('editEmpty').hidden = !!ed;
-  if ($('editForm').__sg !== ed) { $('editForm').__sg = ed; $('editForm').innerHTML = ed?.sheet && ed.library ? songEditorHTML(ed) : ''; }
-  void setView;
-  for (const [id, sg, live] of [['editSongView', ed, !!(queue.running && queue.songs[queue.current] === ed)], ['nowSongView', playingSong, nowLive]]) {
-    const el = $(id);
-    const open = new Set([...el.querySelectorAll('details[open]')].map((d) => d.dataset.j ?? 'lib'));
-    el.hidden = !sg;
-    el.innerHTML = songViewHTML(sg, live);
-    if (id === 'nowSongView' && sg && !live) el.querySelector('.sv-head')?.insertAdjacentHTML('beforeend', sg === preparing ? ' <span class="sv-stopped">✎ being written — plays when ready</span>' : ' <span class="sv-stopped">■ stopped</span>');
-    for (const d of el.querySelectorAll('details')) if (open.has(d.dataset.j ?? 'lib')) d.open = true;
-  }
-  updateSectionProgress();
-  const onAir = queue.mode === 'station' && queue.running;
-  $('stationNow').hidden = !onAir;
-  if (onAir) {
-    $('stationNow').innerHTML = now
-      ? `📻 <b>On air:</b> ${esc(now.title)}<div class="d">${esc(now.desc)}</div><div class="song-tools">${songToolbarHTML(now, true)}${NOW_LINK}${sharedLinkHTML(now)}</div>`
-      : '📻 <b>Warming up…</b><div class="d">the agent is planning and writing the first song</div>';
-  }
-}
-// the song lists re-render when something changes (and once a second for the AI's writing progress)
-{
-  const soon = onceAFrame(renderSongs);
-  for (const e of ['section', 'song', 'transport', 'songs']) player.on(e, soon);
-  setInterval(renderSongs, 1000);
-}
-for (const id of ['setStatus', 'stationStatus']) {
-  const tab = id === 'stationStatus' ? 'station' : 'set';
-  $(id).addEventListener('click', (e) => {
-    const b = e.target.closest('.jump[data-song]');
-    if (b) { jumpToSong(Number(b.dataset.song), tab); return; }
-    if (e.target.closest('[data-open-now]')) { showPanel('song'); return; }
-    // a song's toolbar inside its row (station list)
-    const act = e.target.closest('[data-act]');
-    const tools = e.target.closest('.song-tools');
-    if (tools) {
-      const sg = queue.songs[Number(tools.closest('.song[data-k]')?.dataset.k)];
-      if (act && sg) songAction(act.dataset.act, sg, act, tools);
-      else if (e.target.closest('.sv-copy') && sg?.shareUrl) navigator.clipboard?.writeText(sg.shareUrl).then(() => { e.target.textContent = '✓ Copied'; }, () => {});
-      return;
-    }
-    const row = e.target.closest('.song[data-k]');
-    if (row) { const k = Number(row.dataset.k); songSel[tab] = songSel[tab] === k ? null : k; songsChanged(); renderSongs(); }
-  });
-}
-$('stationNow').addEventListener('click', (e) => {
-  if (e.target.closest('[data-open-now]')) { showPanel('song'); return; }
-  const sg = queue.songs[queue.current], act = e.target.closest('[data-act]');
-  if (act && sg) songAction(act.dataset.act, sg, act, $('stationNow'));
-  else if (e.target.closest('.sv-copy') && sg?.shareUrl) navigator.clipboard?.writeText(sg.shareUrl).then(() => { e.target.textContent = '✓ Copied'; }, () => {});
-});
-// the ✎ Edit song form: apply / cancel
-$('editForm').addEventListener('click', (e) => {
-  const act = e.target.closest('[data-act]');
-  if (act && songEdit.sg) songAction(act.dataset.act, songEdit.sg, act, $('editForm'));
-});
-for (const id of ['editSongView', 'nowSongView']) {
-  $(id).addEventListener('click', (e) => {
-    const go = e.target.closest('.jump[data-i]');
-    if (go) { e.preventDefault(); e.stopPropagation(); jumpTo(Number(go.dataset.i)); return; }
-    if (e.target.closest('.sv-hold')) { e.preventDefault(); setHold(!engine.hold); renderSongs(); return; }
-    const sg = id === 'nowSongView' ? (queue.running && queue.songs[queue.current]) || nowSong : songEdit.sg;
-    const act = e.target.closest('[data-act]')?.dataset.act;
-    if (act && sg) { songAction(act, sg, e.target.closest('[data-act]'), $(id)); return; }
-    if (e.target.closest('.sv-copy') && sg?.shareUrl) {
-      navigator.clipboard?.writeText(sg.shareUrl).then(() => { e.target.textContent = '✓ Copied'; }, () => {});
-    }
-  });
-}
-
-/** Toolbar actions in a song view. */
-function songAction(act, sg, btn, view) {
-  if (act === 'play') { if (queue.songs.includes(sg) && queue.mode) jumpToSong(queue.songs.indexOf(sg), queue.mode); else playSong(sg); }
-  else if (act === 'edit') openSongEditor(sg);
-  else if (act === 'retry') retrySong(sg);
-  else if (act === 'edit-save') saveSongEditor($('editForm').querySelector('.sv-edit'), songEdit.sg || sg);
-  else if (act === 'edit-cancel') { ws.close('edit'); songEdit.sg = null; songsChanged(); renderSongs(); }
-  else if (act === 'save') addToMySongs(sg);
-  else if (act === 'fav') toggleFavorite(sg);
-  else if (act === 'pads') {
-    if (padsState.owner === sg && padsState.follow) { setPadsFollow(false); loadPads(null); }
-    else { loadPads(sg.pads, sg); setPadsFollow(true); }
-  }
-  else if (act === 'mp3') songMp3(sg);
-  else if (act === 'json') download(`${slug(sg.title)}.strudel-song.json`, JSON.stringify(songToJSON(sg), null, 1));
-  else if (act === 'link') shareSong(sg, btn);
-  songsChanged();
-}
-
-/** The song shown in a tab's song view (same choice renderSongs makes). */
-function viewedSong(tab) {
-  if (tab === 'set' && typeof songSel.set === 'string') {
-    const [kind, k] = songSel.set.split(':');
-    return (kind === 'fav' ? favorites[Number(k)]?.song : mySongs[Number(k)]) || null;
-  }
-  const list = tab === 'station' ? (queue.mode === 'station' ? queue.songs : [])
-    : queue.mode === 'set' ? queue.songs : [];
-  const k = songSel[tab] ?? (queue.running && queue.mode === tab && queue.current >= 0 ? queue.current : null);
-  return k != null ? list[k] : null;
-}
-
-/** Share a finished song: its sheet, parts and every arranged section, playable without the AI. */
-async function shareSong(sg, btn) {
-  btn.disabled = true;
-  btn.textContent = 'creating link…';
-  try {
-    const steps = sg.blocks.map((b) => ({ bars: b.bars, prompt: b.prompt, code: b.code, fade: b.fade ?? null, fillStep: !!b.fillStep, section: b.section || null }));
-    const r = await fetch('/api/share', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        code: steps[0].code,
-        title: sg.title,
-        song: { title: sg.title, desc: sg.desc, sheet: sg.sheet || null, library: sg.library || null, steps },
-      }),
-    });
-    const j = await r.json();
-    if (!r.ok) throw new Error(j.error || r.status);
-    sg.shareUrl = location.origin + j.path;
-    try { await navigator.clipboard.writeText(sg.shareUrl); } catch {}
-    addMsg('info', `🔗 “${sg.title}” shared: ${sg.shareUrl} (link copied)`);
-  } catch (e) {
-    addMsg('error', `Sharing “${sg.title}” failed: ${e.message}`);
-    btn.disabled = false;
-    btn.textContent = '🔗 Share song';
-  }
-  songsChanged();
-  renderSongs();
-}
-
-/** A shared whole song: load it into the Songs tab, ready to play without any AI calls. */
-function loadSharedSong(s) {
-  try {
-    const song = songFromJSON(s);
-    loadSongIntoSet(song);
-    songSel.set = 0;
-    showPanel('songs');
-    return song;
-  } catch { /* older share format below */ }
-  const song = {
-    title: s.title || 'shared song', desc: s.desc || '', status: 'ready', sheet: s.sheet || null, library: s.library || null,
-    blocks: s.steps.map((st) => ({ bars: st.bars, prompt: st.prompt, code: st.code, fade: st.fade ?? undefined, fillStep: st.fillStep, section: st.section || undefined, status: 'ready', error: null })),
-  };
-  song.bars = song.blocks.reduce((a, b) => a + b.bars, 0);
-  song.firstStep = song.blocks[0];
-  stopSet(); stopSetlist();
-  Object.assign(queue, { mode: 'set', songs: [song], current: -1, nextSong: 0, textDirty: false });
-  songSel.set = 0;
-  songsChanged();
-  showPanel('songs');
-  return song;
-}
-
-if (saved.setLoop !== undefined) $('setLoop').checked = saved.setLoop;
-$('setLoop').onchange = () => save({ setLoop: $('setLoop').checked });
-
-// --- saved stations
-const DEFAULT_STATIONS = [
-  { name: 'Late Night Lo-fi', theme: 'late-night lo-fi hip hop with jazzy Rhodes chords, dusty drums and soft bass, 70–90 bpm, rainy city mood' },
-  { name: 'Neon Highway', theme: 'synthwave and outrun: driving basslines, gated pads, arpeggios, 95–118 bpm, minor keys, nostalgic 80s night drive' },
-  { name: 'Deep Focus', theme: 'minimal ambient techno for concentration: steady soft kick, evolving pads, subtle percussion, 110–122 bpm, no harsh sounds' },
-  { name: 'Sunrise House', theme: 'warm deep house at sunrise: soulful chords, rolling basslines, shuffled hats, 118–124 bpm, uplifting major and dorian keys' },
-  { name: 'Warehouse Techno', theme: 'dark driving techno: pounding kick, rumbling sub, hypnotic synth loops, acid lines, 128–136 bpm, minor keys, little melody' },
-  { name: 'Liquid Drum & Bass', theme: 'liquid drum & bass: fast breakbeats, deep reese and sub bass, lush pads and soft keys, 170–174 bpm, emotional minor-key chords' },
-  { name: 'Ambient Drift', theme: 'slow ambient soundscapes: long evolving pads, soft bells and drones, gentle textures, almost no drums, 60–80 bpm' },
-  { name: 'Boom Bap Café', theme: 'jazzy boom bap instrumentals: swung drums, upright-style bass, vibraphone and piano samples feel, 84–94 bpm' },
-  { name: 'Trance Horizons', theme: 'uplifting trance: rolling offbeat bass, supersaw leads, big breakdowns and builds, 136–140 bpm, euphoric minor keys' },
-  { name: 'Arcade Chiptune', theme: 'retro video-game chiptune: square and triangle leads, fast arpeggios, punchy 8-bit drums, 120–150 bpm, catchy hooks' },
-  { name: 'Space Disco', theme: 'cosmic nu-disco: four-on-the-floor, octave basslines, funky guitars and strings, sparkling synths, 110–122 bpm' },
-  { name: 'Dub Station', theme: 'deep dub and dub techno: skanking chords with long echoes, heavy sub bass, one-drop and steppers rhythms, 70–85 bpm (or 120 dub techno)' },
-];
-let stations = addNewDefaults(load().stations, DEFAULT_STATIONS, 'stations', ['Late Night Lo-fi', 'Neon Highway', 'Deep Focus']);
-save({ stations });
-let stationIdx = Math.min(load().stationIdx ?? 0, stations.length - 1);
-const currentStation = () => ({ name: stations[stationIdx]?.name || '', theme: stations[stationIdx]?.theme || '' });
-function renderStations() {
-  const opts = stations.map((st, i) => `<option value="${i}">${esc(st.name || 'untitled')}</option>`).join('');
-  for (const id of ['stationSelect', 'stationEditSelect']) { $(id).innerHTML = opts; $(id).value = String(stationIdx); }
-  $('stationName').value = stations[stationIdx]?.name || '';
-  $('stationTheme').value = stations[stationIdx]?.theme || '';
-  $('stationThemeView').textContent = stations[stationIdx]?.theme || 'No theme yet — ✎ edit stations to write one.';
-}
-function saveStations() { save({ stations, stationIdx }); }
-renderStations();
-for (const id of ['stationSelect', 'stationEditSelect']) $(id).onchange = () => { stationIdx = Number($(id).value); saveStations(); renderStations(); };
-for (const id of ['stationName', 'stationTheme']) {
-  $(id).oninput = () => {
-    stations[stationIdx] = { name: $('stationName').value.trim(), theme: $('stationTheme').value.trim() };
-    saveStations();
-    const name = $('stationName').value || 'untitled';
-    for (const sel of ['stationSelect', 'stationEditSelect']) if ($(sel).options[stationIdx]) $(sel).options[stationIdx].textContent = name;
-    $('stationThemeView').textContent = $('stationTheme').value || 'No theme yet — ✎ edit stations to write one.';
-  };
-}
-$('stationNew').onclick = () => { stations.push({ name: 'New station', theme: '' }); stationIdx = stations.length - 1; saveStations(); renderStations(); $('stationTheme').focus({ preventScroll: true }); };
-$('stationDelete').onclick = () => {
-  if (!confirm(`Delete station “${stations[stationIdx]?.name}”?`)) return;
-  stations.splice(stationIdx, 1);
-  if (!stations.length) stations = [{ name: 'New station', theme: '' }];
-  stationIdx = Math.max(0, stationIdx - 1);
-  saveStations(); renderStations();
-};
-if (saved.stationAhead) $('stationAhead').value = saved.stationAhead;
-$('stationAhead').onchange = () => save({ stationAhead: $('stationAhead').value });
-$('stationStart').onclick = () => startSet('station');
-$('stationStop').onclick = () => { stopSet(); cancelPending(true); addMsg('info', '■ station stopped'); };
-
-// ---------------------------------------------------------------------------
-// Docked visualizer: a piano roll of the pattern that is playing (read straight
-// from the scheduler, so it also shows what's coming up) plus a spectrum or
-// oscilloscope of the master output.
-// ---------------------------------------------------------------------------
-const viz = { on: false, analyser: null, src: null, haps: [], pat: null, from: null, colors: new Map(), raf: 0, freq: null, wave: null };
-
-function vizColor(name) {
-  let c = viz.colors.get(name);
-  if (!c) {
-    let h = 0;
-    for (const ch of name) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
-    c = `hsl(${h % 360}, 72%, 62%)`;
-    viz.colors.set(name, c);
-  }
-  return c;
-}
-
-/** Note events from 1 cycle back to 3 cycles ahead, re-queried once per cycle or when the pattern changes. */
-function vizHaps() {
-  const pat = scheduler()?.pattern;
-  if (!pat || !isPlaying()) return [];
-  const from = Math.floor(nowCycle()) - 1;
-  if (viz.pat === pat && viz.from === from) return viz.haps;
-  viz.pat = pat;
-  viz.from = from;
-  const prevDry = inDryRun;
-  vizQuerying = true;
-  inDryRun = true; // errors from this query are the playing code's, already reported
-  try {
-    viz.haps = pat.queryArc(from, from + 5, { _cps: cps() })
-      .filter((h) => h.whole && (!h.hasOnset || h.hasOnset()))
-      .map((h) => {
-        const v = h.value && typeof h.value === 'object' ? h.value : { note: h.value };
-        const pitched = v.note !== undefined || v.freq !== undefined;
-        const midi = pitched ? toMidi(v) : NaN;
-        return {
-          b: h.whole.begin.valueOf(),
-          e: h.whole.end.valueOf(),
-          midi,
-          name: String(v.s ?? (pitched ? 'synth' : '?')) + (v.bank && !Number.isFinite(midi) ? `·${v.bank}` : ''),
-          s: String(v.s ?? 'synth'),
-        };
-      });
-  } catch {
-    viz.haps = [];
-  } finally {
-    vizQuerying = false;
-    inDryRun = prevDry;
-  }
-  return viz.haps;
-}
-
-function vizAnalyser() {
-  let node = null;
-  try { node = globalThis.getSuperdoughAudioController?.().output.destinationGain; } catch {}
-  if (!node) return null;
-  if (viz.src !== node) {
-    const ctx = node.context;
-    const mk = () => { const a = ctx.createAnalyser(); a.fftSize = 2048; a.smoothingTimeConstant = 0.78; return a; };
-    viz.analyser = mk();
-    node.connect(viz.analyser);
-    // left / right for the stereo views
-    const split = ctx.createChannelSplitter(2);
-    node.connect(split);
-    viz.left = mk();
-    viz.right = mk();
-    split.connect(viz.left, 0);
-    split.connect(viz.right, 1);
-    viz.src = node;
-    viz.freq = new Uint8Array(viz.analyser.frequencyBinCount);
-    viz.wave = new Float32Array(viz.analyser.fftSize);
-    viz.waveL = new Float32Array(viz.analyser.fftSize);
-    viz.waveR = new Float32Array(viz.analyser.fftSize);
-  }
-  return viz.analyser;
-}
-function drawRoll(g, x0, y0, w, h) {
-  const now = nowCycle();
-  const span = 3, back = 1; // cycles visible, playhead at 1/3
-  const t0 = now - back;
-  const X = (t) => x0 + ((t - t0) / span) * w;
-  // bar + beat grid
-  for (let b = Math.floor(t0 * 4) / 4; b <= t0 + span; b += 0.25) {
-    const bar = Math.abs(b - Math.round(b)) < 1e-6;
-    g.strokeStyle = bar ? '#2f3443' : '#181b23';
-    g.beginPath(); g.moveTo(X(b) + 0.5, y0); g.lineTo(X(b) + 0.5, y0 + h); g.stroke();
-    if (bar && isPlaying()) { g.fillStyle = '#4a5063'; g.font = '10px ui-monospace, monospace'; g.fillText(String(Math.round(b) + 1), X(b) + 3, y0 + 11); }
-  }
-  const haps = vizHaps().filter((n) => n.e > t0 && n.b < t0 + span);
-  if (!haps.length) {
-    g.fillStyle = '#4a5063';
-    g.font = '12px system-ui, sans-serif';
-    g.fillText(isPlaying() ? 'nothing playing in this pattern' : 'press ▶ Play to see the music', x0 + 12, y0 + h / 2);
-    return;
-  }
-  const pitched = haps.filter((n) => Number.isFinite(n.midi));
-  const lanes = [...new Set(haps.filter((n) => !Number.isFinite(n.midi)).map((n) => n.name))].sort();
-  const laneH = lanes.length ? Math.max(6, Math.min(14, (h * (pitched.length ? 0.4 : 0.92)) / lanes.length)) : 0;
-  const drumsH = laneH * lanes.length;
-  const pitchH = h - drumsH - (lanes.length && pitched.length ? 6 : 0) - 14;
-  const lo = pitched.length ? Math.min(...pitched.map((n) => n.midi)) - 2 : 0;
-  const hi = pitched.length ? Math.max(...pitched.map((n) => n.midi)) + 2 : 1;
-  const rowH = pitched.length ? Math.max(2, Math.min(10, pitchH / (hi - lo + 1))) : 0;
-  const Y = (m) => y0 + 14 + (pitchH - rowH) * (1 - (m - lo) / Math.max(1, hi - lo));
-  const alpha = (n) => (n.b <= now && now < n.e ? 1 : n.e <= now ? 0.35 : 0.6);
-  for (const n of pitched) {
-    g.globalAlpha = alpha(n);
-    g.fillStyle = vizColor(n.s);
-    g.fillRect(X(n.b) + 1, Y(n.midi), Math.max(2, X(n.e) - X(n.b) - 2), rowH);
-  }
-  const dy = y0 + h - drumsH;
-  lanes.forEach((name, k) => {
-    const y = dy + k * laneH;
-    g.globalAlpha = 1;
-    g.fillStyle = k % 2 ? '#101218' : '#0d0f14';
-    g.fillRect(x0, y, w, laneH);
-    for (const n of haps) {
-      if (n.name !== name) continue;
-      g.globalAlpha = alpha(n);
-      g.fillStyle = vizColor(n.s);
-      g.fillRect(X(n.b) + 1, y + 1, Math.max(3, Math.min(X(n.e) - X(n.b) - 2, 10)), laneH - 2);
-    }
-    g.globalAlpha = 0.85;
-    g.fillStyle = '#8b90a0';
-    g.font = `${Math.min(10, laneH)}px ui-monospace, monospace`;
-    g.fillText(name, x0 + 3, y + laneH - 2);
-  });
-  g.globalAlpha = 1;
-  g.strokeStyle = '#ffd166';
-  g.beginPath(); g.moveTo(X(now) + 0.5, y0); g.lineTo(X(now) + 0.5, y0 + h); g.stroke();
-}
-
-/** Fills viz.waveL / viz.waveR; a mono output (silent right channel) is mirrored to both. */
-function vizStereo() {
-  if (!vizAnalyser()) return false;
-  viz.left.getFloatTimeDomainData(viz.waveL);
-  viz.right.getFloatTimeDomainData(viz.waveR);
-  if (!viz.waveR.some((v) => v !== 0)) viz.waveR.set(viz.waveL);
-  return true;
-}
-/** Log-spaced band levels 0..1 (30 Hz – 16 kHz). */
-function vizBands(n) {
-  const an = vizAnalyser();
-  if (!an) return null;
-  an.getByteFrequencyData(viz.freq);
-  const bins = viz.freq.length, nyq = an.context.sampleRate / 2;
-  const fLo = Math.log(30), fHi = Math.log(Math.min(16000, nyq));
-  const out = new Float32Array(n);
-  for (let k = 0; k < n; k++) {
-    const fa = Math.exp(fLo + ((fHi - fLo) * k) / n), fb = Math.exp(fLo + ((fHi - fLo) * (k + 1)) / n);
-    const ia = Math.floor((fa / nyq) * bins), ib = Math.max(ia + 1, Math.floor((fb / nyq) * bins));
-    let v = 0;
-    for (let i = ia; i < ib && i < bins; i++) v = Math.max(v, viz.freq[i]);
-    out[k] = v / 255;
-  }
-  return out;
-}
-const vizLabel = (g, text, x, y) => { g.fillStyle = '#4a5063'; g.font = '10px ui-monospace, monospace'; g.fillText(text, x + 4, y + 11); };
-
-function drawSpectrum(g, x0, y0, w, h) {
-  const bars = Math.max(16, Math.floor(w / 5));
-  const lv = vizBands(bars);
-  if (!lv) return;
-  for (let k = 0; k < bars; k++) {
-    const bh = lv[k] * h;
-    g.fillStyle = `hsl(${250 - (k / bars) * 90}, 80%, ${45 + lv[k] * 25}%)`;
-    g.fillRect(x0 + (k * w) / bars, y0 + h - bh, w / bars - 1, bh);
-  }
-}
-
-/** Index of a rising zero crossing, so periodic waves stand still. */
-function zeroCross(buf) {
-  for (let i = 1; i < buf.length / 2; i++) if (buf[i - 1] < 0 && buf[i] >= 0) return i;
-  return 0;
-}
-function traceWave(g, buf, s0, x0, y0, w, h, color) {
-  const n = buf.length / 2;
-  g.strokeStyle = color;
-  g.lineWidth = 1.5;
-  g.beginPath();
-  for (let i = 0; i < n; i++) {
-    const x = x0 + (i / n) * w, y = y0 + h / 2 - buf[s0 + i] * (h / 2) * 0.9;
-    i ? g.lineTo(x, y) : g.moveTo(x, y);
-  }
-  g.stroke();
-  g.lineWidth = 1;
-}
-function drawScope(g, x0, y0, w, h) {
-  const an = vizAnalyser();
-  if (!an) return;
-  an.getFloatTimeDomainData(viz.wave);
-  g.strokeStyle = '#1d2029';
-  g.beginPath(); g.moveTo(x0, y0 + h / 2); g.lineTo(x0 + w, y0 + h / 2); g.stroke();
-  traceWave(g, viz.wave, zeroCross(viz.wave), x0, y0, w, h, '#20d3a6');
-}
-function drawStereoScope(g, x0, y0, w, h) {
-  if (!vizStereo()) return;
-  const s0 = zeroCross(viz.waveL);
-  for (const [buf, y, c, name] of [[viz.waveL, y0, '#20d3a6', 'L'], [viz.waveR, y0 + h / 2, '#7c5cff', 'R']]) {
-    g.strokeStyle = '#1d2029';
-    g.beginPath(); g.moveTo(x0, y + h / 4); g.lineTo(x0 + w, y + h / 4); g.stroke();
-    traceWave(g, buf, s0, x0, y, w, h / 2, c);
-    vizLabel(g, name, x0, y);
-  }
-}
-/** Vectorscope: mid (L+R) up, side (L−R) across — mono is a vertical line, wide stereo a cloud. */
-function drawVectorscope(g, x0, y0, w, h) {
-  if (!vizStereo()) return;
-  const r = Math.min(w, h) / 2 - 6, cx = x0 + w / 2, cy = y0 + h / 2;
-  g.strokeStyle = '#1d2029';
-  g.beginPath(); g.arc(cx, cy, r, 0, Math.PI * 2); g.moveTo(cx - r, cy); g.lineTo(cx + r, cy); g.moveTo(cx, cy - r); g.lineTo(cx, cy + r); g.stroke();
-  g.fillStyle = 'rgba(32, 211, 166, .55)';
-  const L = viz.waveL, R = viz.waveR;
-  for (let i = 0; i < L.length; i += 2) {
-    const side = (L[i] - R[i]) * 0.707, mid = (L[i] + R[i]) * 0.707;
-    g.fillRect(cx + Math.max(-1, Math.min(1, side)) * r, cy - Math.max(-1, Math.min(1, mid)) * r, 1.5, 1.5);
-  }
-  vizLabel(g, 'vector', x0, y0);
-}
-/** Scrolling spectrogram (time → right, low notes at the bottom). */
-function drawSpectrogram(g, x0, y0, w, h) {
-  const rows = Math.max(32, Math.min(160, Math.floor(h / 2)));
-  const lv = vizBands(rows);
-  if (!lv) return;
-  const dpr = devicePixelRatio || 1;
-  const W = Math.round(w * dpr), H = Math.round(h * dpr);
-  let c = viz.specCanvas;
-  if (!c || c.width !== W || c.height !== H) {
-    c = viz.specCanvas = document.createElement('canvas');
-    c.width = W; c.height = H;
-    const sg = c.getContext('2d');
-    sg.fillStyle = '#0b0c10';
-    sg.fillRect(0, 0, W, H);
-  }
-  const sg = c.getContext('2d');
-  const step = Math.max(1, Math.round(2 * dpr));
-  sg.drawImage(c, -step, 0);
-  for (let k = 0; k < rows; k++) {
-    const v = lv[k];
-    sg.fillStyle = v < 0.02 ? '#0b0c10' : `hsl(${260 - v * 220}, 85%, ${8 + v * 55}%)`;
-    const y = H - ((k + 1) * H) / rows;
-    sg.fillRect(W - step, Math.floor(y), step, Math.ceil(H / rows) + 1);
-  }
-  g.drawImage(c, x0, y0, w, h);
-}
-/** Circular spectrum around a waveform ring. */
-function drawRadial(g, x0, y0, w, h) {
-  const n = 96;
-  const lv = vizBands(n);
-  if (!lv) return;
-  const cx = x0 + w / 2, cy = y0 + h / 2, r0 = Math.min(w, h) * 0.22, rMax = Math.min(w, h) / 2 - 4;
-  g.lineWidth = Math.max(1.5, (2 * Math.PI * r0) / n - 1.5);
-  for (let k = 0; k < n; k++) {
-    const a = (k / n) * Math.PI * 2 - Math.PI / 2, len = lv[k] * (rMax - r0);
-    g.strokeStyle = `hsl(${(k / n) * 300 + 200}, 80%, ${45 + lv[k] * 25}%)`;
-    g.beginPath();
-    g.moveTo(cx + Math.cos(a) * r0, cy + Math.sin(a) * r0);
-    g.lineTo(cx + Math.cos(a) * (r0 + len), cy + Math.sin(a) * (r0 + len));
-    g.stroke();
-  }
-  g.lineWidth = 1.5;
-  viz.analyser.getFloatTimeDomainData(viz.wave);
-  g.strokeStyle = '#e6e8ee';
-  g.beginPath();
-  const m = 256, s0 = zeroCross(viz.wave);
-  for (let i = 0; i <= m; i++) {
-    const a = (i / m) * Math.PI * 2 - Math.PI / 2, rr = r0 * (0.75 + viz.wave[s0 + i * 2] * 0.5);
-    i ? g.lineTo(cx + Math.cos(a) * rr, cy + Math.sin(a) * rr) : g.moveTo(cx + Math.cos(a) * rr, cy + Math.sin(a) * rr);
-  }
-  g.stroke();
-  g.lineWidth = 1;
-}
-/** L/R level meters: RMS bar, peak tick with hold, dB scale. */
-function drawMeters(g, x0, y0, w, h) {
-  if (!vizStereo()) return;
-  const db = (v) => (v > 0 ? 20 * Math.log10(v) : -96);
-  const norm = (d) => Math.max(0, Math.min(1, (d + 48) / 48)); // −48 dB … 0 dB
-  viz.peaks ||= [0, 0];
-  const now = performance.now();
-  const bw = Math.min(46, (w - 50) / 2);
-  [viz.waveL, viz.waveR].forEach((buf, ch) => {
-    let sum = 0, pk = 0;
-    for (const v of buf) { sum += v * v; pk = Math.max(pk, Math.abs(v)); }
-    const rms = norm(db(Math.sqrt(sum / buf.length))), peak = norm(db(pk));
-    const hold = viz.peaks[ch];
-    viz.peaks[ch] = peak >= hold ? peak : Math.max(peak, hold - (now - (viz.peakT || now)) / 2500);
-    const x = x0 + 30 + ch * (bw + 10);
-    const grd = g.createLinearGradient(0, y0 + h, 0, y0);
-    grd.addColorStop(0, '#20d3a6'); grd.addColorStop(0.75, '#ffd166'); grd.addColorStop(1, '#ff5c7a');
-    g.fillStyle = '#16181f';
-    g.fillRect(x, y0 + 4, bw, h - 8);
-    g.fillStyle = grd;
-    g.fillRect(x, y0 + 4 + (h - 8) * (1 - rms), bw, (h - 8) * rms);
-    g.fillStyle = '#e6e8ee';
-    g.fillRect(x, y0 + 4 + (h - 8) * (1 - viz.peaks[ch]), bw, 2);
-    vizLabel(g, ch ? 'R' : 'L', x + bw / 2 - 8, y0 + h - 16);
-  });
-  viz.peakT = now;
-  g.fillStyle = '#4a5063';
-  g.font = '9px ui-monospace, monospace';
-  for (const d of [0, -6, -12, -24, -36, -48]) g.fillText(String(d), x0 + 2, y0 + 8 + (h - 8) * (1 - norm(d)));
-}
-
-const VIZ_MODES = {
-  roll: (g, w, h) => drawRoll(g, 0, 0, w, h),
-  spectrum: (g, w, h) => drawSpectrum(g, 0, 0, w, h),
-  scope: (g, w, h) => drawScope(g, 0, 0, w, h),
-  stereo: (g, w, h) => drawStereoScope(g, 0, 0, w, h),
-  vector: (g, w, h) => drawVectorscope(g, 0, 0, w, h),
-  spectrogram: (g, w, h) => drawSpectrogram(g, 0, 0, w, h),
-  radial: (g, w, h) => drawRadial(g, 0, 0, w, h),
-  meters: (g, w, h) => drawMeters(g, 0, 0, w, h),
-  all: (g, w, h) => {
-    const sh = Math.max(30, Math.round(h * 0.28));
-    drawRoll(g, 0, 0, w, h - sh - 2);
-    drawSpectrum(g, 0, h - sh, w, sh);
-  },
-  rollscope: (g, w, h) => {
-    const sh = Math.max(30, Math.round(h * 0.32));
-    drawRoll(g, 0, 0, w, h - sh - 2);
-    drawScope(g, 0, h - sh, w, sh);
-  },
-  dashboard: (g, w, h) => {
-    // scope | spectrum | vectorscope | meters, side by side
-    const vw = Math.min(h, w * 0.22), mw = Math.min(110, w * 0.12);
-    const rest = w - vw - mw - 12, sw = rest / 2;
-    drawScope(g, 0, 0, sw - 4, h);
-    drawSpectrum(g, sw, 0, sw - 4, h);
-    drawVectorscope(g, rest + 4, 0, vw, h);
-    drawMeters(g, rest + vw + 12, 0, mw, h);
-    g.strokeStyle = '#1d2029';
-    for (const x of [sw - 2, rest + 2, rest + vw + 8]) { g.beginPath(); g.moveTo(x, 0); g.lineTo(x, h); g.stroke(); }
-  },
-};
-
-function drawViz() {
-  if (!viz.on) return;
-  viz.raf = requestAnimationFrame(drawViz);
-  const c = $('vizCanvas');
-  const w = c.clientWidth, h = c.clientHeight;
-  if (!w || !h) return;
-  const dpr = devicePixelRatio || 1;
-  if (c.width !== Math.round(w * dpr) || c.height !== Math.round(h * dpr)) { c.width = Math.round(w * dpr); c.height = Math.round(h * dpr); }
-  const g = c.getContext('2d');
-  g.setTransform(dpr, 0, 0, dpr, 0, 0);
-  g.clearRect(0, 0, w, h);
-  (VIZ_MODES[$('vizMode').value] || VIZ_MODES.all)(g, w, h);
-}
-
+// (features/part-visuals.js)
+// (features/song-writer.js)
+setup_song_lists(); // features/song-lists.js
+setup_stations(); // features/stations.js
+setup_visualizer(); // features/visualizer.js
 // ---------------------------------------------------------------------------
 // Docks: the visualizer, keyboard, pads and console are workspace panels; their
 // header buttons open / close them.
 // ---------------------------------------------------------------------------
-const docks = {};
-function setupDock(name, { onShow, onHide } = {}) {
+export const docks = {};
+export function setupDock(name, { onShow, onHide } = {}) {
   const btn = $(`${name}Btn`);
   const d = { name, el: $(`${name}-dock`), on: ws.isOpen(name) };
   d.show = (on) => (on ? ws.open(name) : ws.close(name));
   btn.onclick = () => ws.toggle(name);
   ws.on(name, {
-    onOpen: (o) => { d.on = o; btn.classList.toggle('on', o); lastMixerKey = ''; },
+    onOpen: (o) => { d.on = o; btn.classList.toggle('on', o); resetLineControls(); },
     onVisible: (v) => (v ? onShow : onHide)?.(),
   });
   docks[name] = d;
@@ -4091,683 +1544,10 @@ function setupDock(name, { onShow, onHide } = {}) {
 
 if (load().vizMode) $('vizMode').value = load().vizMode;
 $('vizMode').onchange = () => save({ vizMode: $('vizMode').value });
-// ---------------------------------------------------------------------------
-// 🌀 Hydra: live video-synth visuals behind the code (Strudel's initHydra({ feedStrudel: 1 }) — s0 is Strudel's
-// own visuals). Presets or your own Hydra code; the code area turns see-through while it runs.
-// ---------------------------------------------------------------------------
-const HYDRA_PRESETS = {
-  kaleido: 'src(s0).kaleid(H("<4 5 6>"))\n  .diff(osc(1, 0.5, 5))\n  .modulateScale(osc(2, -0.25, 1))\n  .out()',
-  tunnel: 'src(o0).scale(1.02).rotate(0.006)\n  .blend(src(s0).kaleid(H("<3 4 6>")), 0.25)\n  .modulate(osc(4, 0.1, 1), 0.02)\n  .out()',
-  waves: 'osc(18, 0.03, 1.1).color(0.6, 0.25, 0.9)\n  .modulate(noise(2.5), 0.25)\n  .diff(src(s0))\n  .out()',
-  voronoi: 'voronoi(H("<6 8 12>"), 0.3, 0.4)\n  .mult(osc(10, 0.08, 1.4))\n  .modulate(src(s0), 0.3)\n  .out()',
-  feedback: 'src(o0).modulateHue(src(o0).scale(1.01), 1)\n  .layer(src(s0).luma(0.15))\n  .out()',
-};
-const hydraState = { on: false, mode: load().hydraMode || 'off', custom: load().hydraCustom || HYDRA_PRESETS.kaleido };
-const hydraCodeFor = (mode) => (mode === 'custom' ? hydraState.custom : HYDRA_PRESETS[mode]);
-async function runHydra(mode = hydraState.mode) {
-  hydraState.mode = mode;
-  $('hydraMode').value = mode;
-  if (mode === 'off') return stopHydra();
-  try {
-    if (typeof globalThis.initHydra !== 'function') throw new Error('Hydra is not available in this Strudel build');
-    await globalThis.initHydra({ feedStrudel: 1, src: '/vendor/hydra/hydra-synth.js' });
-    new Function(hydraCodeFor(mode))(); // Hydra's functions (osc, src, s0, o0 …) and Strudel's H() are globals
-    hydraState.on = true;
-    document.body.classList.add('hydra-on');
-    applyHydraMix();
-    $('hydraMsg').textContent = '▶ running';
-  } catch (e) {
-    $('hydraMsg').textContent = `⚠ ${e.message}`;
-    clog('warn', `🌀 Hydra: ${e.message}`);
-  }
-}
-function stopHydra() {
-  try { globalThis.solid?.(0, 0, 0, 0).out(); } catch {}
-  document.getElementById('hydra-canvas')?.remove();
-  try { globalThis.getDrawContext?.().canvas.style.removeProperty('display'); } catch {} // feedStrudel hid Strudel's own canvas
-  hydraState.on = false;
-  document.body.classList.remove('hydra-on');
-}
-function applyHydraMix() {
-  const c = document.getElementById('hydra-canvas');
-  if (c) c.style.opacity = $('hydraMix').value;
-}
-$('hydraMode').value = hydraState.mode;
-$('hydraMix').value = load().hydraMix ?? 0.6;
-$('hydraMode').onchange = () => { save({ hydraMode: $('hydraMode').value }); if ($('hydraMode').value !== 'custom' && $('hydraMode').value !== 'off') $('hydraCode').value = hydraCodeFor($('hydraMode').value); runHydra($('hydraMode').value); };
-$('hydraMix').oninput = () => { applyHydraMix(); save({ hydraMix: Number($('hydraMix').value) }); };
-$('hydraEdit').onclick = () => {
-  $('hydraEditor').hidden = !$('hydraEditor').hidden;
-  if (!$('hydraEditor').hidden) $('hydraCode').value = hydraCodeFor(hydraState.mode === 'off' ? 'custom' : hydraState.mode) || hydraState.custom;
-};
-$('hydraApply').onclick = () => {
-  hydraState.custom = $('hydraCode').value;
-  save({ hydraCustom: hydraState.custom, hydraMode: 'custom' });
-  runHydra('custom');
-};
-// Hydra needs Strudel loaded: start the saved mode once the editor is ready
-if (hydraState.mode !== 'off') {
-  const wait = setInterval(() => { if (typeof globalThis.initHydra === 'function' && mirror()) { clearInterval(wait); runHydra(); } }, 500);
-}
-
-setupDock('viz', {
-  onShow: () => { viz.on = true; cancelAnimationFrame(viz.raf); drawViz(); },
-  onHide: () => { viz.on = false; cancelAnimationFrame(viz.raf); },
-});
-
-// ---------------------------------------------------------------------------
-// About: version, recent changes (from CHANGELOG.md) and project links.
-// ---------------------------------------------------------------------------
-/** Tiny renderer for the changelog: "## x.y.z" headings, "- " bullets, **bold**, `code`. */
-function renderChangelog(md, versions = 3) {
-  const inline = (t) => esc(t).replace(/\*\*(.+?)\*\*/g, '<b>$1</b>').replace(/`([^`]+)`/g, '<code>$1</code>');
-  const parts = md.split(/^## /m).slice(1, versions + 1);
-  if (!parts.length) return '<p class="muted">No changelog available.</p>';
-  return parts.map((p) => {
-    const [head, ...lines] = p.split('\n');
-    let html = `<h4>${head.trim() === APP_VERSION ? `v${esc(head.trim())} <span class="tag">this version</span>` : 'v' + esc(head.trim())}</h4><ul>`;
-    let item = null;
-    const flush = () => { if (item !== null) html += `<li>${inline(item)}</li>`; item = null; };
-    for (const l of lines) {
-      const m = l.match(/^\s*- (.*)$/);
-      if (m && !/^\s{2,}-/.test(l)) { flush(); item = m[1]; }
-      else if (m) { flush(); html += `<li class="sub">${inline(m[1])}</li>`; }
-      else if (l.trim() && item !== null) item += ' ' + l.trim();
-    }
-    flush();
-    return html + '</ul>';
-  }).join('');
-}
-
-async function openAbout() {
-  const dlg = $('aboutDlg');
-  $('aboutVersion').textContent = 'v' + APP_VERSION;
-  $('aboutBuild').textContent = `build ${APP_BUILD}`;
-  if (!dlg.open) dlg.showModal();
-  try {
-    const a = await fetch('/api/about', { cache: 'no-cache' }).then((r) => r.json());
-    const repo = a.repo || 'https://github.com/eric256/strudel-ai';
-    $('aboutRepo').href = repo;
-    $('aboutIssues').href = repo + '/issues';
-    $('aboutReleases').href = repo + '/releases';
-    $('aboutChangelog').href = repo + '/blob/main/CHANGELOG.md';
-    if (a.version && a.version !== APP_VERSION) $('aboutBuild').textContent += ` · v${a.version} is deployed — it loads when you stop`;
-    $('aboutChanges').innerHTML = renderChangelog(a.changelog || '');
-  } catch (e) {
-    $('aboutChanges').textContent = `Couldn't load the changelog: ${e.message}`;
-  }
-}
-$('aboutBtn').onclick = openAbout;
-$('appVersion').onclick = openAbout;
-$('aboutClose').onclick = () => $('aboutDlg').close();
-$('aboutDlg').addEventListener('click', (e) => { if (e.target === $('aboutDlg')) $('aboutDlg').close(); }); // click outside
-
-// ---------------------------------------------------------------------------
-// ⚙ Settings: live edit, fade, autocomplete, song forms, stations, backup.
-// Everything is kept in localStorage (STORE_KEY), so it survives reloads and updates.
-// ---------------------------------------------------------------------------
-function openSettings(sec = 'setGeneral') {
-  for (const b of document.querySelectorAll('.settings-tabs button')) b.classList.toggle('active', b.dataset.sec === sec);
-  for (const el of document.querySelectorAll('.settings-sec')) el.hidden = el.id !== sec;
-  if (sec === 'setForms') renderFormsEditor();
-  if (sec === 'setBands') renderBandsEditor();
-  if (sec === 'setStations') renderStations();
-  if (sec === 'setPrompts') renderPromptEditor();
-  $('settingsMsg').textContent = '';
-  if (!$('settingsDlg').open) $('settingsDlg').showModal();
-}
-$('settingsBtn').onclick = () => openSettings();
-$('settingsClose').onclick = () => $('settingsDlg').close();
-$('settingsDlg').addEventListener('click', (e) => { if (e.target === $('settingsDlg')) $('settingsDlg').close(); });
-for (const b of document.querySelectorAll('.settings-tabs button')) b.onclick = () => openSettings(b.dataset.sec);
-for (const b of document.querySelectorAll('.stations-edit')) b.onclick = () => openSettings('setStations');
-$('settingsExport').onclick = () => {
-  const blob = new Blob([JSON.stringify({ app: 'strudel-ai', version: APP_VERSION, exported: new Date().toISOString(), settings: load(), mySongs: mySongs.map(songToJSON) }, null, 2)], { type: 'application/json' });
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = `strudel-ai-settings-${new Date().toISOString().slice(0, 10)}.json`;
-  a.click();
-  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
-  $('settingsMsg').textContent = '✓ exported';
-};
-$('settingsImport').onchange = async () => {
-  const f = $('settingsImport').files[0];
-  if (!f) return;
-  try {
-    const j = JSON.parse(await f.text());
-    const st = j.settings || j;
-    if (!st || typeof st !== 'object' || Array.isArray(st)) throw new Error('not a settings file');
-    if (!confirm('Replace this browser\'s settings, forms, stations and pads with the ones in this file?')) return;
-    localStorage.setItem(STORE_KEY, JSON.stringify(st));
-    forgetStore();
-    if (Array.isArray(j.mySongs)) localStorage.setItem(MY_SONGS_KEY, JSON.stringify(j.mySongs));
-    saveSession();
-    location.reload();
-  } catch (e) {
-    $('settingsMsg').textContent = `⚠ couldn't import: ${e.message}`;
-  }
-};
-$('settingsReset').onclick = () => {
-  if (!confirm('Reset everything this browser has saved (settings, forms, stations, pads, layout and your code)?')) return;
-  try { localStorage.removeItem(STORE_KEY); } catch {}
-  forgetStore();
-  location.reload();
-};
-
-// --- 📝 Prompts: the built-in system prompts, and the user's own versions (sent with each request)
-let builtinPrompts = null;
-const loadBuiltinPrompts = async () => (builtinPrompts ||= await fetch('/api/prompts').then((r) => r.json()).catch(() => ({})));
-/** The user's version of the system prompt for this kind of request, or null for the built-in one. */
-function promptOverride(mode) {
-  const own = load().prompts?.[mode];
-  return typeof own === 'string' && own.trim() ? own : null;
-}
-async function renderPromptEditor() {
-  const mode = $('promptSelect').value;
-  const builtin = (await loadBuiltinPrompts())[mode] ?? '';
-  const own = promptOverride(mode);
-  $('promptText').value = own ?? builtin;
-  $('promptState').textContent = own ? '✎ your version (used instead of the built-in one)' : 'built-in';
-  $('promptReset').hidden = !own;
-}
-$('promptSelect').onchange = renderPromptEditor;
-$('promptText').oninput = async () => {
-  const mode = $('promptSelect').value;
-  const builtin = (await loadBuiltinPrompts())[mode] ?? '';
-  const prompts = { ...(load().prompts || {}) };
-  const v = $('promptText').value;
-  if (!v.trim() || v === builtin) delete prompts[mode]; else prompts[mode] = v;
-  save({ prompts });
-  $('promptState').textContent = prompts[mode] ? '✎ your version (used instead of the built-in one)' : 'built-in';
-  $('promptReset').hidden = !prompts[mode];
-};
-$('promptReset').onclick = () => {
-  const prompts = { ...(load().prompts || {}) };
-  delete prompts[$('promptSelect').value];
-  save({ prompts });
-  renderPromptEditor();
-};
-
-// --- the AI settings summary under the chat
-function renderAISummary() {
-  const model = $('model').selectedOptions[0]?.textContent || 'default model';
-  const own = Object.keys(load().prompts || {}).length;
-  const claude = state.config?.providers?.[$('provider').value]?.kind === 'anthropic';
-  $('aiSummary').textContent = `🤖 ${model} · ${claude ? `effort ${$('claudeEffort').value}` : `temp ${$('temp').value}`}${$('autoApply').checked ? '' : ' · manual apply'}${own ? ` · ${own} custom prompt${own > 1 ? 's' : ''}` : ''}`;
-}
-for (const id of ['model', 'provider', 'temp', 'autoApply', 'claudeEffort']) $(id).addEventListener('change', renderAISummary);
-$('claudeEffort').addEventListener('change', () => save({ claudeEffort: $('claudeEffort').value }));
-$('temp').addEventListener('input', renderAISummary);
-$('aiSummary').onclick = () => openSettings('setAI');
-setInterval(renderAISummary, 2000);
-renderAISummary();
-
-setupDock('console');
-
-// ---------------------------------------------------------------------------
-// 🎚 Mixer: a console with one channel per part of the WHOLE song (every part in the song sheet, plus any other
-// labelled line in the code), whether or not it plays in the current section.
-// Every labelled part plays on its own orbit (Strudel's output bus); the mixer puts a channel strip on that bus:
-//   orbit → EQ (high shelf 4 kHz · mid peak 1 kHz · low shelf 200 Hz, ±12 dB) → pan → fader → speakers
-//                                                                                   └→ meter / spectrum
-// Settings are kept per part name, so they apply whenever that part plays — this section, the next, the next song.
-// Nothing here touches the code; the code's own faders (.postgain) still work as a trim.
-// ---------------------------------------------------------------------------
-const MX_BANDS = [['high', 'highshelf', 4000], ['mid', 'peaking', 1000], ['low', 'lowshelf', 200]];
-const MX_DEFAULT = { vol: 1, pan: 0, high: 0, mid: 0, low: 0, mute: false, solo: false };
-const mixer = { ch: {}, orbits: {}, nextOrbit: 2, key: '', dragging: false };
-{ // settings from before (EQ only) carry over
-  const st = load();
-  for (const [base, e] of Object.entries(st.mixerEq || {})) mixer.ch[base] = { ...MX_DEFAULT, ...e };
-  Object.assign(mixer.ch, st.mixerCh || {});
-}
-const chOf = (base) => (mixer.ch[base] ||= { ...MX_DEFAULT });
-const saveMixer = (() => { let t; return () => { clearTimeout(t); t = setTimeout(() => save({ mixerCh: mixer.ch }), 300); }; })();
-/** Every labelled part gets its own orbit ("$:" lines share the default one). */
-function mixerOrbit(base) {
-  if (!base || base === '$') return null;
-  if (mixer.orbits[base] == null) mixer.orbits[base] = mixer.nextOrbit++;
-  return mixer.orbits[base];
-}
-window.__mixerTrap = () => installOrbitTrap();
-
-// Strudel turns "bass: …" into pattern.p('bass') and redefines Pattern.prototype.p on every evaluation:
-// trap that assignment so the label's pattern is routed to the part's orbit.
-function installOrbitTrap() {
-  const P = globalThis.Pattern || scheduler()?.pattern?.constructor;
-  if (!P?.prototype || P.__mixerTrap) return;
-  let inner = P.prototype.p;
-  Object.defineProperty(P.prototype, 'p', {
-    configurable: true,
-    get() {
-      return function (id) {
-        const o = typeof id === 'string' ? mixerOrbit(parseLabel(id).base) : null;
-        return inner.call(o != null && typeof this.orbit === 'function' ? this.orbit(o) : this, id);
-      };
-    },
-    set(fn) { inner = fn; },
-  });
-  P.__mixerTrap = true;
-}
-
-const sdController = () => { try { return globalThis.getSuperdoughAudioController(); } catch { return null; } };
-/** The channel strip on a part's orbit (built the first time, rebuilt if the audio engine was reset). */
-function channelNodes(base) {
-  const n = mixer.orbits[base];
-  const ctrl = sdController();
-  if (n == null || !ctrl) return null;
-  const orbit = ctrl.getOrbit(n, [0, 1]);
-  if (!orbit.__ch) {
-    const ac = orbit.audioContext;
-    const eq = MX_BANDS.map(([, type, f]) => new BiquadFilterNode(ac, { type, frequency: f, Q: type === 'peaking' ? 0.8 : 0.7, gain: 0 }));
-    const pan = new StereoPannerNode(ac, { pan: 0 });
-    const gain = new GainNode(ac, { gain: 1 });
-    const an = new AnalyserNode(ac, { fftSize: 1024, smoothingTimeConstant: 0.6 });
-    try { orbit.output.disconnect(); } catch {}
-    orbit.output.connect(eq[0]);
-    eq[0].connect(eq[1]);
-    eq[1].connect(eq[2]);
-    eq[2].connect(pan);
-    pan.connect(gain);
-    gain.connect(an);
-    ctrl.output.connectToDestination(gain, [0, 1]);
-    orbit.__ch = { high: eq[0], mid: eq[1], low: eq[2], pan, gain, an };
-  }
-  return orbit.__ch;
-}
-const anySolo = () => Object.values(mixer.ch).some((c) => c.solo);
-const audible = (base) => { const c = chOf(base); return !c.mute && (!anySolo() || c.solo); };
-function applyChannel(base) {
-  const nodes = channelNodes(base);
-  if (!nodes) return;
-  const c = chOf(base);
-  const t = nodes.gain.context.currentTime;
-  for (const [b] of MX_BANDS) nodes[b].gain.setTargetAtTime(Number(c[b]) || 0, t, 0.02);
-  nodes.pan.pan.setTargetAtTime(Number(c.pan) || 0, t, 0.02);
-  nodes.gain.gain.setTargetAtTime(audible(base) ? Number(c.vol) : 0, t, 0.015);
-}
-const applyAllChannels = () => { for (const base of Object.keys(mixer.orbits)) applyChannel(base); };
-// the audio engine creates orbits on the first note and can be reset: keep the strips in place
-setInterval(() => { if (isPlaying()) applyAllChannels(); }, 500);
-
-/** The master meter: an analyser on the main output. */
-function masterAnalyser() {
-  const ctrl = sdController();
-  const out = ctrl?.output?.destinationGain;
-  if (!out) return null;
-  if (out.__an?.context !== out.context) { out.__an = new AnalyserNode(out.context, { fftSize: 1024, smoothingTimeConstant: 0.6 }); out.connect(out.__an); }
-  return out.__an;
-}
-
-/** The channels: the song's parts (all of them, in the sheet's order) and every other labelled part in the code. */
-function mixerChannels() {
-  const code = getCode();
-  const rows = patternLines(code);
-  const sg = queue.running ? queue.songs[queue.current] : nowSong;
-  const out = [];
-  const add = (base, extra = {}) => { if (base && base !== '$' && !out.some((x) => x.base === base)) out.push({ base, ...extra }); };
-  for (const p of sg?.sheet?.parts || []) add(p.id, { role: p.role, sound: p.sound, song: true });
-  for (const r of rows) add(r.base);
-  for (const ch of out) {
-    const r = rows.find((x) => x.base === ch.base);
-    ch.inSection = !!r;
-    ch.codeMuted = !!r?.muted;
-  }
-  return out;
-}
-
-const dbText = (v) => (v <= 0.0001 ? '-∞' : `${(20 * Math.log10(v)).toFixed(1)}`);
-function renderMixerPanel() {
-  if (!docks.mixer?.on || mixer.dragging) return;
-  const chans = mixerChannels();
-  const key = JSON.stringify([chans, mixer.ch, $('masterGain').value]);
-  if (key === mixer.key) return;
-  mixer.key = key;
-  const slider = (cls, k, min, max, step, v, title, extra = '') => `<input type="range" class="${cls}" data-k="${k}" min="${min}" max="${max}" step="${step}" value="${v}" title="${title}" ${extra}/>`;
-  const strip = (ch) => {
-    const c = chOf(ch.base);
-    const off = !audible(ch.base);
-    return `<div class="mx-strip${ch.inSection ? '' : ' absent'}${off ? ' silenced' : ''}" style="--c:${vizColor(ch.base)}" data-base="${esc(ch.base)}">
-      <div class="mx-name" title="${esc(`${ch.base}${ch.role ? ` · ${ch.role}` : ''}${ch.sound ? ` · ${ch.sound}` : ''}`)}">${esc(ch.base)}</div>
-      <div class="mx-state">${ch.inSection ? (ch.codeMuted ? '<span class="cm" title="muted in the code (_label:)">muted in code</span>' : '<span class="on">● playing</span>') : '<span title="This part doesn’t play in the current section — its settings apply when it comes in">not in section</span>'}</div>
-      <canvas class="mx-eqviz" width="76" height="40" title="EQ curve over the channel's live spectrum"></canvas>
-      <div class="mx-eqs">${MX_BANDS.map(([b]) => `<label title="${b} ${b === 'mid' ? '(1 kHz peak)' : b === 'low' ? '(200 Hz shelf)' : '(4 kHz shelf)'} — double-click: 0 dB"><span>${b[0].toUpperCase()}</span>${slider('mx-h', b, -12, 12, 0.5, Number(c[b]) || 0, `${b}: ${c[b] || 0} dB`)}</label>`).join('')}
-        <label title="Pan — double-click: centre"><span>P</span>${slider('mx-h', 'pan', -1, 1, 0.05, Number(c.pan) || 0, `pan ${c.pan || 0}`)}</label></div>
-      <div class="mx-ms"><button data-mx="mute" class="m${c.mute ? ' on' : ''}" title="Mute this channel (whole song)">M</button><button data-mx="solo" class="s${c.solo ? ' on' : ''}" title="Solo this channel (whole song)">S</button></div>
-      <div class="mx-fader">${slider('mx-v mx-vol', 'vol', 0, 1.5, 0.01, c.vol, 'Channel fader — double-click: 0 dB')}<canvas class="mx-meter" width="10" height="100"></canvas></div>
-      <div class="mx-val">${dbText(c.vol)} dB</div>
-    </div>`;
-  };
-  const master = `<div class="mx-strip master" data-base="__master">
-      <div class="mx-name">master</div><div class="mx-state"><span>${isPlaying() ? '● on' : 'stopped'}</span></div>
-      <canvas class="mx-eqviz" width="76" height="40" title="Spectrum of the whole mix"></canvas>
-      <div class="mx-eqs"></div><div class="mx-ms"></div>
-      <div class="mx-fader">${slider('mx-v mx-vol', 'master', 0, 1.5, 0.01, $('masterGain').value, 'Master volume — double-click: 100%')}<canvas class="mx-meter" width="10" height="100"></canvas></div>
-      <div class="mx-val">${dbText(Number($('masterGain').value))} dB</div>
-    </div>`;
-  $('mixerStrips').innerHTML = (chans.length ? chans.map(strip).join('') : '<div class="muted small mx-empty">No parts yet: every part of the song, and every labelled line in the code (<code>drums: …</code>), gets a channel here.</div>') + master;
-}
-setupDock('mixer', {
-  onShow: () => { mixer.key = ''; renderMixerPanel(); cancelAnimationFrame(mixer.raf); drawMixer(); ws.minSize?.('mixer', 330); },
-  onHide: () => cancelAnimationFrame(mixer.raf),
-});
-{
-  const soon = onceAFrame(() => { mixer.key = ''; renderMixerPanel(); });
-  for (const e of ['section', 'song']) player.on(e, soon);
-  setInterval(renderMixerPanel, 1000);
-}
-
-// live visuals: an EQ curve over each channel's spectrum, and a level meter beside each fader
-const eqProbe = { freqs: null, nodes: null };
-function eqCurve(c, width) {
-  const ac = audioCtx();
-  if (!ac) return null;
-  if (!eqProbe.nodes) eqProbe.nodes = MX_BANDS.map(([, type, f]) => new BiquadFilterNode(ac, { type, frequency: f, Q: type === 'peaking' ? 0.8 : 0.7 }));
-  if (eqProbe.freqs?.length !== width) eqProbe.freqs = Float32Array.from({ length: width }, (_, i) => 20 * Math.pow(1000, i / (width - 1))); // 20 Hz … 20 kHz
-  const total = new Float32Array(width);
-  const mag = new Float32Array(width), ph = new Float32Array(width);
-  MX_BANDS.forEach(([b], i) => {
-    eqProbe.nodes[i].gain.value = Number(c[b]) || 0;
-    eqProbe.nodes[i].getFrequencyResponse(eqProbe.freqs, mag, ph);
-    for (let k = 0; k < width; k++) total[k] += 20 * Math.log10(mag[k] || 1e-6);
-  });
-  return total;
-}
-const levelOf = (an, buf) => {
-  an.getFloatTimeDomainData(buf);
-  let sum = 0, peak = 0;
-  for (let i = 0; i < buf.length; i++) { const v = Math.abs(buf[i]); sum += v * v; if (v > peak) peak = v; }
-  return { rms: Math.sqrt(sum / buf.length), peak };
-};
-function drawChannelSpectrum(g, an, w, h, color) {
-  const bins = new Uint8Array(an.frequencyBinCount);
-  an.getByteFrequencyData(bins);
-  const ny = an.context.sampleRate / 2;
-  g.beginPath();
-  g.moveTo(0, h);
-  for (let x = 0; x < w; x++) {
-    const f = 20 * Math.pow(1000, x / (w - 1));
-    const v = bins[Math.min(bins.length - 1, Math.round((f / ny) * bins.length))] / 255;
-    g.lineTo(x, h - v * h);
-  }
-  g.lineTo(w, h);
-  g.closePath();
-  g.fillStyle = color;
-  g.globalAlpha = 0.28;
-  g.fill();
-  g.globalAlpha = 1;
-}
-function drawMeter(cv, lvl) {
-  const g = cv.getContext('2d'), w = cv.width, h = cv.height;
-  g.fillStyle = '#0b0c10';
-  g.fillRect(0, 0, w, h);
-  const y = (v) => { const db = 20 * Math.log10(Math.max(v, 1e-5)); return h - Math.max(0, Math.min(1, (db + 60) / 60)) * h; }; // −60 … 0 dB
-  const top = y(lvl.rms);
-  const grad = g.createLinearGradient(0, h, 0, 0);
-  grad.addColorStop(0, '#20d3a6'); grad.addColorStop(0.75, '#20d3a6'); grad.addColorStop(0.88, '#ffd166'); grad.addColorStop(1, '#ff5c7a');
-  g.fillStyle = grad;
-  g.fillRect(1, top, w - 2, h - top);
-  cv.__hold = Math.min(cv.__hold ?? h, y(lvl.peak));
-  cv.__hold += 0.6; // the peak marker falls slowly
-  g.fillStyle = lvl.peak >= 0.99 ? '#ff5c7a' : '#e6e8ee';
-  g.fillRect(0, Math.min(h - 2, cv.__hold), w, 2);
-}
-function drawMixer() {
-  mixer.raf = requestAnimationFrame(drawMixer);
-  const buf = mixer.buf || (mixer.buf = new Float32Array(1024));
-  for (const el of document.querySelectorAll('#mixerStrips .mx-strip')) {
-    const base = el.dataset.base;
-    const isMaster = base === '__master';
-    const an = isMaster ? masterAnalyser() : mixer.orbits[base] != null ? sdController()?.nodes?.[mixer.orbits[base]]?.__ch?.an : null;
-    const color = getComputedStyle(el).getPropertyValue('--c') || '#7c5cff';
-    // EQ curve + spectrum
-    const cv = el.querySelector('.mx-eqviz');
-    if (cv) {
-      const g = cv.getContext('2d'), w = cv.width, h = cv.height;
-      g.fillStyle = '#0b0c10';
-      g.fillRect(0, 0, w, h);
-      g.strokeStyle = '#1d2029';
-      g.beginPath(); g.moveTo(0, h / 2); g.lineTo(w, h / 2); g.stroke();
-      if (an && isPlaying()) drawChannelSpectrum(g, an, w, h, isMaster ? '#7c5cff' : color);
-      if (!isMaster) {
-        const curve = eqCurve(chOf(base), w);
-        if (curve) {
-          g.strokeStyle = color;
-          g.lineWidth = 1.5;
-          g.beginPath();
-          for (let x = 0; x < w; x++) { const yv = h / 2 - (curve[x] / 15) * (h / 2); x ? g.lineTo(x, yv) : g.moveTo(x, yv); }
-          g.stroke();
-          g.lineWidth = 1;
-        }
-      }
-    }
-    const m = el.querySelector('.mx-meter');
-    if (m) drawMeter(m, an && isPlaying() ? levelOf(an, buf) : { rms: 0, peak: 0 });
-  }
-}
-
-function setChannel(base, k, v) {
-  chOf(base)[k] = v;
-  saveMixer();
-  if (k === 'solo' || k === 'mute') applyAllChannels(); else applyChannel(base);
-}
-$('mixerStrips').addEventListener('pointerdown', (e) => { if (e.target.matches('input[type=range]')) mixer.dragging = true; });
-window.addEventListener('pointerup', () => { if (mixer.dragging) { mixer.dragging = false; mixer.key = ''; } });
-$('mixerStrips').addEventListener('input', (e) => {
-  const t = e.target, base = t.closest('.mx-strip')?.dataset.base;
-  if (!base || !t.dataset.k) return;
-  const v = Number(t.value);
-  if (t.dataset.k === 'master') { $('masterGain').value = t.value; $('masterGain').oninput(); }
-  else setChannel(base, t.dataset.k, v);
-  if (t.dataset.k === 'vol' || t.dataset.k === 'master') t.closest('.mx-strip').querySelector('.mx-val').textContent = `${dbText(v)} dB`;
-  t.title = `${t.dataset.k}: ${t.value}`;
-});
-$('mixerStrips').addEventListener('dblclick', (e) => {
-  const t = e.target;
-  if (!t.matches('input[type=range]')) return;
-  t.value = t.dataset.k === 'vol' || t.dataset.k === 'master' ? 1 : 0;
-  t.dispatchEvent(new Event('input', { bubbles: true }));
-  mixer.key = '';
-});
-$('mixerStrips').addEventListener('click', (e) => {
-  const b = e.target.closest('button[data-mx]');
-  const base = b?.closest('.mx-strip')?.dataset.base;
-  if (!base) return;
-  const c = chOf(base);
-  if (b.dataset.mx === 'mute') { c.mute = !c.mute; if (c.mute) c.solo = false; }
-  else { c.solo = !c.solo; if (c.solo) c.mute = false; }
-  saveMixer();
-  applyAllChannels();
-  mixer.key = '';
-  renderMixerPanel();
-});
-$('mixerFlat').onclick = () => {
-  for (const c of Object.values(mixer.ch)) Object.assign(c, { ...MX_DEFAULT, vol: c.vol, mute: c.mute, solo: c.solo });
-  saveMixer();
-  applyAllChannels();
-  mixer.key = '';
-};
-$('mixerReset').onclick = () => {
-  mixer.ch = {};
-  saveMixer();
-  applyAllChannels();
-  mixer.key = '';
-};
-
-// ---------------------------------------------------------------------------
-// 🎛 Master: the mastering style on the whole mix (master.js), live like a mixer. Every song carries a style
-// ("master" in its sheet, picked by the songwriter or the band) and maybe its own tweaks; with "follow song" on,
-// the master glides to the song's style when the song starts. Moving a control changes the sound at once.
-// ---------------------------------------------------------------------------
-const MASTER_BYPASS = { ...MASTER_DEFAULTS, glue: 0 };
-const master = { chain: null, style: 'clean', params: null, follow: true, songKey: '', bypass: false, dragging: null, msg: '' };
-{
-  const st = load();
-  master.style = normStyle(st.masterStyle) || 'clean';
-  master.params = clampParams(st.masterParams || styleParams(master.style));
-  master.follow = st.masterFollow !== false;
-}
-const saveMaster = (() => { let t; return () => { clearTimeout(t); t = setTimeout(() => save({ masterStyle: master.style, masterParams: master.params, masterFollow: master.follow }), 300); }; })();
-/** The chain on Strudel's output (built the first time, rebuilt when the audio engine was reset). */
-function masterChain() {
-  const ctrl = sdController();
-  const merger = ctrl?.output?.channelMerger, dest = ctrl?.output?.destinationGain;
-  if (!merger || !dest) return null;
-  if (!merger.__master) {
-    const chain = createMaster(merger.context);
-    try { merger.disconnect(); } catch {}
-    merger.connect(chain.input);
-    chain.output.connect(dest);
-    chain.set(master.bypass ? MASTER_BYPASS : master.params, 0);
-    merger.__master = chain;
-  }
-  master.chain = merger.__master;
-  return master.chain;
-}
-window.__masterInstall = () => { try { masterChain(); } catch (e) { console.warn('master chain:', e); } };
-/** Set the master: some controls (live), or a whole style. ramp = seconds to glide. */
-function setMaster(params, ramp = 0.03) {
-  master.params = clampParams({ ...master.params, ...params });
-  if (!master.bypass) masterChain()?.set(master.params, ramp);
-  saveMaster();
-}
-function setMasterStyle(style, tweaks = null, ramp = 0.4) {
-  master.style = normStyle(style) || 'clean';
-  master.params = styleParams(master.style, tweaks);
-  if (!master.bypass) masterChain()?.set(master.params, ramp);
-  saveMaster();
-  syncMasterUI();
-}
-/** The song whose style the master follows: the one playing (or the last one that played). */
-const masterSong = () => (queue.running ? queue.songs[queue.current] : nowSong) || null;
-/** Keep the master in step with the player: installed, gated, the tempo for its echo, the song's style. */
-function masterTick() {
-  const playing = isPlaying();
-  if (!playing && !master.chain) return;
-  const chain = masterChain();
-  if (!chain) return;
-  chain.setRunning(playing);
-  const cps = scheduler()?.cps;
-  if (cps > 0) chain.setTempo(cps);
-  // follow the song: glide to its style when it starts (or when its style is edited)
-  const sg = playing ? masterSong() : null;
-  const key = sg?.sheet ? `${sg.title}|${songStyle(sg)}|${JSON.stringify(sg.sheet.masterParams || {})}` : '';
-  if (key && key !== master.songKey) {
-    master.songKey = key;
-    if (master.follow) {
-      setMasterStyle(songStyle(sg), sg.sheet.masterParams, 1.2);
-      clog('info', `🎛 master: ${master.style} for “${sg.title}”`);
-    }
-  }
-}
-for (const e of ['section', 'song', 'transport']) player.on(e, () => setTimeout(masterTick, 30)); // (after the new code is evaluated)
-setInterval(masterTick, 1000);
-
-function renderMasterPanel() {
-  $('masterStyle').innerHTML = STYLE_NAMES.map((n) => `<option value="${n}" title="${esc(MASTER_STYLES[n].desc)}">${n}</option>`).join('');
-  const groups = [...new Set(MASTER_PARAMS.map((d) => d.group))];
-  const ctl = (d) => `<div class="ms-ctl" title="${esc(d.title)} — double-click: the style's value">
-      <input type="range" class="mx-v ms-v" data-k="${d.key}" min="${d.min}" max="${d.max}" step="${d.step}" />
-      <span class="ms-val" data-v="${d.key}"></span><span class="ms-lbl">${d.label}</span></div>`;
-  $('masterBody').innerHTML = groups.map((g) => `<div class="ms-mod"><div class="ms-title">${g}</div><div class="ms-ctls">${MASTER_PARAMS.filter((d) => d.group === g).map(ctl).join('')}</div></div>`).join('') +
-    `<div class="ms-mod ms-scope"><div class="ms-title">Output <span class="ms-gr muted"></span></div>
-      <div class="ms-ctls"><canvas class="ms-spec" width="220" height="96" title="Spectrum of the mastered mix"></canvas>
-      <div class="ms-meters"><canvas class="ms-gr-meter" width="8" height="96" title="Glue compressor gain reduction (0 … −20 dB)"></canvas><canvas class="mx-meter ms-out" width="10" height="96" title="Output level"></canvas></div></div></div>`;
-  syncMasterUI();
-}
-const fmtMaster = (d, v) => (d.unit === 'dB' ? `${v > 0 ? '+' : ''}${v}` : d.key === 'time' ? `${Math.round(v * 16)}/16` : d.key === 'filter' ? (Math.abs(v) < 0.01 ? 'off' : v < 0 ? `LP ${Math.round(-v * 100)}` : `HP ${Math.round(v * 100)}`) : `${Math.round(v * 100)}`);
-function syncMasterUI() {
-  if (!$('masterBody').firstChild) return;
-  $('masterStyle').value = master.style;
-  $('masterFollow').checked = master.follow;
-  $('masterBypass').classList.toggle('on', master.bypass);
-  $('masterBypass').textContent = master.bypass ? 'bypassed — click to hear the style' : 'bypass';
-  const base = styleParams(master.style);
-  for (const d of MASTER_PARAMS) {
-    const v = master.params[d.key];
-    const inp = $('masterBody').querySelector(`input[data-k="${d.key}"]`);
-    if (inp && master.dragging !== d.key) inp.value = v;
-    const lab = $('masterBody').querySelector(`[data-v="${d.key}"]`);
-    if (lab) { lab.textContent = fmtMaster(d, v); lab.classList.toggle('changed', Math.abs(v - base[d.key]) > d.step / 2); }
-  }
-  const sg = masterSong();
-  const tweaked = Object.keys(diffParams(master.params, master.style)).length;
-  $('masterSong').textContent = master.msg || (sg?.sheet ? `“${sg.title}”: ${songStyle(sg)}${sg.sheet.masterParams && Object.keys(sg.sheet.masterParams).length ? ' (its own mix)' : ''}${songStyle(sg) !== master.style ? ` · now: ${master.style}` : ''}${tweaked ? ' · you changed ' + tweaked : ''}` : tweaked ? `${tweaked} control${tweaked > 1 ? 's' : ''} changed from the style` : MASTER_STYLES[master.style].desc);
-}
-setupDock('master', {
-  onShow: () => { if (!$('masterBody').firstChild) renderMasterPanel(); syncMasterUI(); cancelAnimationFrame(master.raf); drawMaster(); ws.minSize?.('master', 250); },
-  onHide: () => cancelAnimationFrame(master.raf),
-});
-setInterval(() => { if (docks.master?.on) syncMasterUI(); }, 1000);
-function drawMaster() {
-  master.raf = requestAnimationFrame(drawMaster);
-  const chain = master.chain, on = isPlaying() && chain;
-  const cv = $('masterBody').querySelector('.ms-spec');
-  if (cv) {
-    const g = cv.getContext('2d'), w = cv.width, h = cv.height;
-    g.fillStyle = '#0b0c10';
-    g.fillRect(0, 0, w, h);
-    g.strokeStyle = '#1d2029';
-    for (const f of [100, 1000, 10000]) { const x = (Math.log10(f / 20) / 3) * w; g.beginPath(); g.moveTo(x, 0); g.lineTo(x, h); g.stroke(); }
-    if (on) drawChannelSpectrum(g, chain.analyser, w, h, '#7c5cff');
-  }
-  const out = $('masterBody').querySelector('.ms-out');
-  if (out) drawMeter(out, on ? levelOf(chain.analyser, master.buf || (master.buf = new Float32Array(2048))) : { rms: 0, peak: 0 });
-  const gr = $('masterBody').querySelector('.ms-gr-meter');
-  if (gr) {
-    const g = gr.getContext('2d'), w = gr.width, h = gr.height;
-    const r = on ? chain.reduction() : { glue: 0, limit: 0 };
-    g.fillStyle = '#0b0c10';
-    g.fillRect(0, 0, w, h);
-    g.fillStyle = '#ffd166';
-    g.fillRect(1, 0, w - 2, Math.min(1, -r.glue / 20) * h); // gain reduction hangs from the top
-    const lab = $('masterBody').querySelector('.ms-gr');
-    if (lab && (master.grShown = (master.grShown || 0) + 1) % 10 === 0) lab.textContent = on ? `glue ${r.glue.toFixed(1)} dB · limit ${r.limit.toFixed(1)} dB` : '';
-  }
-}
-$('masterBody').addEventListener('pointerdown', (e) => { if (e.target.matches('input[type=range]')) master.dragging = e.target.dataset.k; });
-window.addEventListener('pointerup', () => { master.dragging = null; });
-$('masterBody').addEventListener('input', (e) => {
-  const k = e.target.dataset.k;
-  if (!k) return;
-  master.msg = '';
-  if (master.bypass) { master.bypass = false; }
-  setMaster({ [k]: Number(e.target.value) });
-  syncMasterUI();
-});
-$('masterBody').addEventListener('dblclick', (e) => {
-  const k = e.target.dataset?.k;
-  if (!k) return;
-  setMaster({ [k]: styleParams(master.style)[k] }, 0.1);
-  syncMasterUI();
-});
-$('masterStyle').onchange = () => { master.msg = ''; master.bypass = false; setMasterStyle($('masterStyle').value); };
-$('masterFollow').onchange = () => {
-  master.follow = $('masterFollow').checked;
-  saveMaster();
-  master.songKey = ''; // following again: take the playing song's style now
-};
-$('masterRevert').onclick = () => { master.msg = ''; setMasterStyle(master.style); };
-$('masterBypass').onclick = () => {
-  master.bypass = !master.bypass;
-  masterChain()?.set(master.bypass ? MASTER_BYPASS : master.params, 0.05);
-  syncMasterUI();
-};
-$('masterSave').onclick = () => {
-  const sg = masterSong() || songEdit.sg;
-  if (!sg?.sheet) { master.msg = 'play a song first: its style is saved in the song'; syncMasterUI(); return; }
-  sg.sheet.master = master.style;
-  const d = diffParams(master.params, master.style);
-  if (Object.keys(d).length) sg.sheet.masterParams = d; else delete sg.sheet.masterParams;
-  master.songKey = `${sg.title}|${songStyle(sg)}|${JSON.stringify(sg.sheet.masterParams || {})}`;
-  if (isMine(sg)) saveMySongs();
-  songsChanged();
-  renderSongs();
-  master.msg = `✓ saved in “${sg.title}”: ${master.style}${Object.keys(d).length ? ` + ${Object.keys(d).length} tweak${Object.keys(d).length > 1 ? 's' : ''}` : ''}${isMine(sg) ? '' : ' (📁 save the song to keep it)'}`;
-  syncMasterUI();
-  setTimeout(() => { master.msg = ''; }, 6000);
-};
-
+setup_hydra(); // features/hydra.js
+setup_settings(); // features/settings.js
+setup_mixer(); // features/mixer.js
+setup_master_panel(); // features/master-panel.js
 // ---------------------------------------------------------------------------
 // Status bar (bottom): bar.beat + tempo, the song / section playing, the pending
 // change, the recording, replay and update notices.
@@ -4792,919 +1572,16 @@ $('aiBudget').value = load().aiBudget ?? 2;
 $('aiBudget').oninput = () => save({ aiBudget: Math.max(0, Number($('aiBudget').value) || 0) });
 setInterval(() => { $('aiSpent').textContent = `${money(session.cost)} in ${session.requests} request${session.requests === 1 ? '' : 's'}`; }, 1000);
 
-// ---------------------------------------------------------------------------
-// 🎹 Keys: an on-screen keyboard (also the computer keyboard and MIDI keyboards)
-// that plays a sound live through Strudel's engine. ⏺ Rec captures what you play
-// on the bar grid and turns it into a note("…") part.
-// ---------------------------------------------------------------------------
-const keysState = { oct: Number(load().keysOct) || 4, rec: null, held: new Map(), kbd: new Map(), midiInputs: [], result: null };
-const KEY_LETTERS = { a: 0, w: 1, s: 2, e: 3, d: 4, f: 5, t: 6, g: 7, y: 8, h: 9, u: 10, j: 11, k: 12, o: 13, l: 14, p: 15, ';': 16 };
-const isBlack = (m) => [1, 3, 6, 8, 10].includes(((m % 12) + 12) % 12);
-
-function keysSounds() {
-  const reg = globalThis.soundMap?.get?.() || {};
-  const synths = Object.keys(reg).filter((k) => reg[k].data?.type === 'synth' && !['user', 'bus', 'one'].includes(k));
-  const fonts = Object.keys(reg).filter((k) => reg[k].data?.type === 'soundfont');
-  const samples = ['piano'].filter((k) => reg[k]);
-  return [...samples, ...synths, ...fonts];
-}
-function renderKeysSounds() {
-  const list = keysSounds();
-  const sel = $('keysSound');
-  if (sel.options.length === list.length + 1) return;
-  const want = sel.value || load().keysSound || (list.includes('piano') ? 'piano' : 'triangle');
-  sel.innerHTML = '<option value="__custom">✎ custom Strudel line…</option>' + (list.map((k) => `<option>${esc(k)}</option>`).join('') || '<option>triangle</option>');
-  sel.value = want === '__custom' || list.includes(want) ? want : sel.options[1].value;
-  showKeysTemplate();
-}
-function showKeysTemplate() {
-  const custom = $('keysSound').value === '__custom';
-  $('keysTemplate').hidden = !custom;
-  if (custom && !$('keysTemplate').value) $('keysTemplate').value = load().keysTemplate || 'note({note}).s("sawtooth").lpf(1600).decay(0.25).sustain(0.3).room(0.2)';
-}
-$('keysSound').onchange = () => { save({ keysSound: $('keysSound').value }); showKeysTemplate(); keysCompiled = null; };
-$('keysTemplate').oninput = () => { save({ keysTemplate: $('keysTemplate').value }); keysCompiled = null; };
-
-/** The sound as a Strudel line with a {note} placeholder: the chosen instrument, or the user's own line. */
-const keysTemplate = () => ($('keysSound').value === '__custom' ? $('keysTemplate').value.trim() : `note({note}).s("${$('keysSound').value || 'triangle'}")`) || 'note({note})';
-let keysCompiled = null; // { tpl, fn }
-/** Compile the template once into (note) → Pattern, the same way the editor reads code ("…" = mini-notation). */
-function keysPattern(noteName) {
-  const tpl = keysTemplate();
-  if (keysCompiled?.tpl !== tpl) {
-    if (!tpl.includes('{note}')) throw new Error('the line needs {note} where the played note goes');
-    const body = miniStrings(tpl.replace(/\{note\}/g, '__note')).replace(/\bslider\(/g, '__slider(');
-    keysCompiled = { tpl, fn: new Function('__slider', '__note', `"use strict"; return (${body});`) };
-  }
-  const pat = keysCompiled.fn((v) => v, globalThis.mini ? globalThis.mini(noteName) : noteName);
-  if (!pat?.queryArc) throw new Error('the line is not a Strudel pattern');
-  return pat;
-}
-
-function renderKeyboard() {
-  const lo = keysState.oct * 12 + 12; // c<oct>
-  const whites = [];
-  for (let m = lo; m <= lo + 24; m++) if (!isBlack(m)) whites.push(m);
-  const w = 100 / whites.length;
-  let html = '';
-  whites.forEach((m, i) => {
-    html += `<div class="key white" data-m="${m}" style="left:${i * w}%;width:${w}%"><span>${m % 12 === 0 ? midiToName(m) : ''}</span></div>`;
-  });
-  whites.forEach((m, i) => {
-    if (m + 1 <= lo + 24 && isBlack(m + 1)) html += `<div class="key black" data-m="${m + 1}" style="left:${(i + 0.68) * w}%;width:${w * 0.64}%"></div>`;
-  });
-  $('keysBoard').innerHTML = html;
-  $('keysOct').textContent = keysState.oct;
-}
-
-function keysCycle() {
-  // the cycle you HEAR right now (what you play along to), or time-based when nothing plays
-  const c = audibleCycle(0);
-  return c ?? (performance.now() - (keysState.rec?.t0 ?? performance.now())) / 1000 * cps();
-}
-/**
- * Strudel starts its audio engine on the first mouse-down; the keys use pointer events
- * (and the computer / MIDI keyboard send none), so start it ourselves before the first note.
- */
-function ensureAudio() {
-  keysState.audio ||= (async () => {
-    try { await globalThis.initAudio?.(); } catch {}
-    const ctx = audioCtx();
-    if (ctx.state !== 'running') await ctx.resume().catch(() => {});
-  })();
-  return keysState.audio;
-}
-async function keysPlay(midi, vel = 0.8) {
-  try {
-    await ensureAudio();
-    const ctx = audioCtx();
-    if (ctx.state !== 'running') await ctx.resume();
-    const c = cps() || 0.5;
-    const pat = keysPattern(midiToName(midi));
-    const haps = pat.queryArc(0, 1).filter((h) => h.whole && (!h.hasOnset || h.hasOnset())).slice(0, 16);
-    const t0 = ctx.currentTime + 0.03; // a little ahead: the engine drops notes "in the past"
-    const len = Number($('keysLen').value) / c; // live notes: the chosen length (you can't know the release yet)
-    for (const h of haps) {
-      const b = h.whole.begin.valueOf(), e = h.whole.end.valueOf();
-      const single = haps.length === 1 && b === 0 && e === 1;
-      const v = { ...h.value, velocity: (h.value.velocity ?? 1) * vel };
-      globalThis.superdough?.(v, t0 + b / c, single ? len : (e - b) / c, c);
-    }
-    $('keysInfo').classList.remove('bad');
-  } catch (e) {
-    $('keysInfo').textContent = `⚠ ${e.message}`;
-    $('keysInfo').classList.add('bad');
-    clog('error', `keys: ${e.message}`);
-  }
-}
-function noteOn(midi, vel = 0.8, src = 'ui') {
-  if (keysState.held.has(midi)) return;
-  keysState.held.set(midi, { c0: keysState.rec ? keysCycle() : null, src });
-  keysPlay(midi, vel);
-  $('keysBoard').querySelector(`.key[data-m="${midi}"]`)?.classList.add('down');
-}
-function noteOff(midi) {
-  const h = keysState.held.get(midi);
-  if (!h) return;
-  keysState.held.delete(midi);
-  $('keysBoard').querySelector(`.key[data-m="${midi}"]`)?.classList.remove('down');
-  if (keysState.rec && h.c0 != null) keysState.rec.notes.push({ midi, c0: h.c0, c1: Math.max(keysCycle(), h.c0 + 0.01) });
-  renderKeysInfo();
-}
-
-// pointer: press, slide across keys, release
-let keysPointer = null;
-$('keysBoard').addEventListener('pointerdown', (e) => {
-  const k = e.target.closest('.key');
-  if (!k) return;
-  e.preventDefault();
-  $('keysBoard').setPointerCapture(e.pointerId);
-  keysPointer = Number(k.dataset.m);
-  noteOn(keysPointer);
-});
-$('keysBoard').addEventListener('pointermove', (e) => {
-  if (keysPointer == null) return;
-  const k = document.elementFromPoint(e.clientX, e.clientY)?.closest?.('#keysBoard .key');
-  const m = k ? Number(k.dataset.m) : null;
-  if (m !== keysPointer) { noteOff(keysPointer); keysPointer = m; if (m != null) noteOn(m); }
-});
-for (const ev of ['pointerup', 'pointercancel']) $('keysBoard').addEventListener(ev, () => { if (keysPointer != null) noteOff(keysPointer); keysPointer = null; });
-
-// computer keyboard (only while the keys are shown and you're not typing somewhere)
-const typingTarget = (e) => e.target.closest?.('input, textarea, select, .cm-editor, [contenteditable="true"]');
-document.addEventListener('keydown', (e) => {
-  if (!docks.keys?.on || e.repeat || e.ctrlKey || e.metaKey || e.altKey || typingTarget(e)) return;
-  if (e.key === 'z' || e.key === 'x') { setKeysOct(keysState.oct + (e.key === 'x' ? 1 : -1)); e.preventDefault(); return; }
-  const off = KEY_LETTERS[e.key.toLowerCase()];
-  if (off === undefined) return;
-  e.preventDefault();
-  const m = keysState.oct * 12 + 12 + off;
-  keysState.kbd.set(e.code, m);
-  noteOn(m, 0.8, 'kbd');
-});
-document.addEventListener('keyup', (e) => {
-  const m = keysState.kbd.get(e.code);
-  if (m === undefined) return;
-  keysState.kbd.delete(e.code);
-  noteOff(m);
-});
-function setKeysOct(o) {
-  keysState.oct = Math.max(1, Math.min(7, o));
-  save({ keysOct: keysState.oct });
-  renderKeyboard();
-}
-$('keysDown').onclick = () => setKeysOct(keysState.oct - 1);
-$('keysUp').onclick = () => setKeysOct(keysState.oct + 1);
-
-// MIDI keyboards (Web MIDI)
-async function connectMidi() {
-  if (keysState.midiAccess !== undefined || !navigator.requestMIDIAccess) return;
-  keysState.midiAccess = null;
-  try {
-    const acc = await navigator.requestMIDIAccess();
-    keysState.midiAccess = acc;
-    const hook = () => {
-      keysState.midiInputs = [...acc.inputs.values()];
-      for (const inp of keysState.midiInputs) {
-        inp.onmidimessage = (msg) => {
-          const [st, note, vel] = msg.data;
-          const cmd = st & 0xf0;
-          if (cmd === 0x90 && vel > 0) noteOn(note, vel / 127, 'midi');
-          else if (cmd === 0x80 || (cmd === 0x90 && vel === 0)) noteOff(note);
-        };
-      }
-      renderKeysInfo();
-    };
-    acc.onstatechange = hook;
-    hook();
-  } catch { renderKeysInfo(); }
-}
-
-function renderKeysInfo() {
-  if ($('keysInfo').classList.contains('bad') && !keysState.rec) return; // keep the error visible until a note plays
-  const r = keysState.rec;
-  const midi = keysState.midiInputs.length ? `MIDI: ${keysState.midiInputs.map((i) => i.name).join(', ')}` : 'keys: A W S E D F … (Z / X octave)';
-  $('keysInfo').textContent = r ? `⏺ recording · ${r.notes.length} note${r.notes.length === 1 ? '' : 's'}` : midi;
-}
-
-function keysRecToggle() {
-  if (!keysState.rec) {
-    keysState.rec = { notes: [], t0: performance.now() };
-    $('keysRec').classList.add('on');
-    $('keysResult').hidden = true;
-    renderKeysInfo();
-    return;
-  }
-  for (const m of [...keysState.held.keys()]) noteOff(m);
-  const r = keysState.rec;
-  keysState.rec = null;
-  $('keysRec').classList.remove('on');
-  renderKeysInfo();
-  if (!r.notes.length) return;
-  const grid = Number($('keysGrid').value);
-  const startBar = Math.floor(Math.min(...r.notes.map((n) => n.c0)));
-  const endBar = Math.min(startBar + 8, Math.ceil(Math.max(...r.notes.map((n) => n.c1)) - 1e-6));
-  const nBars = Math.max(1, endBar - startBar);
-  const bars = Array.from({ length: nBars }, () => []);
-  for (const n of r.notes) {
-    const s = Math.round((n.c0 - startBar) * grid);
-    const e = Math.max(s + 1, Math.round((n.c1 - startBar) * grid));
-    const bar = Math.floor(s / grid);
-    if (bar >= nBars) continue;
-    bars[bar].push({ s: s - bar * grid, e: Math.min(e - bar * grid, grid), midi: n.midi });
-  }
-  // a bar plays at cycle c via "<…>" index c mod n: rotate so the recorded bars land where you played them
-  const ordered = Array.from({ length: nBars }, (_, k) => bars[((k - startBar) % nBars + nBars) % nBars]);
-  const mini = polyBarsToMini(ordered, grid);
-  keysState.result = { mini, bars: nBars, line: keysTemplate().replace(/\{note\}/g, JSON.stringify(mini)) };
-  $('keysMini').textContent = keysState.result.line;
-  $('keysResult').hidden = false;
-  if ($('keysAuto').checked) $('keysInsert').onclick();
-}
-$('keysRec').onclick = keysRecToggle;
-$('keysDiscard').onclick = () => { keysState.result = null; $('keysResult').hidden = true; };
-$('keysInsert').onclick = () => {
-  const r = keysState.result;
-  if (!r) return;
-  const existing = new Set(patternLines(getCode()).map((p) => p.base));
-  let name = 'keys';
-  for (let i = 2; existing.has(name); i++) name = `keys${i}`;
-  const fader = /\.gain\(/.test(r.line) ? '.postgain(slider(1, 0, 1.5))' : '.gain(slider(0.8, 0, 1.2))';
-  const code = getCode().trimEnd() + `\n${name}: ${r.line}\n  ${fader}\n`;
-  keysState.result = null;
-  $('keysResult').hidden = true;
-  applyQuantized(code, 'recorded keys').then((err) => {
-    if (err) { addMsg('error', `Couldn't add the recording: ${err.message}`); clog('error', `keys: ${err.message}`); }
-    else clog('ok', state.pending ? `🎹 ${name} armed — starts at bar ${state.pending.at + 1}` : `🎹 ${name} added`);
-  });
-};
-$('keysAI').onclick = async () => {
-  const r = keysState.result;
-  if (!r || state.busy) return;
-  const typed = $('input').value.trim();
-  $('input').value = '';
-  const instruction = typed || 'Add this recorded part to the music as a new part with a fitting sound and effects.';
-  const msg = `${instruction}\n\nRECORDED PART (${r.bars} bar${r.bars > 1 ? 's' : ''}, one bar per cycle, played as: ${r.line}):\nnote("${r.mini}")\n` +
-    'Use this note pattern EXACTLY as written (same notes, chords and rhythm). You may choose the sound, octave (.transpose), effects and gain.';
-  showPanel('chat');
-  addMsg('user', `🎹 ${instruction}\nnote("${r.mini}")`);
-  setBusy(true);
-  state.abort = new AbortController();
-  try { await runTurn(msg); $('keysResult').hidden = true; }
-  catch (err) { if (err.name === 'AbortError') addMsg('info', 'stopped'); else warnUser(`AI request failed: ${err.message}`); }
-  finally { setBusy(false); }
-};
-if (load().keysGrid) $('keysGrid').value = load().keysGrid;
-$('keysGrid').onchange = () => save({ keysGrid: $('keysGrid').value });
-renderKeyboard();
-if (load().keysLen) $('keysLen').value = load().keysLen;
-$('keysLen').onchange = () => save({ keysLen: $('keysLen').value });
-if (load().keysAuto !== undefined) $('keysAuto').checked = load().keysAuto;
-$('keysAuto').onchange = () => save({ keysAuto: $('keysAuto').checked });
-setupDock('keys', { onShow: () => { renderKeysSounds(); renderKeysInfo(); connectMidi(); } });
-setInterval(() => { if (docks.keys?.on) renderKeysSounds(); }, 2000);
-
-// ---------------------------------------------------------------------------
-// 🔲 Pads: a 4×4 grid, each pad programmed with a line of Strudel code. Pressing a
-// pad adds or removes its line ("padN: …") in the running code on the next beat /
-// bar, so pads layer with whatever is playing (and with mute / solo). Statements like
-// all(x => x.lpf(400)) or setcpm(140/4) work too. ⏺ Rec writes the pad performance
-// into the code as .mask("…") patterns, so it keeps looping.
-// ---------------------------------------------------------------------------
-const DEFAULT_PADS = [
-  { label: 'kick', code: 's("bd*4").bank("RolandTR909")', mode: 'toggle', color: '#ff5c7a' },
-  { label: 'clap', code: 's("~ cp ~ cp").bank("RolandTR909")', mode: 'toggle', color: '#ff5c7a' },
-  { label: 'hats', code: 's("hh*8").bank("RolandTR909").velocity("0.5 1").gain(0.6)', mode: 'toggle', color: '#ff5c7a' },
-  { label: 'open hat', code: 's("~ oh ~ oh").bank("RolandTR909").gain(0.5)', mode: 'toggle', color: '#ff5c7a' },
-  { label: 'snare roll', code: 's("sd*16").bank("RolandTR909").gain(saw.range(0.2, 1))', mode: 'once', color: '#ffd166' },
-  { label: 'rim', code: 's("rim(3,8)").bank("RolandTR909").gain(0.7)', mode: 'toggle', color: '#ffd166' },
-  { label: 'shaker', code: 's("hh*16").bank("RolandTR808").gain(0.3).pan(sine)', mode: 'toggle', color: '#ffd166' },
-  { label: 'crash', code: 's("cr").bank("RolandTR909").gain(0.6)', mode: 'once', color: '#ffd166' },
-  { label: 'sub bass', code: 'note("<c1 c1 ab0 bb0>*4").s("sine").gain(0.8)', mode: 'toggle', color: '#20d3a6' },
-  { label: 'acid', code: 'note("c2 c3 c2 eb2").s("sawtooth").lpf(sine.range(300, 2000).slow(4)).lpq(10).decay(0.1).sustain(0).gain(0.6)', mode: 'toggle', color: '#20d3a6' },
-  { label: 'stabs', code: 'chord("<Cm7 Fm7>").voicing().struct("${offbeats}").s("square").decay(0.1).sustain(0).gain(0.35)', mode: 'toggle', color: '#20d3a6' },
-  { label: 'arp', code: 'n("0 2 4 7 4 2").scale("C:minor").fast(2).s("triangle").gain(0.5)', mode: 'toggle', color: '#20d3a6' },
-  { label: 'pad', code: 'chord("<Cm9 Ab^7>").voicing().s("gm_pad_warm").gain(0.5)', mode: 'toggle', color: '#7c5cff' },
-  { label: 'riser', code: 's("white").lpf(saw.range(200, 8000)).gain(0.25)', mode: 'hold', color: '#7c5cff' },
-  { label: 'filter all', code: 'all(x => x.lpf(500))', mode: 'hold', color: '#7c5cff' },
-  { label: 'echo all', code: 'all(x => x.delay(0.5).delaytime(0.1875).delayfeedback(0.6))', mode: 'hold', color: '#7c5cff' },
-];
-const myPads = (load().pads || DEFAULT_PADS).map((p, i) => ({ ...DEFAULT_PADS[i], ...p }));
-let pads = myPads;
-// owner: null = your own pads; a song = that song's pads (edits are saved with the song)
-const padsState = { edit: false, sel: null, pending: new Map(), rec: null, owner: null, follow: !!saved.padsFollow };
-function savePads() {
-  if (padsState.owner) { padsState.owner.pads = pads; if (isMine(padsState.owner)) saveMySongs(); }
-  else save({ pads: myPads });
-}
-/** Show a pad set: a song's pads (owner = the song), or null for your own. */
-function loadPads(list, owner = null) {
-  if (!list) { pads = myPads; padsState.owner = null; }
-  else { pads = Array.from({ length: 16 }, (_, i) => ({ label: '', code: '', mode: 'toggle', color: '#7c5cff', ...(list[i] || {}) })); padsState.owner = owner; if (owner) owner.pads = pads; }
-  padsState.sel = null;
-  $('padEditor').hidden = true;
-  $('padsSource').textContent = owner ? `· ${owner.title}` : '';
-  $('padsMine').hidden = !owner;
-  renderPads.key = '';
-  if (!docks.pads.on) { docks.pads.show(true); save({ padsOn: true }); }
-  renderPads();
-  songsChanged();
-}
-
-const padN = (i) => i + 1;
-const isStatement = (code) => /^\s*(all|each|setcp[ms]|samples)\s*\(/.test(code);
-const padLineRe = (i) => new RegExp(`^(?:[_S]?pad${padN(i)}:.*|.*// pad${padN(i)}\\s*)$`);
-/**
- * A song-part pad (pad.part) is tied to that part's own line in the section that's playing ("bass: …", "_bass: …" when
- * muted). Returns that line, or null when the section doesn't play the part (or plays another variant of it).
- */
-function padPartLine(p, code) {
-  if (!p?.part) return null;
-  const re = new RegExp(`^_?${p.part}:`);
-  const line = code.split('\n').find((l) => re.test(l));
-  if (!line || (p.variant && p.variant !== 'main' && !line.includes(`${p.part}_${p.variant}`))) return null;
-  return line;
-}
-const padIsOn = (i, code = getCode()) => {
-  const pl = padPartLine(pads[i], code);
-  return (pl != null && !pl.startsWith('_')) || code.split('\n').some((l) => padLineRe(i).test(l) && !/^_/.test(l));
-};
-function padLine(i, codeOverride) {
-  const c = oneLine(codeOverride ?? pads[i].code);
-  return isStatement(c) ? `${c} // pad${padN(i)}` : `pad${padN(i)}: ${c}`;
-}
-function codeWithPad(code, i, on, lineText) {
-  const lines = code.split('\n').filter((l) => !padLineRe(i).test(l));
-  let out = lines.join('\n').replace(/\n+$/, '');
-  if (on) out += '\n' + (lineText || padLine(i));
-  return out + '\n';
-}
-
-/** Switch pad i on/off on the next sync boundary (or now when nothing plays). Returns the switch cycle. */
-async function setPad(i, on, { at = null, lineText = null } = {}) {
-  const p = pads[i];
-  if (!p?.code.trim()) return null;
-  const code = getCode();
-  const pl = lineText ? null : padPartLine(p, code);
-  // a part the section already plays: the pad mutes / unmutes the section's own line (no extra copy of it)
-  const next = pl != null
-    ? codeWithPad(code.split('\n').map((l) => (l === pl ? (on ? l.replace(/^_/, '') : l.startsWith('_') ? l : `_${l}`) : l)).join('\n'), i, false)
-    : codeWithPad(code, i, on, lineText);
-  if (!isPlaying() && !on) { mirror().setCode(next); return null; }
-  const when = isPlaying() ? at ?? nextBoundary(padsSyncCycles()) : null;
-  const err = await evaluateCode(next, { at: when, label: `pad “${p.label}” ${on ? 'on' : 'off'}`, undo: false });
-  if (err) { addMsg('error', `Pad “${p.label}”: ${err.message}`); return null; }
-  const c = when ?? 0;
-  if (when != null) padsState.pending.set(i, when);
-  padsState.rec?.log.push({ i, on, at: c });
-  return c;
-}
-
-function renderPads() {
-  const code = getCode();
-  const now = nowCycle();
-  for (const [i, at] of padsState.pending) if (!isPlaying() || now >= at) padsState.pending.delete(i);
-  const key = JSON.stringify([pads, padsState.edit, padsState.sel, [...padsState.pending.keys()], pads.map((_, i) => padIsOn(i, code))]);
-  if (key === renderPads.key) return;
-  renderPads.key = key;
-  $('padsGrid').innerHTML = pads.map((p, i) => {
-    const on = padIsOn(i, code);
-    return `<button class="pad${on ? ' on' : ''}${padsState.pending.has(i) ? ' pending' : ''}${padsState.sel === i && padsState.edit ? ' selected' : ''}" data-i="${i}"
-      style="--pc:${esc(p.color || '#7c5cff')}" title="${esc(`${p.label} · ${p.mode}\n${p.code}`)}">
-      <span class="pad-label">${esc(p.label || `pad ${i + 1}`)}</span><span class="pad-mode">${p.mode === 'toggle' ? '' : p.mode}</span></button>`;
-  }).join('');
-}
-setInterval(() => { if (docks.pads?.on) renderPads(); }, 150);
-
-$('padsGrid').addEventListener('pointerdown', (e) => {
-  const b = e.target.closest('.pad');
-  if (!b) return;
-  e.preventDefault();
-  const i = Number(b.dataset.i);
-  if (padsState.edit) { selectPad(i); return; }
-  const p = pads[i];
-  if (p.mode === 'toggle') setPad(i, !padIsOn(i));
-  else if (p.mode === 'once') padOnce(i);
-  else { // hold
-    $('padsGrid').setPointerCapture(e.pointerId);
-    padsState.holding = { i, at: setPad(i, true) };
-  }
-});
-for (const ev of ['pointerup', 'pointercancel']) {
-  $('padsGrid').addEventListener(ev, async () => {
-    const h = padsState.holding;
-    if (!h) return;
-    padsState.holding = null;
-    const onAt = await h.at;
-    const sync = padsSyncCycles();
-    // play at least one sync step
-    setPad(h.i, false, { at: isPlaying() ? Math.max(nextBoundary(sync), (onAt ?? 0) + sync) : null });
-  });
-}
-/** "once": on at the next boundary, off one bar later. */
-async function padOnce(i, lineText = null) {
-  const at = await setPad(i, true, { lineText });
-  if (at == null || !isPlaying()) return;
-  await setPad(i, false, { at: at + 1 });
-}
-
-// programming
-function selectPad(i) {
-  padsState.sel = i;
-  const p = pads[i];
-  $('padEditor').hidden = false;
-  $('padLabel').value = p.label;
-  $('padCode').value = p.code;
-  $('padMode').value = p.mode;
-  $('padColor').value = /^#[0-9a-f]{6}$/i.test(p.color) ? p.color : '#7c5cff';
-  renderPads.key = '';
-  renderPads();
-}
-for (const id of ['padLabel', 'padCode', 'padMode', 'padColor']) {
-  $(id).addEventListener('input', () => {
-    const p = pads[padsState.sel];
-    if (!p) return;
-    if ($('padCode').value !== p.code) { delete p.part; delete p.variant; } // new code: no longer the song's part
-    Object.assign(p, { label: $('padLabel').value, code: $('padCode').value, mode: $('padMode').value, color: $('padColor').value });
-    savePads();
-    renderPads.key = '';
-  });
-}
-$('padsEdit').onclick = () => {
-  padsState.edit = !padsState.edit;
-  $('padsEdit').classList.toggle('on', padsState.edit);
-  $('padsEdit').textContent = padsState.edit ? '✓ done programming' : '✎ program';
-  if (padsState.edit) selectPad(padsState.sel ?? 0);
-  else $('padEditor').hidden = true;
-  renderPads.key = '';
-};
-$('padDone').onclick = () => { if (padsState.edit) $('padsEdit').onclick(); };
-$('padTest').onclick = () => { const i = padsState.sel; if (i != null) padOnce(i, padLine(i, $('padCode').value)); };
-if (load().padsSync) $('padsSync').value = load().padsSync;
-/** Pad sync in bars: "next beat" follows the playing song's meter. */
-function padsSyncCycles() { const v = Number($('padsSync').value); return v < 1 ? beatCycles() : v; }
-$('padsSync').onchange = () => save({ padsSync: $('padsSync').value });
-
-// ⏺ Rec: bake the pad performance into the code as masks over the recorded bars
-function padsRecToggle() {
-  if (!padsState.rec) {
-    if (!isPlaying()) { addMsg('info', '🔲 start the music first, then record the pads'); return; }
-    const start = Math.ceil(nowCycle() - 1e-9);
-    padsState.rec = { start, log: [], initial: pads.map((_, i) => padIsOn(i)) };
-    $('padsRec').classList.add('on');
-    $('padsInfo').textContent = `⏺ recording from bar ${start + 1}…`;
-    return;
-  }
-  const r = padsState.rec;
-  padsState.rec = null;
-  $('padsRec').classList.remove('on');
-  $('padsInfo').textContent = '';
-  const end = Math.max(r.start + 1, Math.ceil(switchCycle() - 1e-9));
-  const nBars = Math.min(16, end - r.start);
-  let code = getCode();
-  const baked = [];
-  pads.forEach((p, i) => {
-    if (isStatement(p.code)) return; // statements can't be masked
-    const evs = r.log.filter((e) => e.i === i).sort((a, b) => a.at - b.at);
-    if (!evs.length) return;
-    const onAt = (t) => { let v = r.initial[i]; for (const e of evs) if (e.at <= t + 1e-6) v = e.on; return v; };
-    const bars = [];
-    for (let b = 0; b < nBars; b++) {
-      const beats = [0, 1, 2, 3].map((q) => (onAt(r.start + b + q / 4) ? 1 : 0));
-      bars.push(beats.every((x) => x === beats[0]) ? String(beats[0]) : `[${beats.join(' ')}]`);
-    }
-    if (bars.every((x) => x === '0')) { code = codeWithPad(code, i, false); return; }
-    const ordered = Array.from({ length: nBars }, (_, k) => bars[((k - r.start) % nBars + nBars) % nBars]);
-    const mask = nBars === 1 ? ordered[0].replace(/^\[|\]$/g, '') : `<${ordered.join(' ')}>`;
-    code = codeWithPad(code, i, true, `pad${padN(i)}: (${oneLine(p.code)}).mask("${mask}")`);
-    baked.push(p.label);
-  });
-  if (!baked.length) { addMsg('info', '🔲 nothing to record — no pads changed while recording'); return; }
-  evaluateCode(code, { at: nextBoundary(1), label: 'recorded pads' }).then((err) => {
-    if (err) addMsg('error', `Couldn't write the pad recording: ${err.message}`);
-    else addMsg('info', `🔲 pad performance written into the code (${baked.join(', ')}) — it loops every ${nBars} bar${nBars > 1 ? 's' : ''}`);
-  });
-}
-$('padsRec').onclick = padsRecToggle;
-$('padsMine').onclick = () => { setPadsFollow(false); loadPads(null); };
-/** Follow the song: whenever a new song starts, its pads replace the ones in the dock. */
-function setPadsFollow(on) {
-  padsState.follow = on;
-  $('padsFollow').checked = on;
-  save({ padsFollow: on });
-  const cur = queue.songs[queue.current];
-  if (on && queue.running && cur?.pads && padsState.owner !== cur) loadPads(cur.pads, cur);
-  songsChanged();
-}
-$('padsFollow').checked = padsState.follow;
-$('padsFollow').onchange = () => setPadsFollow($('padsFollow').checked);
-setupDock('pads', { onShow: () => { renderPads.key = ''; renderPads(); } });
-
-// ---------------------------------------------------------------------------
-// 📁 Songs as portable data: a song (sheet + parts code, or its section code for
-// block-by-block songs, + its pads) is plain JSON, so it can be exported to a file,
-// imported on any Strudel AI server, kept in "My songs", edited and logged.
-// ---------------------------------------------------------------------------
-const SONG_FORMAT = 'strudel-ai-song';
-/** Song → JSON. Sheet songs store just the sheet and parts (the sections are re-arranged from them). */
-function songToJSON(sg) {
-  const arranged = sg.sheet?.sections && sg.library;
-  return {
-    format: SONG_FORMAT, version: 1, app: APP_VERSION, saved: new Date().toISOString(),
-    title: sg.title, desc: sg.desc || '',
-    sheet: sg.sheet || null, library: sg.library || null,
-    pads: sg.pads || null,
-    steps: arranged ? undefined : (sg.blocks || []).filter((b) => b.code).map((b) => ({ bars: b.bars, prompt: b.prompt, code: b.code, fade: b.fade ?? null })),
-  };
-}
-/** JSON (a file, a share link, a log entry) → song ready to play. Throws when unusable. */
-function songFromJSON(j) {
-  if (!j || typeof j !== 'object') throw new Error('not a song');
-  const song = { title: String(j.title || 'untitled').slice(0, 120), desc: String(j.desc || ''), status: 'ready', sheet: null, library: null, pads: Array.isArray(j.pads) ? j.pads.slice(0, 16) : null };
-  if (j.sheet?.sections?.length && typeof j.library === 'string') {
-    // stored sheets are already in the app's form; accept the AI's raw form too
-    song.sheet = j.sheet.sections.every((x) => Array.isArray(x.play) && typeof x.play[0] === 'object') ? j.sheet : normalizeSheet(j.sheet, 'auto', { enforceForm: false });
-    song.library = j.library;
-    song.blocks = arrangeSong(song);
-  } else if (Array.isArray(j.steps) && j.steps.length) {
-    song.blocks = j.steps.filter((st) => typeof st.code === 'string').map((st) => ({ bars: Number(st.bars) || 8, prompt: String(st.prompt || ''), code: st.code, fade: st.fade ?? undefined, fillStep: !!st.fillStep, section: st.section || undefined, status: 'ready', error: null }));
-  } else throw new Error('the song has no sheet and no sections');
-  if (!song.blocks.length) throw new Error('the song has no sections');
-  song.bars = song.blocks.reduce((a, b) => a + b.bars, 0);
-  song.firstStep = song.blocks[0];
-  const fresh = songPads(song);
-  // older songs' pads referred to the song's library consts (lead_main …), which only exist while the song plays:
-  // swap those for the self-contained versions
-  const libRef = (c) => !/typeof sectionChords/.test(c) && (/^\s*\(?[A-Za-z]\w*_\w+\)?(\(sectionChords\))?\s*$/.test(c) || /\bsectionChords\b/.test(c));
-  song.pads = song.pads && fresh
-    ? song.pads.map((p) => {
-      // older jam pads played the song's scale, not the chords: give them the chord-following version
-      if (/^(arp|lead|jam lead)$/.test(p.label) && /\.scale\(/.test(p.code || '') && /^n\("(0 2 4 7 4 2|<0 \[2 4\] 7 \[4 2\]>)"\)/.test(p.code)) {
-        return { ...p, label: p.label === 'lead' ? 'jam lead' : p.label, code: (p.label === 'arp' ? JAM_ARP : JAM_LEAD)(padProg(song.sheet)) };
-      }
-      const f = fresh.find((q) => q.label === p.label);
-      if (!libRef(p.code || '')) return f?.part && !p.part && p.code === f.code ? { ...p, part: f.part, variant: f.variant } : p;
-      return f ? { ...p, code: f.code, part: f.part, variant: f.variant } : { ...p, code: p.code.replace(/\bsectionChords\b/g, padProg(song.sheet)) };
-    })
-    : song.pads || fresh;
-  return song;
-}
-const slug = (t) => String(t || 'song').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'song';
-function download(name, text, type = 'application/json') {
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(new Blob([text], { type }));
-  a.download = name;
-  a.click();
-  setTimeout(() => URL.revokeObjectURL(a.href), 2000);
-}
-
-// --- My songs (kept in this browser, separate from the settings)
-const MY_SONGS_KEY = 'strudel-ai:songs';
-let mySongs = (() => {
-  try { return (JSON.parse(localStorage.getItem(MY_SONGS_KEY)) || []).map((j) => { try { return songFromJSON(j); } catch { return null; } }).filter(Boolean); }
-  catch { return []; }
-})();
-function saveMySongs() {
-  try { localStorage.setItem(MY_SONGS_KEY, JSON.stringify(mySongs.map(songToJSON))); }
-  catch (e) { warnUser(`Couldn't save My songs (browser storage full?): ${e.message}`); }
-  songsChanged();
-}
-const isMine = (sg) => mySongs.includes(sg);
-function addToMySongs(sg) {
-  const copy = songFromJSON(JSON.parse(JSON.stringify(songToJSON(sg))));
-  mySongs.unshift(copy);
-  saveMySongs();
-  songSel.set = 'mine:0';
-  showPanel('songs');
-  clog('ok', `📁 “${copy.title}” saved to My songs`);
-  return copy;
-}
-function myListHTML() {
-  if (!mySongs.length) return '<div class="muted small">No songs yet — save one from a set or station (☆ / → My songs), or import a .json file.</div>';
-  return mySongs.map((sg, k) => {
-    const sel = songSel.set === `mine:${k}`;
-    const playing = queue.running && queue.songs[queue.current] === sg;
-    return `<div class="song mine ${playing ? 'playing' : 'ready'}${sel ? ' selected' : ''}" data-mine="${k}" title="Show, edit or play this song">
-      <span class="ico">${playing ? '▶' : '♪'}</span>
-      <div class="body"><div class="t">${esc(sg.title)}</div><div class="meta">${esc(songMeta(sg))}</div>${sel ? `<div class="song-tools">${songToolbarHTML(sg, false)}${sharedLinkHTML(sg)}</div>` : ''}</div>
-      <button class="jump" data-mine-play="${k}" title="Play this song (no AI needed)">▶</button>
-      <button class="link" data-mine-del="${k}" title="Remove from My songs">🗑</button>
-    </div>`;
-  }).join('');
-}
-/** Load a song into the Songs tab's player (replaces the set list's running songs). */
-function loadSongIntoSet(song) {
-  stopSet(); stopSetlist();
-  Object.assign(queue, { mode: 'set', songs: [song], current: -1, nextSong: 0, textDirty: false });
-  songsChanged();
-}
-function playSong(song) {
-  loadSongIntoSet(song);
-  startSet('set', { keepSongs: true });
-  queue.single = true; // one song: stop after its last section, never loop
-}
-/** A click on a song's buttons inside a list row. Returns true when handled. */
-function rowToolsClick(e, sg) {
-  const tools = e.target.closest('.song-tools');
-  if (!tools || !sg) return false;
-  const act = e.target.closest('[data-act]');
-  if (act) songAction(act.dataset.act, sg, act, tools);
-  else if (e.target.closest('.sv-copy') && sg.shareUrl) navigator.clipboard?.writeText(sg.shareUrl).then(() => { e.target.textContent = '✓ Copied'; }, () => {});
-  return true;
-}
-$('mySongs').addEventListener('click', (e) => {
-  if (rowToolsClick(e, mySongs[Number(e.target.closest('[data-mine]')?.dataset.mine)])) return;
-  const play = e.target.closest('[data-mine-play]');
-  if (play) { const k = Number(play.dataset.minePlay); songSel.set = `mine:${k}`; playSong(mySongs[k]); return; }
-  const del = e.target.closest('[data-mine-del]');
-  if (del) {
-    const k = Number(del.dataset.mineDel);
-    if (!confirm(`Remove “${mySongs[k].title}” from My songs?`)) return;
-    mySongs.splice(k, 1);
-    if (songSel.set === `mine:${k}`) songSel.set = null;
-    saveMySongs(); renderSongs();
-    return;
-  }
-  const row = e.target.closest('[data-mine]');
-  if (row) { const v = `mine:${row.dataset.mine}`; songSel.set = songSel.set === v ? null : v; songsChanged(); renderSongs(); }
-});
-$('songImport').onchange = async () => {
-  const f = $('songImport').files[0];
-  $('songImport').value = '';
-  if (!f) return;
-  try {
-    const text = await f.text();
-    let data;
-    try { data = JSON.parse(text); } catch {
-      const at = text.indexOf(LOG_JSON_MARK);
-      if (at < 0) throw new Error('no song JSON in this file');
-      data = JSON.parse(text.slice(text.indexOf('\n', at) + 1));
-    }
-    const list = (Array.isArray(data) ? data : data.songs || [data]).map((j) => songFromJSON(j.json || j));
-    mySongs.unshift(...list);
-    saveMySongs();
-    songSel.set = 'mine:0';
-    renderSongs();
-    clog('ok', `📁 imported ${list.length} song${list.length > 1 ? 's' : ''}: ${list.map((x) => x.title).join(', ')}`);
-    addMsg('info', `📁 imported ${list.map((x) => `“${x.title}”`).join(', ')} into My songs`);
-  } catch (e) {
-    warnUser(`Couldn't import songs: ${e.message}`);
-  }
-};
-
-// --- ★ Favorites: shared with everyone on this server (stored server-side, survive restarts)
-let favorites = []; // [{ id, favorited, song (object) }]
-async function loadFavorites() {
-  try {
-    const j = await fetch('/api/favorites', { cache: 'no-cache' }).then((r) => r.json());
-    const keep = new Map(favorites.map((f) => [f.id, f]));
-    favorites = (j.favorites || []).map((f) => {
-      if (keep.has(f.id)) return keep.get(f.id); // keep the same object (it may be playing)
-      try { return { id: f.id, favorited: f.favorited, song: songFromJSON(f.song) }; } catch { return null; }
-    }).filter(Boolean);
-    songsChanged();
-  } catch (e) { clog('warn', `favorites unavailable: ${e.message}`); }
-}
-const favKey = (sg) => `${sg.title}\n${sg.library || ''}`;
-const favOf = (sg) => favorites.find((f) => f.song === sg || favKey(f.song) === favKey(sg));
-async function toggleFavorite(sg) {
-  const f = favOf(sg);
-  try {
-    if (f) {
-      if (!confirm(`Remove “${sg.title}” from the favorites everyone on this server sees?`)) return;
-      await fetch(`/api/favorites/${f.id}`, { method: 'DELETE' });
-      clog('ok', `★ “${sg.title}” removed from favorites`);
-    } else {
-      const r = await fetch('/api/favorites', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ song: songToJSON(sg) }) });
-      const j = await r.json();
-      if (!r.ok) throw new Error(j.error || r.status);
-      clog('ok', `★ “${sg.title}” is now a favorite on this server`);
-    }
-    await loadFavorites();
-  } catch (e) { warnUser(`Favorite failed: ${e.message}`); }
-  renderSongs();
-}
-function favListHTML() {
-  if (!favorites.length) return '<div class="muted small">No favorites yet — ★ a song you like and everyone on this server will see it here.</div>';
-  return favorites.map((f, k) => {
-    const sg = f.song;
-    const sel = songSel.set === `fav:${k}`;
-    const playing = queue.running && queue.songs[queue.current] === sg;
-    return `<div class="song fav ${playing ? 'playing' : 'ready'}${sel ? ' selected' : ''}" data-fav="${k}" title="Show or play this song">
-      <span class="ico">${playing ? '▶' : '★'}</span>
-      <div class="body"><div class="t">${esc(sg.title)}</div><div class="meta">${esc(songMeta(sg))}</div>${sel ? `<div class="song-tools">${songToolbarHTML(sg, false)}${sharedLinkHTML(sg)}</div>` : ''}</div>
-      <button class="jump" data-fav-play="${k}" title="Play this song (no AI needed)">▶</button>
-    </div>`;
-  }).join('');
-}
-$('favSongs').addEventListener('click', (e) => {
-  if (rowToolsClick(e, favorites[Number(e.target.closest('[data-fav]')?.dataset.fav)]?.song)) return;
-  const play = e.target.closest('[data-fav-play]');
-  if (play) { const k = Number(play.dataset.favPlay); songSel.set = `fav:${k}`; playSong(favorites[k].song); return; }
-  const row = e.target.closest('[data-fav]');
-  if (row) { const v = `fav:${row.dataset.fav}`; songSel.set = songSel.set === v ? null : v; songsChanged(); renderSongs(); }
-});
-loadFavorites();
-setInterval(loadFavorites, 60000);
-document.addEventListener('visibilitychange', () => { if (!document.hidden) loadFavorites(); });
-
-// --- editing a song: re-arranged by the app (no AI), live if it's playing
-function rawSheet(sh) {
-  return {
-    form: sh.form, ...(sh.band ? { band: sh.band } : {}), master: sh.master || 'clean', ...(sh.masterParams ? { masterParams: sh.masterParams } : {}),
-    bpm: sh.bpm, meter: normMeter(sh.meter), key: sh.key, scale: sh.scale, hook: sh.hook,
-    chords: Object.fromEntries(Object.entries(sh.chords).map(([k, v]) => [k, v.replace(/^<|>$/g, '')])),
-    parts: sh.parts.map((p) => ({ name: p.id, role: p.role, sound: p.sound, variants: p.variants, desc: p.desc })),
-    sections: sh.sections.map((x) => ({ name: x.name, bars: x.bars, chords: x.chords, play: x.play.map((y) => (y.variant === 'main' ? y.part : `${y.part}.${y.variant}`) + (y.enter ? `@${y.enter}` : '')), ...(x.shift ? { shift: x.shift } : {}), ...(x.bpm ? { bpm: x.bpm } : {}) })),
-  };
-}
-/**
- * Apply a new sheet and/or parts code to a song. Checks the parts (names, sounds, a silent test
- * play) and re-arranges the sections; a playing song switches to the new arrangement from its
- * next section. Returns an error message, or null.
- */
-async function applySongEdit(sg, raw, partsCode = null) {
-  let sheet;
-  try { sheet = normalizeSheet(raw, 'auto', { enforceForm: false }); } catch (e) { return `the song sheet can't be used: ${e.message}`; }
-  let lib = partsCode ? `${tempoLine(sheet.bpm, sheet.meter)}\n` + partsCode.replace(/^\s*setcp[ms]\([^)]*\)\s*;?\s*$/gm, '').trim() : sg.library.replace(/setcp[ms]\([^)]*\)/, tempoLine(sheet.bpm, sheet.meter));
-  const missing = libraryIds(sheet).filter((id) => !definesId(lib, id));
-  if (missing.length) return `the parts code is missing: ${missing.join(', ')} (every part.variant the sections play needs a const)`;
-  if (patternLines(lib).length) return 'the parts code must only contain const definitions (no "name:" lines)';
-  const syn = syntaxError(lib);
-  if (syn) return `the parts code has a syntax error: ${syn}`;
-  const prep = await prepareCode(lib, { quiet: true, library: true });
-  if (prep.error) return prep.error;
-  lib = prep.code;
-  const testErr = testLibrary(lib, sheet);
-  if (testErr) return `the parts fail when test-played: ${testErr.message}`;
-  sg.sheet = sheet;
-  sg.library = wrapCode(lib);
-  rearrangeSong(sg);
-  if (isMine(sg)) saveMySongs();
-  songsChanged();
-  const tempos = sheet.sections.map((x) => `${x.name} ${x.bpm || sheet.bpm}${x.shift ? ` key ${signed(x.shift)}` : ''}`).join(' · ');
-  clog('ok', `🎵 “${sg.title}” updated: ${sheet.sections.length} sections, ${sheet.sections.reduce((a, x) => a + x.bars, 0)} bars — ${tempos} bpm`);
-  return null;
-}
-/**
- * After a song edit: switch the section that's playing to its new version on the next bar (keeping faders,
- * mute / solo and its place in the phrase). Returns true when it did.
- */
-async function refreshPlayingSection(sg) {
-  if (!queue.running || queue.songs[queue.current] !== sg || state.pending || engine.paused || !isPlaying()) return false;
-  const st = engine.steps.find((x) => x.status === 'playing' && x.song === sg);
-  const sec = st?.section && sg.sheet.sections.find((x) => x.name === st.section.name);
-  if (!sec) return false;
-  const code = atSectionStart(carryLiveState(getCode(), sectionCode(sg, sec, { fill: !!st.fillStep })), st.startedAt ?? 0);
-  const err = await evaluateCode(code, { at: nextBoundary(1), fade: fadeCycles(sg), label: `“${sg.title}” ${st.prompt} (edited)` });
-  if (err) { clog('warn', `the edited ${st.prompt} didn't play (${err.message}) — it changes from the next section`); return false; }
-  st.code = code;
-  st.section = sec;
-  return true;
-}
-
-/** Rebuild a song's sections; if it's in the player, replace the ones that haven't started. */
-function rearrangeSong(sg) {
-  const fresh = arrangeSong(sg);
-  fresh.forEach((st) => Object.assign(st, { song: sg }));
-  const inEngine = sg.blocks?.some((b) => engine.steps.includes(b));
-  if (!inEngine) {
-    sg.blocks = fresh;
-  } else {
-    const started = sg.blocks.filter((b) => ['playing', 'done', 'armed'].includes(b.status) && engine.steps.includes(b));
-    const lastStarted = started[started.length - 1];
-    const fromSec = lastStarted ? sg.sheet.sections.findIndex((x) => x.name === lastStarted.section?.name) + 1 || started.filter((b) => !b.fillStep).length : 0;
-    const tail = fresh.filter((st) => sg.sheet.sections.indexOf(st.section) >= fromSec);
-    const pending = sg.blocks.filter((b) => !started.includes(b));
-    const at = pending.length ? engine.steps.indexOf(pending[0]) : engine.steps.indexOf(lastStarted) + 1;
-    engine.steps = engine.steps.filter((b) => !pending.includes(b));
-    engine.steps.splice(at, 0, ...tail);
-    if (engine.playIndex > at) engine.playIndex = at;
-    engine.genIndex = Math.min(engine.genIndex, at);
-    sg.blocks = [...started, ...tail];
-  }
-  sg.blocks.forEach((st, j) => Object.assign(st, { song: sg, songPos: j, songLen: sg.blocks.length, songStart: j === 0 }));
-  sg.bars = sg.blocks.reduce((a, b) => a + b.bars, 0);
-  sg.firstStep = sg.blocks[0];
-  if (padsState.owner === sg) loadPads(sg.pads, sg);
-}
-
-// ✎ Edit song: a panel with the song's sections / chords / parts as text lines and its parts code
-const songEdit = { sg: null };
-// closing ✎ Edit song stops editing
-ws.on('edit', { onOpen: (o) => { if (!o && songEdit.sg) { songEdit.sg = null; songsChanged(); } } });
-function openSongEditor(sg) {
-  songEdit.sg = sg;
-  $('editForm').__sg = null; // render the editor for this song
-  ws.open('edit');
-  ws.api?.getPanel('edit')?.api.setTitle?.(`✎ ${sg.title}`);
-  songsChanged();
-  renderSongs();
-}
-function songEditorHTML(sg) {
-  const r = rawSheet(sg.sheet);
-  return `<div class="sv-edit">
-    <div class="sv-edit-row"><label>title <input data-f="title" value="${esc(sg.title)}" /></label><label>bpm <input data-f="bpm" type="number" min="50" max="200" value="${r.bpm}" /></label><label>meter <select data-f="meter">${METERS.map((m) => `<option${m === r.meter ? ' selected' : ''}>${m}</option>`).join('')}</select></label><label>scale <input data-f="scale" value="${esc(r.scale)}" /></label><label title="The master style: the mastering on the whole song (tweak it live in 🎛 Master)">master <select data-f="master">${STYLE_NAMES.map((n) => `<option${n === r.master ? ' selected' : ''}>${n}</option>`).join('')}</select></label></div>
-    <label>chords — <span class="muted">one per line: <code>name: Am F C G</code></span>
-      <textarea data-f="chords" rows="3">${esc(Object.entries(r.chords).map(([k, v]) => `${k}: ${v}`).join('\n'))}</textarea></label>
-    <label>sections — <span class="muted">one per line: <code>name | bars | chords | parts (part or part.variant)</code>, optionally <code>| key +2, 106 bpm</code></span>
-      <textarea data-f="sections" rows="${Math.min(14, r.sections.length + 1)}">${esc(r.sections.map((x) => `${x.name} | ${x.bars} | ${x.chords} | ${x.play.join(', ')}${x.shift || x.bpm ? ` | ${[x.shift ? `key ${signed(x.shift)}` : '', x.bpm ? `${x.bpm} bpm` : ''].filter(Boolean).join(', ')}` : ''}`).join('\n'))}</textarea></label>
-    <label>parts — <span class="muted">one per line: <code>name | role | sound | variants</code></span>
-      <textarea data-f="parts" rows="${Math.min(8, r.parts.length + 1)}">${esc(r.parts.map((p) => `${p.name} | ${p.role} | ${p.sound} | ${p.variants.join(', ')}`).join('\n'))}</textarea></label>
-    <label>parts code — <span class="muted">a <code>const name_variant = …</code> for every part.variant the sections use (harmonic parts take <code>(prog)</code>)</span>
-      <textarea data-f="library" rows="10" spellcheck="false">${esc(sg.library)}</textarea></label>
-    <div class="sl-buttons"><button data-act="edit-save">✓ apply</button><button data-act="edit-cancel" class="link">cancel</button><span class="sv-edit-msg muted small"></span></div>
-    <div class="muted small">Or ask the chat: “make the chorus 16 bars”, “add a breakdown before the last chorus”, “give the bass a funkier line”.</div>
-  </div>`;
-}
-async function saveSongEditor(el, sg) {
-  const v = (f) => el.querySelector(`[data-f="${f}"]`).value;
-  const lines = (t) => t.split('\n').map((l) => l.trim()).filter(Boolean);
-  const raw = rawSheet(sg.sheet);
-  raw.bpm = Number(v('bpm')) || raw.bpm;
-  raw.meter = v('meter') || raw.meter;
-  raw.scale = v('scale').trim() || raw.scale;
-  raw.key = raw.scale.replace(':', ' ');
-  if (v('master') !== raw.master) { raw.master = v('master'); delete raw.masterParams; } // a new style starts from its own settings
-  raw.chords = Object.fromEntries(lines(v('chords')).map((l) => { const i = l.indexOf(':'); return [l.slice(0, i).trim(), l.slice(i + 1).trim()]; }).filter(([k, c]) => k && c));
-  raw.parts = lines(v('parts')).map((l) => { const [name, role, sound, variants] = l.split('|').map((x) => (x || '').trim()); return { name, role, sound, variants: (variants || 'main').split(/[,\s]+/).filter(Boolean) }; });
-  raw.sections = lines(v('sections')).map((l) => {
-    const [name, bars, chords, play, moves = ''] = l.split('|').map((x) => (x || '').trim());
-    return { name, bars: Number(bars) || 8, chords, play: (play || '').split(/[,\s]+/).filter(Boolean),
-      shift: Number(moves.match(/key\s*([+-]?\d+)/i)?.[1]) || 0, bpm: Number(moves.match(/(\d+)\s*bpm/i)?.[1]) || 0 };
-  });
-  const msg = el.querySelector('.sv-edit-msg');
-  msg.textContent = 'checking…';
-  const title = v('title').trim();
-  const err = await applySongEdit(sg, raw, v('library'));
-  if (err) { msg.textContent = `⚠ ${err}`; msg.classList.add('bad'); return; }
-  if (title) sg.title = title;
-  if (isMine(sg)) saveMySongs();
-  $('editForm').__sg = null; // re-render the editor with the song as it is now
-  songsChanged();
-  renderSongs();
-  const done = $('editForm').querySelector('.sv-edit-msg');
-  if (done) done.textContent = `✓ applied${queue.running && queue.songs[queue.current] === sg ? ' — from the next section' : ''}${isMine(sg) ? ' and saved' : ' (📁 Save to My songs to keep it)'}`;
-}
-
-// --- song pads: 16 pads built from the song itself (its parts, key and chords) — no AI needed
-/** The expression a library const is defined as (so a pad can play the part without the library loaded). */
-function libExpr(lib, id) {
-  const m = new RegExp(`^\\s*(?:const|let|var)\\s+${id}\\s*=\\s*`, 'm').exec(lib);
-  if (!m) return null;
-  const rest = lib.slice(m.index + m[0].length);
-  const end = rest.search(/^\s*(?:const|let|var)\s+[\w$]+\s*=|^\s*setcp[ms]\(/m);
-  return (end < 0 ? rest : rest.slice(0, end)).trim().replace(/;\s*$/, '');
-}
-const JAM_ARP = (prog) => `n("0 1 2 3 2 1").chord(${prog}).voicing().fast(2).s("triangle").gain(0.4)`;
-const JAM_LEAD = (prog) => `n("<[0 ~ 2] [3 2] [4 ~ 3] [2 1]>").chord(${prog}).voicing().add(note(12)).s("sawtooth").lpf(2000).decay(0.2).sustain(0.3).gain(0.3)`;
-/** Chords for a pad: the section's chords when one of the song's sections plays, else the song's first progression. */
-const padProg = (sh) => `(typeof sectionChords === 'undefined' ? ${JSON.stringify(Object.values(sh.chords)[0])} : sectionChords)`;
-function songPads(sg) {
-  const sh = sg.sheet, lib = sg.library;
-  if (!sh || !lib) return null;
-  const pads = [];
-  const add = (label, code, mode = 'toggle', color = '#7c5cff', extra = {}) => { if (pads.length < 16) pads.push({ label, code, mode, color, ...extra }); };
-  // pads must work whatever is playing (see padProg)
-  const prog = padProg(sh);
-  const drums = sh.parts.find((p) => /drum|perc|beat/i.test(p.role + p.id));
-  const bank = drums && /^[A-Z]/.test(drums.sound) ? `.bank("${drums.sound}")` : '';
-  // rhythms in the song's meter: a 16th-note roll is 16 steps in 4/4, 12 in 3/4, 12 in 6/8
-  const steps = meterSteps(sh.meter), roll = /\/8$/.test(normMeter(sh.meter)) ? steps * 2 : steps * 4;
-  // the song's own parts, one pad each: lit while the section plays the part, pressing mutes / unmutes it
-  // (or plays it on top when the section doesn't have it); then their extra variants (half-time drums, fills …)
-  const partPad = (p, v) => {
-    const id = `${p.id}_${v}`, expr = libExpr(lib, id);
-    if (!expr) return;
-    // the part's own code, inlined (the library consts only exist while one of this song's sections plays)
-    const code = isFnPart(lib, id) ? `(${expr})(${prog})` : `(${expr})`;
-    add(v === 'main' ? p.id : `${p.id} ${v}`, code, v === 'fill' ? 'once' : 'toggle', v === 'fill' ? '#ffd166' : '#4cc9f0', { part: p.id, variant: v });
-  };
-  for (const p of sh.parts) partPad(p, 'main');
-  for (const p of sh.parts) for (const v of p.variants) if (v !== 'main' && pads.length < 10) partPad(p, v);
-  // jam pads, most useful first (the song's parts may leave room for only some of them)
-  add('tempo −¼', 'all(x => x.slow(4/3))', 'hold', '#ff8fa3'); // everything at ¾ speed while held
-  add('tempo +¼', 'all(x => x.fast(5/4))', 'hold', '#ff8fa3'); // everything at 1¼ speed while held
-  add('filter all', 'all(x => x.lpf(500))', 'hold', '#7c5cff');
-  add('snare roll', `s("sd*${roll}")${bank}.gain(saw.range(0.2, 0.9))`, 'once', '#ffd166');
-  add('crash', `s("cr")${bank}.gain(0.6)`, 'once', '#ffd166');
-  add('riser', 's("white").lpf(saw.range(200, 8000)).gain(0.25)', 'hold', '#7c5cff');
-  add('echo all', 'all(x => x.delay(0.5).delaytime(0.1875).delayfeedback(0.6))', 'hold', '#7c5cff');
-  add('half time', 'all(x => x.slow(2))', 'hold', '#7c5cff');
-  // jam parts in the song's key, following the section's chords
-  // the arp and lead play the tones of the chord sounding now (the section's chords, moved with any key change)
-  add('arp', JAM_ARP(prog), 'toggle', '#20d3a6');
-  add('jam lead', JAM_LEAD(prog), 'toggle', '#20d3a6');
-  add('stabs', `chord(${prog}).voicing().struct("~ x ~ x").s("square").decay(0.1).sustain(0).gain(0.3)`, 'toggle', '#20d3a6');
-  add('jam pad', `chord(${prog}).voicing().s("supersaw").attack(0.4).release(1).lpf(1800).gain(0.25)`, 'toggle', '#7c5cff');
-  return pads;
-}
-
+setup_keys(); // features/keys.js
+setup_pads(); // features/pads.js
+setup_song_library(); // features/song-library.js
+setup_song_editor(); // features/song-editor.js
+// (features/song-pads.js)
 // --- 🧾 every song played this session (kept in the tab; download as a text file)
 const LOG_KEY = 'strudel-ai:playlog';
-const LOG_JSON_MARK = '--- SONGS AS JSON';
+export const LOG_JSON_MARK = '--- SONGS AS JSON';
 const playLog = (() => { try { return JSON.parse(sessionStorage.getItem(LOG_KEY)) || []; } catch { return []; } })();
-function logPlayed(sg, mode) {
+export function logPlayed(sg, mode) {
   if (!sg?.blocks?.length || playLog[playLog.length - 1]?.title === sg.title) return;
   playLog.push({ at: new Date().toISOString(), mode, title: sg.title, json: songToJSON(sg) });
   try { sessionStorage.setItem(LOG_KEY, JSON.stringify(playLog.slice(-200))); } catch {}
@@ -5737,7 +1614,7 @@ for (const b of [$('logDownload'), ...document.querySelectorAll('.log-dl')]) {
 
 // --- chat ↔ song / pads: the context the chat needs, and applying its replies
 /** The song chat should work on: the one playing (if written from a sheet), else the one open in the Songs tab. */
-function activeSong() {
+export function activeSong() {
   const playing = queue.running ? queue.songs[queue.current] : null;
   if (playing?.sheet && playing.library) return playing;
   if (songEdit.sg?.sheet && songEdit.sg.library) return songEdit.sg;
@@ -5746,7 +1623,7 @@ function activeSong() {
 }
 const SONG_WORDS = /\b(song|section|sections|verse|chorus|bridge|intro|outro|drop|build|breakdown|break|structure|form|arrange|arrangement|chords?|progression|parts?|bars?|hook|tempo|bpm|key|master|mastering|mix|style|band|lo-?fi)\b/i;
 /** Extra context for a chat request — only when the message is about the song / pads (keeps requests small). */
-function chatContext(text) {
+export function chatContext(text) {
   const out = [];
   const target = chatTarget();
   const sg = activeSong();
@@ -5769,7 +1646,7 @@ function chatContext(text) {
  * whole song while the editor shows a section of the song that's playing (an edit to just that section's code would
  * be replaced at the next section), otherwise the code.
  */
-function chatTarget() {
+export function chatTarget() {
   const v = $('chatTarget').value;
   if (v === 'song') return activeSong() ? 'song' : 'auto';
   if (v === 'auto' && songSectionInEditor()) return 'song';
@@ -5780,7 +1657,7 @@ const songSectionInEditor = () => {
   return !!(sg && queue.running && queue.songs[queue.current] === sg && getCode().includes(SEC_START));
 };
 /** If editor code from the AI is really the song's part library, return it as library code (consts), else null. */
-function libraryFromReply(code, sg) {
+export function libraryFromReply(code, sg) {
   if (!sg?.sheet || !sg.library) return null;
   const ids = new Set(libraryIds(sg.sheet));
   const lines = code.split('\n');
@@ -5806,7 +1683,7 @@ function renderChatTarget() {
 player.on('song', onceAFrame(renderChatTarget));
 setInterval(renderChatTarget, 1000);
 /** ```pads reply: program pads and/or switch them on / off. Returns a short summary. */
-function applyPadsReply(block) {
+export function applyPadsReply(block) {
   const j = parseJSONLoose(block.startsWith('{') ? block : `{${block}}`);
   const done = [];
   for (const p of Array.isArray(j.program) ? j.program : []) {
@@ -5824,194 +1701,6 @@ function applyPadsReply(block) {
   return done.join(', ');
 }
 
-// ---------------------------------------------------------------------------
-// 🎙 MP3 recording: one tap on the master output (what you hear) feeds MP3
-// encoders running in Web Workers (lamejs). Two kinds of recording share it:
-//  · song takes: every song is recorded in the background as it plays (from its
-//    first section); when it has played to its end the take is kept and the song
-//    gets a "⬇ MP3" button. Songs cut short are thrown away. Never touches playback.
-//  · the status-bar ⏺ MP3: records everything until clicked again, then downloads.
-// ---------------------------------------------------------------------------
-const mp3 = { rec: null, seg: null, tap: null, takes: [], want: new Set() };
-const MP3_MAX_TAKES = 20; // takes live in memory for this page; oldest are dropped
-function mp3Worker() {
-  const lib = new URL('/vendor/lamejs/lame.min.js', location.href).href;
-  const src = `importScripts(${JSON.stringify(lib)});
-let enc = null; const out = [];
-const toI16 = (f) => { const o = new Int16Array(f.length); for (let i = 0; i < f.length; i++) { const v = Math.max(-1, Math.min(1, f[i])); o[i] = v < 0 ? v * 0x8000 : v * 0x7fff; } return o; };
-onmessage = (e) => {
-  const m = e.data;
-  if (m.type === 'start') { enc = new lamejs.Mp3Encoder(2, m.sampleRate, 192); out.length = 0; }
-  else if (m.type === 'data') { const b = enc.encodeBuffer(toI16(m.l), toI16(m.r)); if (b.length) out.push(b); }
-  else if (m.type === 'end') { const b = enc.flush(); if (b.length) out.push(b); postMessage(out); }
-};`;
-  return new Worker(URL.createObjectURL(new Blob([src], { type: 'text/javascript' })));
-}
-/** Connect (or disconnect, when nothing records) the shared tap on the master output. */
-function mp3TapUpdate() {
-  const need = !!(mp3.rec || mp3.seg);
-  if (need && !mp3.tap) {
-    const ctx = audioCtx();
-    let node;
-    try { node = globalThis.getSuperdoughAudioController().output.destinationGain; } catch { return false; }
-    const proc = ctx.createScriptProcessor(4096, 2, 2);
-    proc.onaudioprocess = (e) => {
-      const l = e.inputBuffer.getChannelData(0), r = e.inputBuffer.numberOfChannels > 1 ? e.inputBuffer.getChannelData(1) : l;
-      if (mp3.paused) return; // ⏸ paused song: the recording pauses too
-      for (const sink of [mp3.rec, mp3.seg]) if (sink) sink.worker.postMessage({ type: 'data', l: l.slice(), r: r.slice() });
-    };
-    node.connect(proc);
-    proc.connect(ctx.destination); // a ScriptProcessor only runs when connected; it outputs silence
-    mp3.tap = { node, proc };
-  } else if (!need && mp3.tap) {
-    try { mp3.tap.node.disconnect(mp3.tap.proc); mp3.tap.proc.disconnect(); } catch {}
-    mp3.tap = null;
-  }
-  return true;
-}
-function mp3Sink(name) {
-  const worker = mp3Worker();
-  worker.postMessage({ type: 'start', sampleRate: audioCtx().sampleRate });
-  return { worker, name, t0: performance.now() };
-}
-/** Finish an encoder: cb(blob, seconds) once the MP3 is flushed. */
-function mp3Finish(sink, cb) {
-  const secs = (performance.now() - sink.t0) / 1000;
-  if (!cb) { sink.worker.terminate(); return; }
-  sink.worker.onmessage = (e) => { sink.worker.terminate(); cb(new Blob(e.data, { type: 'audio/mpeg' }), secs); };
-  sink.worker.postMessage({ type: 'end' });
-}
-const mp3Name = (name) => `${slug(name)}-${new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-')}.mp3`;
-function downloadBlob(name, blob) {
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = name;
-  a.click();
-  setTimeout(() => URL.revokeObjectURL(a.href), 5000);
-}
-
-// ---- status-bar ⏺ MP3: record everything ----
-async function mp3Start(name = 'strudel-ai') {
-  if (mp3.rec) return;
-  await ensureAudio();
-  mp3.rec = mp3Sink(name);
-  if (!mp3TapUpdate()) { mp3Finish(mp3.rec); mp3.rec = null; warnUser('MP3: the audio engine is not ready yet — press ▶ first'); return; }
-  $('mp3Btn').classList.add('on');
-  clog('info', `🎙 recording MP3 “${name}”…`);
-}
-function mp3Stop() {
-  const r = mp3.rec;
-  if (!r) return;
-  mp3.rec = null;
-  mp3TapUpdate();
-  $('mp3Btn').classList.remove('on');
-  $('mp3Btn').textContent = '⏺ MP3';
-  mp3Finish(r, (blob, secs) => {
-    const name = mp3Name(r.name);
-    downloadBlob(name, blob);
-    clog('ok', `🎙 MP3 saved: ${name} (${fmtTime(secs)}, ${(blob.size / 1e6).toFixed(1)} MB)`);
-  });
-}
-$('mp3Btn').onclick = () => (mp3.rec ? mp3Stop() : mp3Start(queue.songs[queue.current]?.title || 'strudel-ai'));
-setInterval(() => { if (mp3.rec) $('mp3Btn').textContent = `■ ${fmtTime((performance.now() - mp3.rec.t0) / 1000)}`; }, 500);
-
-// ---- song takes: recorded in the background, kept when the song plays to its end ----
-const recordSongsOn = () => $('recSongs').checked;
-if (saved.recSongs !== undefined) $('recSongs').checked = saved.recSongs;
-$('recSongs').onchange = () => { save({ recSongs: $('recSongs').checked }); if (!recordSongsOn()) mp3TakeEnd(false); songsChanged(); };
-/** A section of a song started playing: begin, follow or end the song's take. */
-function mp3SongStep(step) {
-  const sg = step.song;
-  const idx = sg.blocks?.indexOf(step) ?? -1;
-  if (mp3.seg && mp3.seg.sg !== sg) mp3TakeEnd(); // the previous song is over (complete if it reached its last section)
-  if (mp3.seg) { mp3.seg.reached = Math.max(mp3.seg.reached, idx); return; }
-  if (idx !== 0 || !(recordSongsOn() || mp3.want.has(sg))) return; // takes start at the song's first section
-  mp3.seg = Object.assign(mp3Sink(sg.title), { sg, reached: 0 });
-  if (!mp3TapUpdate()) { mp3Finish(mp3.seg); mp3.seg = null; return; }
-  mp3.want.delete(sg);
-  clog('info', `🎙 recording “${sg.title}” in the background — it can be downloaded when the song is over`);
-  songsChanged();
-}
-/** End the current take: keep it if the song got to its last section (and `keep` allows), else drop it. */
-function mp3TakeEnd(keep = true) {
-  const seg = mp3.seg;
-  if (!seg) return;
-  mp3.seg = null;
-  mp3TapUpdate();
-  const sg = seg.sg, whole = keep && seg.reached >= (sg.blocks?.length || 1) - 1;
-  songsChanged();
-  if (!whole) { mp3Finish(seg); clog('info', `🎙 “${sg.title}” didn't play to its end — its recording was discarded`); return; }
-  mp3Finish(seg, (blob, secs) => {
-    if (sg.take) URL.revokeObjectURL(sg.take.url);
-    sg.take = { url: URL.createObjectURL(blob), name: mp3Name(sg.title), secs, size: blob.size };
-    mp3.takes = mp3.takes.filter((t) => t !== sg).concat(sg);
-    while (mp3.takes.length > MP3_MAX_TAKES) { const old = mp3.takes.shift(); URL.revokeObjectURL(old.take.url); delete old.take; }
-    clog('ok', `🎙 “${sg.title}” recorded (${fmtTime(secs)}, ${(blob.size / 1e6).toFixed(1)} MB) — ⬇ MP3 in its song view`);
-    songsChanged();
-    renderSongs();
-  });
-}
-/** The song view's MP3 button: download the take, or record the song next time it plays from the start. */
-function songMp3(sg) {
-  if (sg.take) {
-    const a = document.createElement('a');
-    a.href = sg.take.url;
-    a.download = sg.take.name;
-    a.click();
-    return;
-  }
-  if (mp3.seg?.sg === sg) return addMsg('info', `🎙 “${sg.title}” is being recorded — ⬇ MP3 appears when it has played to its end`);
-  mp3.want.add(sg);
-  if (!queue.running) { playSong(sg); return; } // nothing playing: play it now (and record it)
-  addMsg('info', `🎙 “${sg.title}” will be recorded the next time it plays from the start — the music keeps playing`);
-}
-
-// handy for debugging from the browser console
-// ---------------------------------------------------------------------------
-// 🐞 Debug log download (🖥 Console → ⬇ debug log): the problems, the whole log and what the app was doing, as a text
-// file to send back for fixes. Nothing secret is in it: API keys live on the server.
-// ---------------------------------------------------------------------------
-function debugContext() {
-  const safe = (fn) => { try { return fn(); } catch (e) { return `(unavailable: ${e.message})`; } };
-  const ac = safe(() => audioCtx());
-  const sg = safe(() => (queue.running ? queue.songs[queue.current] : null) || nowSong || activeSong());
-  const step = safe(() => engine.steps.find((x) => x.status === 'playing'));
-  const st = load();
-  const app = [
-    `version ${APP_VERSION} (build ${APP_BUILD}) · ${location.origin}`,
-    `browser ${navigator.userAgent}`,
-    `window ${innerWidth}×${innerHeight} @${devicePixelRatio}x · audio ${ac?.state || '?'} ${ac?.sampleRate || ''} Hz, latency ${ac?.baseLatency ? Math.round(ac.baseLatency * 1000) + ' ms' : '?'}`,
-    `AI ${$('provider')?.value || '?'} / ${$('model')?.value || '?'}${st.claudeEffort ? ` (effort ${st.claudeEffort})` : ''}`,
-    `panels open: ${safe(() => ws.panels().filter((p) => p.open).map((p) => p.id).join(', '))}`,
-    `settings: ${['quantize', 'fade', 'liveMode', 'autoComplete', 'partVisuals', 'recSongs', 'setForm', 'setBand', 'stationForm', 'stationBand', 'masterStyle', 'masterFollow', 'vizMode', 'aiBudget'].filter((k) => st[k] !== undefined).map((k) => `${k}=${JSON.stringify(st[k])}`).join(' ')}`,
-  ].join('\n');
-  const now = [
-    `${isPlaying() ? 'playing' : 'stopped'} · ${$('status')?.textContent || ''}${engine.paused ? ' · paused' : ''}`,
-    sg ? `song “${sg.title}” (${sg.status || '?'}${sg.phase ? `, ${sg.phase}` : ''}) · section ${step?.prompt || '—'} · ${queue.mode || ''} ${queue.running ? `${queue.current + 1}/${queue.songs.length}` : ''}` : 'no song',
-    `master ${master.style}${master.bypass ? ' (bypassed)' : ''} · follow ${master.follow} · ${JSON.stringify(diffParams(master.params, master.style))}`,
-    `mixer: ${Object.entries(mixer.ch).filter(([, c]) => c.mute || c.solo || c.vol !== 1 || c.low || c.mid || c.high).map(([b, c]) => `${b}${c.mute ? ' M' : ''}${c.solo ? ' S' : ''} ${c.vol}`).join(', ') || 'flat'}`,
-  ].join('\n');
-  const chat = state.history.slice(-8).map((m) => `--- ${m.role}\n${String(m.content).slice(0, 1500)}`).join('\n');
-  return {
-    app, 'now': now,
-    'song sheet': sg?.sheet ? safe(() => JSON.stringify(rawSheet(sg.sheet), null, 1)) : sg ? `(none: “${sg.title}” is a block-format song — its sections are in the code)` : '',
-    'song parts code': sg?.library || '',
-    'code in the editor': safe(() => getCode()),
-    'recent chat (last 8 messages)': chat,
-  };
-}
-function downloadDebugLog() {
-  const text = debugReport(debugContext());
-  const name = `strudel-ai-debug-${new Date().toISOString().slice(0, 16).replace(/[-:T]/g, '')}.txt`;
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(new Blob([text], { type: 'text/plain' }));
-  a.download = name;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  setTimeout(() => URL.revokeObjectURL(a.href), 5000);
-  const c = debugCounts();
-  clog('info', `🐞 debug log saved: ${name} (${c.errors} errors, ${c.warnings} warnings) — send it back for fixes`);
-}
-
+setup_mp3(); // features/mp3.js
+// (features/debug.js)
 window.strudelAI = { player, debugReport: () => debugReport(debugContext()), ws, mixer, mixerChannels, master, masterChain, getBands: () => bands, normalizeSheet, playSong, songMp3, loadPads, songPads, transposeProgression, sectionCode, getForms: () => songForms, getFavorites: () => favorites, loadFavorites, getPads: () => pads, mySongs, activeSong, songFromJSON, songToJSON, mp3, session, pads, padsState, keysState, noteOn, noteOff, setPad, docks, rec, replay, startReplay, recordingForShare, viz, checkScales, checkSounds, prepareCode, evaluateCode, dryRun, hum, transcribe, ensureSliders, engine, queue, setlist: engine, setl: queue };

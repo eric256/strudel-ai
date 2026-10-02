@@ -99,7 +99,7 @@ app.use(express.json({ limit: '8mb' }));
 const INDEX_HTML = fs
   .readFileSync(path.join(PUBLIC_DIR, 'index.html'), 'utf8')
   .replace('<head>', `<head>\n  <meta name="app-version" content="${VERSION}" />\n  <meta name="app-build" content="${BUILD}" />`)
-  .replace(/(\/(?:app\.js|style\.css))"/g, `$1?v=${BUILD}"`);
+  .replace(/(\/(?:main\.js|style\.css))"/g, `$1?v=${BUILD}"`);
 const sendIndex = (_req, res) => {
   res.set('Cache-Control', 'no-cache');
   res.type('html').send(INDEX_HTML);

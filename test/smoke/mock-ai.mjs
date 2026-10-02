@@ -49,6 +49,7 @@ export function startMockAI(port) {
       if (sys.startsWith('You are a songwriter') && /FAILSHEET/.test(last) && failSheets++ < 6) { kind = 'sheet'; content = 'Sorry, no sheet today.'; }
       else if (sys.startsWith('You are a songwriter')) { kind = 'sheet'; content = JSON.stringify(sheet(last)); }
       else if (sys.startsWith('You write the PART LIBRARY')) { kind = 'library'; content = library(last); }
+      else if (sys.startsWith('You are the music director')) { kind = 'songs'; content = 'Night Drive | synthwave with a driving bass\nRain Loop | slow lo-fi with soft keys\nSky Steps | bright house with piano chords'; }
       else { kind = 'code'; content = 'Here you go.\n```javascript\nsetcpm(120/4)\ndrums: s("bd*4").bank("RolandTR909")\nlead: note("c4 e4 g4").s("square").gain(0.3)\n```'; }
       log.push({ kind, sys, last });
       res.writeHead(200, { 'Content-Type': 'text/event-stream' });

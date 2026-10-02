@@ -177,6 +177,58 @@ try {
     await ev(() => document.getElementById('settingsDlg').close());
   });
 
+  await step('every panel opens (visualizer, keys, pads, console …)', async () => {
+    const ids = await ev(() => strudelAI.ws.panels().map((x) => x.id));
+    for (const id of ids) { await ev((id) => strudelAI.ws.open(id), id); await p.waitForTimeout(150); }
+    expect(await ev(() => strudelAI.ws.panels().every((x) => x.open)), 'a panel did not open');
+  });
+
+  await step('keys play a note; a pad toggles its line into the code', async () => {
+    await ev(() => { strudelAI.noteOn(60); });
+    await p.waitForTimeout(200);
+    await ev(() => strudelAI.noteOff(60));
+    await ev(() => document.querySelector('#padsGrid .pad[data-i="0"]').dispatchEvent(new PointerEvent('pointerdown', { bubbles: true })));
+    await p.waitForTimeout(100);
+    await ev(() => document.querySelector('#padsGrid .pad[data-i="0"]').dispatchEvent(new PointerEvent('pointerup', { bubbles: true })));
+    await p.waitForFunction(() => strudelAI.padsState.pending.size > 0 || /^pad1:/m.test(document.querySelector('strudel-editor').editor.code), null, { timeout: 5000 });
+  });
+
+  await step('🌀 Hydra visuals start and stop', async () => {
+    await ev(() => { const h = document.getElementById('hydraMode'); h.value = 'kaleido'; h.onchange(); });
+    await p.waitForTimeout(1500);
+    await ev(() => { const h = document.getElementById('hydraMode'); h.value = 'off'; h.onchange(); });
+  });
+
+  await step('📁 save to My songs, 🔗 share link, ⏺ MP3 start / stop', async () => {
+    await ev(() => strudelAI.ws.open('song'));
+    await ev(() => document.querySelector('#nowSongView [data-act="save"]')?.click());
+    await p.waitForFunction(() => strudelAI.mySongs.length >= 1, null, { timeout: 5000 });
+    await ev(() => document.querySelector('#nowSongView [data-act="link"]')?.click());
+    await p.waitForFunction(() => strudelAI.mySongs.concat(strudelAI.queue.songs).some((s) => s.shareUrl), null, { timeout: 10000 });
+    await ev(() => document.getElementById('mp3Btn').click());
+    await p.waitForTimeout(1200);
+    const [dl] = await Promise.all([p.waitForEvent('download', { timeout: 15000 }), ev(() => document.getElementById('mp3Btn').click())]);
+    expect(/\.mp3$/.test(dl.suggestedFilename()), `mp3 file ${dl.suggestedFilename()}`);
+  });
+
+  await step('🔗 a share link opens the song in a new tab', async () => {
+    const { url, title } = await ev(() => { const sg = strudelAI.mySongs.concat(strudelAI.queue.songs).find((s) => s.shareUrl); return { url: sg.shareUrl, title: sg.title }; });
+    const p2 = await ctx.newPage();
+    p2.on('pageerror', (e) => errors.push(`(share tab) ${e.message}`));
+    await p2.goto(url.replace(/^https?:\/\/[^/]+/, `http://127.0.0.1:${APP_PORT}`));
+    await p2.waitForFunction((t) => window.strudelAI?.queue.songs.some((s) => s.title === t && s.blocks?.length), title, { timeout: 20000 });
+    await p2.close();
+  });
+
+  await step('📻 the station plans songs and plays them', async () => {
+    await ev(() => { document.getElementById('stop').click(); strudelAI.ws.open('station'); });
+    await p.waitForTimeout(500);
+    await ev(() => document.getElementById('stationStart').click());
+    await p.waitForFunction(() => strudelAI.queue.mode === 'station' && strudelAI.queue.songs.some((s) => s.status === 'playing'), null, { timeout: 40000 });
+    expect(log.some((x) => x.kind === 'songs'), 'the station did not ask for songs');
+    await ev(() => document.getElementById('stationStop').click());
+  });
+
   await step('stop', async () => {
     await ev(() => document.getElementById('stop').click());
     await p.waitForTimeout(500);
