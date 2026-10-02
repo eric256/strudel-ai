@@ -22,6 +22,8 @@ export async function soundRegistry() {
 export const pretty = (b) => b.replace(/^roland/, 'Roland').replace(/tr(\d)/, 'TR$1').replace(/^linn/, 'Linn');
 
 let catalogCache = null;
+/** Sounds were added (a 🧩 plugin): list them again next time. */
+export const resetSoundCatalog = () => { catalogCache = null; };
 export async function soundCatalog() {
   if (catalogCache) return catalogCache;
   const reg = await soundRegistry();

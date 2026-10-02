@@ -324,9 +324,10 @@ Edit them like any pads; they're saved with the song. **↩ my pads** goes back 
   - **Edit:** change any colour (it previews as you drag) and the code editor's theme. Editing a built-in theme saves your version as a new theme; your own themes can be renamed and deleted.
   - **⬇ export / ⬆ import:** share a theme as a small `.strudel-theme.json` file.
   - Every colour in the app, including the panels, the mixer meters, the Master graphs and the visualizer, comes from the theme's colour tokens (`public/theme.js`).
+- **🧩 Plugins:** turn plugins on and off, or install one from a file or URL (see *Plugins* below).
 - **💾 Backup:** export everything this browser has saved to a file, import such a file, or reset.
 
-Settings, themes, forms, stations, pads, layout, docks and your last code are saved in the browser's local storage. They survive reloads and updates.
+Settings, themes, plugins, forms, stations, pads, layout, docks and your last code are saved in the browser's local storage. They survive reloads and updates.
 
 Each address keeps its own storage, so `https://192.168.1.50` and `https://myhost` don't share settings. Use Backup to copy them from one to the other.
 
@@ -467,6 +468,30 @@ bass: note("c2*8").s("sawtooth").lpf(slider(1200, 200, 4000)).gain(slider(0.6, 0
   - Mute/solo clicks don't go into the ↶ Undo history.
   - The button pulses until the change happens. Groups silenced by another group's solo show a red **M**.
 
+## 🧩 Plugins
+
+Plugins are small JavaScript files that add to the app:
+- panels and header buttons;
+- ⚙ Settings pages;
+- themes, bands, song forms and stations;
+- sounds;
+- extra instructions for the AI.
+
+They can also follow the player (section, song, play / pause / stop). Manage them in **⚙ Settings → 🧩 Plugins**.
+
+**Where they come from:**
+- **Examples** that come with the app, off until you turn them on:
+  - **⏱ Bar counter:** a big bar · beat panel with a header button and a settings page.
+  - **Paper pack:** a warm light theme, a chamber-pop band, a song form, a station and an AI instruction.
+- **The server's `plugins/` folder** (`PLUGINS_DIR`). Every `.js` file in it is offered, and starts on. In Docker, mount a folder at `/app/plugins`.
+- **This browser:** ⬆ install from a file or ⬇ from a URL. The code is kept in this browser.
+
+**When a plugin breaks:** it is turned off, its error is shown in the list and written to the 🐞 debug log, and the app carries on. Turning a plugin off removes what it added. Bands, forms and stations it added stay in your lists, to keep or delete.
+
+⚠ A plugin runs with full access to the page. Only install plugins you trust.
+
+To write one, see **[PLUGINS.md](PLUGINS.md)**.
+
 ## Panels and layout
 
 Every part of the app is a panel in [dockview](https://dockview.dev): the code editor ⌨, Chat 💬, Songs 🎵, Station 📻, **Now playing** 🎶, Visualizer 📊, Keys 🎹, Pads 🔲, Mixer 🎚, Master 🎛 and Console 🖥.
@@ -556,6 +581,7 @@ Before any AI-written code plays, the app checks it:
 | `LLM_MAX_TOKENS` | `2048` | |
 | `LLM_TIMEOUT_MS` | `180000` | |
 | `SYSTEM_PROMPT_FILE` | – | path to a custom prompt (mount it as a volume) |
+| `PLUGINS_DIR` | `./plugins` (`/app/plugins` in Docker) | the server's 🧩 plugins folder (see [PLUGINS.md](PLUGINS.md)) |
 | `SITE_ADDRESS` | `localhost` | Caddy: names/IPs to serve HTTPS for (comma-separated) |
 | `DEFAULT_SNI` | `localhost` | Caddy: certificate for bare-IP connections |
 | `TLS_ISSUER` | `internal` | Caddy: `internal` or an e-mail for Let's Encrypt |

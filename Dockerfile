@@ -9,7 +9,8 @@ RUN npm ci --omit=dev || npm install --omit=dev
 COPY server.js prompt.js CHANGELOG.md ./
 COPY public ./public
 # writable dirs for the non-root user: shared songs + (optional) self-signed certs
-RUN mkdir -p /app/data/shares /app/certs && chown -R node:node /app/data /app/certs
+# 🧩 plugins: mount your own folder here (see PLUGINS.md)
+RUN mkdir -p /app/data/shares /app/certs /app/plugins && chown -R node:node /app/data /app/certs
 
 ENV NODE_ENV=production \
     PORT=3000 \

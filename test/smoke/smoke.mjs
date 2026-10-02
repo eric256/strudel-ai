@@ -241,6 +241,41 @@ try {
     await ev(() => document.getElementById('settingsDlg').close());
   });
 
+  await step('🧩 plugins: the examples add a panel, button, settings page, theme, band and AI hint; off removes them; installs', async () => {
+    await ev(() => { document.getElementById('settingsBtn').click(); document.querySelector('.settings-tabs [data-sec="setPlugins"]').click(); });
+    await p.waitForFunction(() => document.querySelectorAll('.plugin-card').length >= 2 && strudelAI.plugins().every((x) => x.id), null, { timeout: 10000 });
+    const toggle = (name) => ev((n) => [...document.querySelectorAll('.plugin-card')].find((x) => x.textContent.includes(n)).querySelector('input').click(), name);
+    await toggle('Bar counter'); await toggle('Paper pack');
+    await p.waitForFunction(() => strudelAI.plugins().filter((x) => x.on).length === 2, null, { timeout: 5000 });
+    const on = await ev(async () => ({
+      button: !!document.querySelector('#pluginButtons button'),
+      panel: strudelAI.ws.panels().some((x) => x.id === 'bar-counter.bars'),
+      settings: !!document.querySelector('.settings-tabs [data-sec^="setPlugin-bar-counter"]'),
+      band: strudelAI.getBands().some((b) => b.name === 'Paper Strings'),
+      theme: !!(await import('/theme.js')).allThemes()['paper-pack.paper'],
+      hint: /comment above it/.test((await import('/features/plugins.js')).promptHints('code')),
+    }));
+    for (const [k, v] of Object.entries(on)) expect(v, `the plugin's ${k} is missing`);
+    await ev(() => document.querySelector('#pluginButtons button').click());
+    await p.waitForFunction(() => strudelAI.ws.isOpen('bar-counter.bars') && /·/.test(document.querySelector('.plugin-panel')?.textContent || ''), null, { timeout: 5000 });
+    await toggle('Bar counter'); await toggle('Paper pack');
+    const off = await ev(async () => ({ button: !!document.querySelector('#pluginButtons button'), panel: strudelAI.ws.panels().some((x) => x.id === 'bar-counter.bars'), hint: (await import('/features/plugins.js')).promptHints('code') }));
+    expect(!off.button && !off.panel && !off.hint, `turning off left ${JSON.stringify(off)}`);
+    // install: a broken plugin is turned off with its error; a working one starts
+    const fs = await import('node:fs/promises'), os = await import('node:os'), path = await import('node:path');
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'plug-'));
+    await fs.writeFile(path.join(dir, 'broken.js'), 'export default { id: "broken", setup() { throw new Error("boom"); } };');
+    await fs.writeFile(path.join(dir, 'hello.js'), 'export default { id: "hello", name: "Hello", setup(api) { api.addButton({ icon: "👋", onClick: () => api.message("hello") }); } };');
+    await p.setInputFiles('#pluginList input[type=file]', path.join(dir, 'broken.js'));
+    await p.waitForFunction(() => strudelAI.plugins().some((x) => x.src === 'installed:broken.js' && !x.on && /boom/.test(x.error)), null, { timeout: 5000 });
+    await p.setInputFiles('#pluginList input[type=file]', path.join(dir, 'hello.js'));
+    await p.waitForFunction(() => strudelAI.plugins().some((x) => x.id === 'hello' && x.on) && document.querySelector('#pluginButtons button')?.textContent === '👋', null, { timeout: 5000 });
+    p.once('dialog', (d) => d.accept());
+    await ev(() => [...document.querySelectorAll('.plugin-card')].find((x) => x.textContent.includes('Hello')).querySelector('button.link').click());
+    await p.waitForFunction(() => !strudelAI.plugins().some((x) => x.id === 'hello') && !document.querySelector('#pluginButtons button'), null, { timeout: 5000 });
+    await ev(() => document.getElementById('settingsDlg').close());
+  });
+
   await step('every panel opens (visualizer, keys, pads, console …)', async () => {
     const ids = await ev(() => strudelAI.ws.panels().map((x) => x.id));
     for (const id of ids) { await ev((id) => strudelAI.ws.open(id), id); await p.waitForTimeout(150); }

@@ -29,6 +29,7 @@
       <span class="ws-menu-wrap"><button id="layoutBtn" title="Panels: open or close chat, songs, station, the playing song, visualizer, keys, pads and console — or reset the layout">▦<span class="lbl"> Panels</span></button>
         <div id="layoutMenu" class="share-pop layout-menu" hidden></div></span>
       <button id="humBtn" class="hum-btn" title="Hold to hum a melody (or hold the ` key); tap to open the hum panel">🎤 Hum</button>
+      <span id="pluginButtons" class="plugin-buttons"></span>
     </div>
     <div class="share-wrap">
       <button id="shareBtn" title="Create a link others can open">🔗<span class="lbl"> Share</span></button>
@@ -364,6 +365,7 @@
       <button data-sec="setBands">🎸 Bands</button>
       <button data-sec="setTheme">🎨 Theme</button>
       <button data-sec="setStations">📻 Stations</button>
+      <button data-sec="setPlugins">🧩 Plugins</button>
       <button data-sec="setBackup">💾 Backup</button>
     </nav>
     <section id="setGeneral" class="settings-sec">
@@ -452,6 +454,10 @@
       <textarea id="bandInstruments" rows="8" spellcheck="false" placeholder="drums: akaimpc60 — dusty boom-bap kit&#10;bass: gm_acoustic_bass — upright, round"></textarea></label>
     <div id="bandPreview" class="form-preview"></div>
     <div class="sl-buttons"><span class="spacer"></span><button id="bandReset" class="link" title="Bring back the built-in bands (your own bands are kept)">restore built-in bands</button></div>
+    </section>
+    <section id="setPlugins" class="settings-sec" hidden>
+      <p class="muted small">Plugins add panels, buttons, settings pages, themes, bands, song forms, stations, sounds and instructions for the AI. They come with the app (examples), from the server's <code>plugins/</code> folder, or are installed here in this browser. See <a href="https://github.com/eric256/strudel-ai/blob/main/PLUGINS.md" target="_blank" rel="noopener">PLUGINS.md</a> to write your own.</p>
+      <div id="pluginList"></div>
     </section>
     <section id="setTheme" class="settings-sec" hidden>
       <p class="muted small">Pick a theme: the colours of every panel, meter and graph, and the code editor's colours. Your own themes are saved in this browser; export one to share it, import a theme file someone gave you.</p>

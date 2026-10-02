@@ -2,6 +2,7 @@
 // file to send back for fixes. Nothing secret is in it: API keys live on the server.
 // (split out of app.js)
 import { audioCtx } from './hum-ui.js';
+import { pluginsState } from './plugins.js';
 import { APP_BUILD, APP_VERSION } from './share.js';
 import { master } from './master-panel.js';
 import { diffParams } from '../master.js';
@@ -23,6 +24,7 @@ export function debugContext() {
     `window ${innerWidth}×${innerHeight} @${devicePixelRatio}x · audio ${ac?.state || '?'} ${ac?.sampleRate || ''} Hz, latency ${ac?.baseLatency ? Math.round(ac.baseLatency * 1000) + ' ms' : '?'}`,
     `AI ${$('provider')?.value || '?'} / ${$('model')?.value || '?'}${st.claudeEffort ? ` (effort ${st.claudeEffort})` : ''}`,
     `panels open: ${safe(() => ws.panels().filter((p) => p.open).map((p) => p.id).join(', '))}`,
+    `plugins: ${safe(() => pluginsState().map((p) => `${p.name}${p.on ? ' (on)' : ''}${p.error ? ` ✗ ${p.error}` : ''}`).join(', ') || 'none')}`,
     `settings: ${['quantize', 'fade', 'liveMode', 'autoComplete', 'partVisuals', 'recSongs', 'setForm', 'setBand', 'stationForm', 'stationBand', 'masterStyle', 'masterFollow', 'vizMode', 'aiBudget'].filter((k) => st[k] !== undefined).map((k) => `${k}=${JSON.stringify(st[k])}`).join(' ')}`,
   ].join('\n');
   const now = [

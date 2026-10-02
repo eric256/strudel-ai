@@ -36,6 +36,11 @@ function renderFormSelects() {
   }
 }
 function saveForms() { save({ songForms }); renderFormSelects(); }
+/** Add a 🧩 plugin's song forms to yours, once (forms you delete stay deleted). */
+export function mergeForms(items, key) {
+  songForms = addNewDefaults(songForms, items.map((f) => ({ name: String(f.name), use: String(f.use || ''), sections: String(f.sections || '') })), key, []);
+  saveForms();
+}
 export function renderFormsEditor() {
   formIdx = Math.max(0, Math.min(formIdx, songForms.length - 1));
   renderOptions($('formSelect'), songForms.map((f, i) => ({ value: i, label: f.name || 'untitled' })), formIdx);

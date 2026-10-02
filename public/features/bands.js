@@ -28,6 +28,11 @@ function renderBandSelects() {
   }
 }
 function saveBands() { save({ bands }); renderBandSelects(); }
+/** Add a 🧩 plugin's bands to yours, once (bands you delete stay deleted). key: what remembers which were added. */
+export function mergeBands(items, key) {
+  bands = addNewDefaults(bands, items.map((b) => ({ name: String(b.name), use: String(b.use || ''), master: normStyle(b.master) || 'clean', instruments: String(b.instruments || '') })), key, []);
+  saveBands();
+}
 export function renderBandsEditor() {
   bandIdx = Math.max(0, Math.min(bandIdx, bands.length - 1));
   renderOptions($('bandSelect'), bands.map((b, i) => ({ value: i, label: b.name || 'untitled' })), bandIdx);

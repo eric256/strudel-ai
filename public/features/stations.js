@@ -29,6 +29,12 @@ export function renderStations() {
   $('stationThemeView').textContent = stations[stationIdx]?.theme || 'No theme yet — ✎ edit stations to write one.';
 }
 function saveStations() { save({ stations, stationIdx }); }
+/** Add a 🧩 plugin's stations to yours, once (stations you delete stay deleted). */
+export function mergeStations(items, key) {
+  stations = addNewDefaults(stations, items.map((st) => ({ name: String(st.name), theme: String(st.theme || '') })), key, []);
+  saveStations();
+  renderStations();
+}
 
 /** Start-up: the statements that ran here when this was part of app.js (called from app.js at the same point). */
 export function setup() {
