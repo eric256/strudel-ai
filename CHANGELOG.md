@@ -2,6 +2,16 @@
 
 The version is in `package.json`. Bump it when you release. Open pages also notice *any* redeploy through the build id, which is a hash of the app files, even if the version wasn't bumped.
 
+## 1.39.0
+- **🧩 Plugins (step 3 of templates → themes → plugins):** add to the app with small JavaScript files. Manage them in ⚙ Settings → 🧩 Plugins.
+  - **What a plugin can add:** panels (they keep their place in the layout), header buttons, ⚙ Settings pages, themes, bands, song forms, stations, sounds and instructions for the AI. It can also follow the player's events (section, song, play / pause / stop).
+  - **Where plugins come from:** the examples that come with the app, the server's `plugins/` folder (`PLUGINS_DIR`, `/app/plugins` in Docker), or installed in this browser from a file or a URL.
+  - **Safe to try:** turning a plugin off removes what it added. A plugin that fails is turned off, its error is shown and goes to the 🐞 debug log, and the app carries on.
+  - **Examples:** ⏱ **Bar counter** (a bar · beat panel, a header button, a settings page) and **Paper pack** (a light theme, a chamber-pop band, a song form, a station and an AI instruction). Both are off until you turn them on.
+  - **How to write one:** [PLUGINS.md](PLUGINS.md).
+- The 🐞 debug log lists the plugins and their errors.
+- **Smoke test:** turn the examples on (panel, button, settings page, theme, band, AI instruction), turn them off, and install a broken plugin and a working one (26 steps).
+
 ## 1.38.0
 - **🎨 Themes (step 2 of templates → themes → plugins):** ⚙ Settings → 🎨 Theme.
   - **Built-in themes:** Dark (the old look), Light, High contrast, Synthwave and Studio (warm). Each also picks a matching code editor theme.

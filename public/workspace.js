@@ -39,6 +39,15 @@ export function createWorkspace({ dv, root, center, panels, saved, onSave }) {
   slot.className = 'dv-editor-slot';
   P.set(EDITOR, { id: EDITOR, title: 'Code', icon: '⌨', el: slot, area: 'center', onVisible: null, onOpen: null });
   const store = document.getElementById('panel-store');
+  /** Holders for saved panels nobody has registered yet: id → element. */
+  const waiting = new Map();
+  const waitFor = (id) => {
+    const el = document.createElement('div');
+    el.className = 'panel plugin-panel';
+    el.textContent = '…';
+    waiting.set(id, el);
+    return el;
+  };
 
   // dockview fills the workspace; the editor column floats over its slot
   center.classList.add('dv-editor-overlay');
@@ -67,7 +76,8 @@ export function createWorkspace({ dv, root, center, panels, saved, onSave }) {
     defaultRenderer: 'always',
     createComponent: ({ id, name }) => {
       const p = P.get(name);
-      const element = p?.el || document.createElement('div');
+      // a saved panel whose owner (a 🧩 plugin) hasn't registered yet: a holder it gets when it does (addPanel)
+      const element = p?.el || waiting.get(name) || waitFor(name);
       element.hidden = false;
       return { element, init() {} };
     },
@@ -191,7 +201,35 @@ export function createWorkspace({ dv, root, center, panels, saved, onSave }) {
     },
     reset() { buildDefault(); ensureNow(); sync(); },
     layout: () => api.toJSON(),
-    panels: () => panels.map((p) => ({ id: p.id, title: p.title, icon: p.icon, open: !!panelOf(p.id), fixed: FIXED.has(p.id) })),
+    panels: () => [...P.values()].filter((p) => p.id !== EDITOR).map((p) => ({ id: p.id, title: p.title, icon: p.icon, open: !!panelOf(p.id), fixed: FIXED.has(p.id) })),
+    /**
+     * Add a panel after start-up (🧩 plugins): { id, title, icon, area }. Returns its element. A panel with this id
+     * restored from the saved layout keeps its place and gets the element now.
+     */
+    addPanel(def) {
+      if (P.has(def.id)) throw new Error(`a panel "${def.id}" already exists`);
+      const el = waiting.get(def.id) || document.createElement('div');
+      waiting.delete(def.id);
+      el.className = 'panel plugin-panel';
+      el.textContent = '';
+      P.set(def.id, { onVisible: null, onOpen: null, area: 'bottom', ...def, el });
+      const panel = panelOf(def.id);
+      if (panel) panel.api.setTitle(title(P.get(def.id)));
+      sync();
+      return el;
+    },
+    /** Remove a panel added with addPanel (closing it if it's open). */
+    removePanel(id) {
+      if (FIXED.has(id) || !P.has(id)) return;
+      panelOf(id)?.api.close();
+      P.get(id).el.remove();
+      P.delete(id);
+    },
+    /** Close saved panels that nothing registered (a plugin that was removed or turned off). */
+    dropWaiting() {
+      for (const id of waiting.keys()) panelOf(id)?.api.close();
+      waiting.clear();
+    },
     minSize(id, px) {
       const g = panelOf(id)?.group;
       try { if (g && g.api.height < px && g.api.location?.type !== 'floating') g.api.setSize({ height: px }); } catch {}

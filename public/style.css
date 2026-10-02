@@ -702,3 +702,19 @@ body.hydra-on .code-bar { background: color-mix(in srgb, var(--panel-2) 80%, tra
 .th-token { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); }
 .th-token input[type=color] { width: 34px; height: 22px; padding: 0; border: 1px solid var(--border); background: none; }
 .th-token .th-text { width: 140px; font: 11px var(--mono); }
+
+/* 🧩 Plugins: ⚙ Settings → 🧩 Plugins, plugin panels and header buttons */
+.plugin-buttons { display: contents; }
+.plugin-panel { overflow: auto; height: 100%; }
+.plugin-list { display: flex; flex-direction: column; gap: 6px; margin: 8px 0 14px; }
+.plugin-card { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--raised); }
+.plugin-card.on { border-color: var(--accent-dim); }
+.plugin-card.bad { border-color: var(--danger-dim); }
+.plugin-card .tag { font-size: 11px; padding: 1px 6px; border-radius: 9px; background: var(--panel-2); color: var(--muted); }
+.plugin-card .spacer { flex: 1; }
+.plugin-switch { display: flex; align-items: center; gap: 6px; cursor: pointer; }
+.plugin-desc { flex-basis: 100%; }
+.plugin-err { flex-basis: 100%; color: var(--danger-text); }
+.plugin-install { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.plugin-url { flex: 1; min-width: 180px; }
+.plugin-warn { color: var(--warn); margin-top: 10px; }

@@ -53,7 +53,19 @@ const stored = () => { try { return JSON.parse(localStorage.getItem(STORE_KEY)) 
 
 /** Your own themes: { id: { name, editor, scheme, colors } } (saved with the settings). */
 export const userThemes = () => stored().userThemes || {};
-export const allThemes = () => ({ ...BUILTIN_THEMES, ...userThemes() });
+/** Themes added by 🧩 plugins (while they're on). */
+const pluginThemes = {};
+export const allThemes = () => ({ ...BUILTIN_THEMES, ...pluginThemes, ...userThemes() });
+export const isPluginTheme = (id) => id in pluginThemes;
+/** Add a theme (a 🧩 plugin's). If it's the saved theme, it applies now. */
+export function registerTheme(id, theme) {
+  pluginThemes[id] = { ...theme, colors: { ...BUILTIN_THEMES.dark.colors, ...(theme.colors || {}) } };
+  if (stored().theme === id) applyTheme(id);
+}
+export function unregisterTheme(id) {
+  delete pluginThemes[id];
+  if (currentThemeId() === id) applyTheme('dark');
+}
 export const currentThemeId = () => document.documentElement.dataset.theme || 'dark';
 export const currentTheme = () => allThemes()[currentThemeId()] || BUILTIN_THEMES.dark;
 

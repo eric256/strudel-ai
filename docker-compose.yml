@@ -18,6 +18,7 @@ services:
       - "host.docker.internal:host-gateway"   # reach llama.cpp / OpenWebUI running on the host
     volumes:
       - songs:/app/data          # shared songs (share links) survive rebuilds
+    #   - ./plugins:/app/plugins:ro             # optional 🧩 plugins folder (see PLUGINS.md)
     #   - ./my-prompt.md:/app/my-prompt.md:ro   # optional custom system prompt (add under volumes:, set SYSTEM_PROMPT_FILE)
 
   caddy:

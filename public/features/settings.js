@@ -8,6 +8,7 @@ import { renderBandsEditor } from './bands.js';
 import { renderFormsEditor } from './forms.js';
 import { renderStations } from './stations.js';
 import { renderThemeSettings } from './themes.js';
+import { renderPluginSettings } from './plugins.js';
 /** Tiny renderer for the changelog: "## x.y.z" headings, "- " bullets, **bold**, `code`. */
 function renderChangelog(md, versions = 3) {
   const inline = (t) => esc(t).replace(/\*\*(.+?)\*\*/g, '<b>$1</b>').replace(/`([^`]+)`/g, '<code>$1</code>');
@@ -52,6 +53,8 @@ async function openAbout() {
 // ⚙ Settings: live edit, fade, autocomplete, song forms, stations, backup.
 // Everything is kept in localStorage (STORE_KEY), so it survives reloads and updates.
 // ---------------------------------------------------------------------------
+/** Settings pages added by 🧩 plugins: section id → render(). */
+export const settingsPages = new Map();
 export function openSettings(sec = 'setGeneral') {
   for (const b of document.querySelectorAll('.settings-tabs button')) b.classList.toggle('active', b.dataset.sec === sec);
   for (const el of document.querySelectorAll('.settings-sec')) el.hidden = el.id !== sec;
@@ -60,6 +63,8 @@ export function openSettings(sec = 'setGeneral') {
   if (sec === 'setTheme') renderThemeSettings();
   if (sec === 'setStations') renderStations();
   if (sec === 'setPrompts') renderPromptEditor();
+  if (sec === 'setPlugins') renderPluginSettings();
+  settingsPages.get(sec)?.();
   $('settingsMsg').textContent = '';
   if (!$('settingsDlg').open) $('settingsDlg').showModal();
 }

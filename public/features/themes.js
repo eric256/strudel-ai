@@ -4,7 +4,7 @@
 // (The themes and the colour tokens themselves: public/theme.js.)
 // ---------------------------------------------------------------------------
 import { html, render, nothing } from '../html.js';
-import { TOKENS, BUILTIN_THEMES, allThemes, applyTheme, currentThemeId, themeFromJSON, themeToJSON, userThemes } from '../theme.js';
+import { TOKENS, BUILTIN_THEMES, allThemes, applyTheme, currentThemeId, isPluginTheme, themeFromJSON, themeToJSON, userThemes } from '../theme.js';
 import { $, addMsg, save } from '../app.js';
 import { download, slug } from './song-library.js';
 
@@ -26,7 +26,7 @@ export function useTheme(id) {
 function editable() {
   const id = currentThemeId();
   if (userThemes()[id]) return { id, theme: userThemes()[id] };
-  const base = BUILTIN_THEMES[id] || BUILTIN_THEMES.dark;
+  const base = allThemes()[id] || BUILTIN_THEMES.dark;
   return { id: null, theme: { ...base, name: `My ${base.name.toLowerCase()}`, colors: { ...base.colors } } };
 }
 /** Change one thing of the theme being edited (a colour, the editor theme, the name): saved as your theme. */
@@ -64,7 +64,7 @@ export function renderThemeSettings() {
   const current = currentThemeId();
   const themes = allThemes();
   render(html`${Object.entries(themes).map(([id, t]) => html`
-    <button class="th-card${id === current ? ' on' : ''}" title=${id.startsWith('user-') ? 'Your theme' : 'Built-in theme'} @click=${() => useTheme(id)}>
+    <button class="th-card${id === current ? ' on' : ''}" title=${userThemes()[id] ? 'Your theme' : isPluginTheme(id) ? 'From a 🧩 plugin' : 'Built-in theme'} @click=${() => useTheme(id)}>
       ${swatches(t)}<span class="th-name">${t.name}${id === current ? ' ✓' : ''}</span>
     </button>`)}`, $('themeList'));
   const { id, theme } = editable();
@@ -72,7 +72,7 @@ export function renderThemeSettings() {
     <div class="sl-buttons">
       <b>Colours</b>
       ${id ? html`<label>name <input .value=${theme.name} maxlength="40" @change=${(e) => editTheme({ name: e.target.value.trim() || 'My theme' })} /></label>`
-        : html`<span class="muted small">a built-in theme: changing a colour saves your own copy</span>`}
+        : html`<span class="muted small">a built-in or plugin theme: changing a colour saves your own copy</span>`}
       <span class="spacer"></span>
       <label title="The code editor's colours">editor
         <select @change=${(e) => editTheme({ editor: e.target.value })}>${EDITOR_THEMES.map((n) => html`<option ?selected=${n === theme.editor}>${n}</option>`)}</select></label>

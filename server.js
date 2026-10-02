@@ -132,6 +132,19 @@ app.get('/api/about', (_req, res) => {
   res.json({ version: VERSION, build: BUILD, repo: REPO_URL, changelog: CHANGELOG });
 });
 
+// 🧩 Plugins: the example plugins that come with the app (public/plugins/) and the server's own plugins folder
+// (PLUGINS_DIR, default ./plugins: drop a .js file in, reload the page, and turn it on in ⚙ Settings → 🧩 Plugins).
+const PLUGINS_DIR = env.PLUGINS_DIR || path.join(__dirname, 'plugins');
+app.use('/user-plugins', express.static(PLUGINS_DIR, { setHeaders: (res) => res.set('Cache-Control', 'no-cache') }));
+const listJs = (dir) => { try { return fs.readdirSync(dir).filter((f) => /^[\w.-]+\.m?js$/.test(f)).sort(); } catch { return []; } };
+app.get('/api/plugins', (_req, res) => {
+  res.set('Cache-Control', 'no-cache');
+  res.json({
+    builtin: listJs(path.join(PUBLIC_DIR, 'plugins')).map((f) => `/plugins/${f}`),
+    server: listJs(PLUGINS_DIR).map((f) => `/user-plugins/${f}`),
+  });
+});
+
 app.get('/api/version', (_req, res) => {
   res.set('Cache-Control', 'no-store');
   res.json({ version: VERSION, build: BUILD });
@@ -338,7 +351,7 @@ app.get('/api/models', async (req, res) => {
 // Chat: proxies (and streams) an OpenAI-style chat completion.
 // Body: { provider, model, messages:[{role,content}], code, error? }
 app.post('/api/chat', async (req, res) => {
-  const { provider, model, messages = [], code = '', temperature, mode = 'code', sounds = '', edited = false, systemPrompt = null, fixing = false } = req.body || {};
+  const { provider, model, messages = [], code = '', temperature, mode = 'code', sounds = '', edited = false, systemPrompt = null, promptExtra = '', fixing = false } = req.body || {};
   const p = getProvider(provider);
 
   const history = messages.slice(-12).map((m) => ({ role: m.role, content: String(m.content) }));
@@ -370,6 +383,8 @@ app.post('/api/chat', async (req, res) => {
           (typeof systemPrompt === 'string' && systemPrompt.trim() && systemPrompt.length <= 60_000
             ? systemPrompt
             : PROMPTS[mode] || SYSTEM_PROMPT) +
+          // 🧩 plugins' additions to this prompt
+          (typeof promptExtra === 'string' && promptExtra.trim() ? '\n\n## ADDITIONAL INSTRUCTIONS\n' + promptExtra.slice(0, 8000) : '') +
           (sounds && ['code', 'sheet', 'library'].includes(mode)
             ? '\n\n## AVAILABLE SOUNDS (the complete list loaded right now — use these exact names, never invent, renumber or zero-pad names)\n' +
               String(sounds).slice(0, 32000)
