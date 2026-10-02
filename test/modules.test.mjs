@@ -61,7 +61,8 @@ test('every template the app uses (T.name) exists, and every template file is re
   for (const f of templateFiles) assert.ok(index.includes(`'./${path.basename(f)}'`), `templates/index.js doesn't import ${path.basename(f)}`);
   const missing = [];
   for (const file of files.filter((f) => !f.endsWith(`templates${path.sep}index.js`))) {
-    for (const m of fs.readFileSync(file, 'utf8').matchAll(/\bT\.([A-Za-z_$][\w$]*)\(/g)) if (!names.has(m[1])) missing.push(`${path.relative(PUBLIC, file)}: T.${m[1]}`);
+    const code = fs.readFileSync(file, 'utf8').split('\n').filter((l) => !/^\s*(\/\/|\*|\/\*)/.test(l)).join('\n'); // not in comments
+    for (const m of code.matchAll(/\bT\.([A-Za-z_$][\w$]*)\(/g)) if (!names.has(m[1])) missing.push(`${path.relative(PUBLIC, file)}: T.${m[1]}`);
   }
   assert.deepEqual(missing, []);
 });
