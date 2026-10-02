@@ -608,3 +608,14 @@ body.ws-resizing { user-select: none; }
 #nowPause { font-weight: 600; min-width: 110px; }
 #nowPause.on { color: var(--accent-2); border-color: var(--accent-2); }
 .sv-stopped { color: var(--muted); font-size: 11px; border: 1px solid var(--border); border-radius: 8px; padding: 0 6px; }
+
+/* 🌀 hydra: the video synth runs behind everything; the code area turns see-through */
+#hydra-canvas { z-index: -1 !important; transition: opacity .3s; }
+body.hydra-on main.ws, body.hydra-on .ws-center, body.hydra-on #editor-pane, body.hydra-on #editor-wrap, body.hydra-on #editor-wrap > div,
+body.hydra-on #editor-wrap .cm-editor, body.hydra-on #editor-wrap .cm-scroller, body.hydra-on #editor-wrap .cm-gutters,
+body.hydra-on #editor-wrap .cm-content, body.hydra-on #editor-wrap .cm-activeLine, body.hydra-on #editor-wrap .cm-activeLineGutter { background: transparent !important; }
+body.hydra-on #editor-wrap .cm-line > span, body.hydra-on #editor-wrap .cm-line { text-shadow: 0 0 3px #000, 0 0 6px #000; }
+body.hydra-on { background: #000; }
+.hydra-editor { padding: 4px 10px 6px; display: flex; flex-direction: column; gap: 4px; }
+.hydra-editor textarea { font: 12px var(--mono); width: 100%; resize: vertical; }
+#hydraMix { width: 70px; }

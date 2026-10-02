@@ -110,6 +110,8 @@ app.use(
   '/vendor/strudel',
   express.static(path.join(__dirname, 'node_modules/@strudel/repl/dist'), { maxAge: '7d' }),
 );
+// Hydra (video synth) for the visualizer's 🌀 hydra backgrounds — served locally instead of from unpkg
+app.use('/vendor/hydra', express.static(path.join(__dirname, 'node_modules/hydra-synth/dist'), { maxAge: '7d' }));
 // MP3 encoder for recordings (runs in a Web Worker in the browser)
 app.use('/vendor/lamejs', express.static(path.join(__dirname, 'node_modules/lamejs'), { maxAge: '7d' }));
 // app files: always revalidate, so a new build is picked up on the next load

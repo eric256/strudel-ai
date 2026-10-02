@@ -2,6 +2,12 @@
 
 The version is in `package.json`. Bump it when you release. Open pages also notice *any* redeploy through the build id, which is a hash of the app files, even if the version wasn't bumped.
 
+## 1.26.0
+- **🎨 Part visuals:** each part of a song section gets a Strudel inline visual under its line, in the part's colour, picked by its role: a punchcard for drums, a piano roll for bass and arps, a spiral for chords and pads, a pitch wheel for melodies, a scope for fx. Turn it on or off in ⚙ Settings → General.
+- **🌀 Hydra visuals:** the visualizer has Hydra backgrounds behind the code, fed by Strudel's visuals (`initHydra({ feedStrudel: 1 })`). There are presets (kaleidoscope, tunnel, waves, cells, feedback), your own code (**✎ code**), and a **mix** slider. Hydra is served locally.
+- **Song pads follow the chords:** the **arp** and **jam lead** pads play the tones of the chord sounding now, so they follow each section's chords and key changes. Pads saved with older songs are updated.
+- **Chat and console stay at the bottom:** both follow new output unless you scroll up to read, and following resumes when you scroll back down. The console keeps following while its panel is hidden.
+
 ## 1.25.0
 - **🎚 The mixer is a console for the whole song:**
   - There's a channel for every part in the song sheet, even ones the current section doesn't play (they're dimmed, and their settings apply when they come in), plus your own labelled parts and the master.

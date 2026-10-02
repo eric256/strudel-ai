@@ -152,6 +152,21 @@ Tick **⚡ live** (⚙ Settings → General) and your edits in the code window t
 
 Encoding happens in the browser while you record (lamejs, 192 kbps stereo), so nothing is uploaded.
 - It's a panel: dock, tab or float it like any other (see [Panels and layout](#panels-and-layout)).
+- **🌀 hydra:** live video-synth visuals ([Hydra](https://hydra.ojack.xyz)) behind the code, fed by Strudel's own visuals (`initHydra({ feedStrudel: 1 })`, so `s0` is Strudel's canvas).
+  - Pick a preset: kaleidoscope, tunnel, waves, cells or feedback. Or choose **✎ code** and write your own, e.g. `src(s0).kaleid(H("<4 5 6>")).diff(osc(1,0.5,5)).modulateScale(osc(2,-0.25,1)).out()`. `H("…")` turns a Strudel pattern into a value that changes with the music.
+  - **mix** sets how strongly it shows through, and the code gets a shadow so it stays readable. Hydra is served by this server, and the choice is remembered.
+
+## 🎨 Part visuals
+
+Each part of a song section gets one of Strudel's inline visuals under its line, in the part's own colour, picked by what it does:
+- drums and percussion: a **punchcard**;
+- bass: a scrolling **piano roll**;
+- chords, pads and keys: a **spiral**;
+- melodies, hooks and counter-melodies: a **pitch wheel**;
+- arps: a dense piano roll;
+- fx and noise: a **scope**.
+
+Turn them off in ⚙ Settings → General → 🎨 part visuals; the section playing now changes on the next bar.
 
 ## 🎵 Songs & 📻 Station
 
@@ -241,7 +256,7 @@ Every finished song has a toolbar:
 **Song pads** are made from the song itself, with no AI:
 - **one pad per song part** (drums, bass, keys, hook …), then its extra variants (half-time drums, fills). A part pad is lit while the playing section has that part. Pressing it mutes or unmutes the section's own line (the mute carries into the next sections). If the section doesn't have the part, pressing it plays the part on top. Part pads carry their code, so they work even when another song is playing;
 - **tempo −¼ / tempo +¼**: hold to play everything at ¾ or 1¼ speed;
-- effects and drum one-shots (filter, snare roll, crash, riser, echo, half time), then jam parts in the song's key (arp, jam lead, stabs, jam pad) as space allows.
+- effects and drum one-shots (filter, snare roll, crash, riser, echo, half time), then jam parts (arp, jam lead, stabs, jam pad) as space allows. These play the tones of the chord sounding now, so they follow each section's chords and any key change. Older songs' arp and lead pads are updated when they load.
 
 Edit them like any pads; they're saved with the song. **↩ my pads** goes back to your own set.
 
