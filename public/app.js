@@ -757,6 +757,19 @@ try {
   document.body.prepend(msg);
   throw e;
 }
+// The page is a fixed app frame: nothing outside the panels may scroll. Focusing an input or the editor bringing its
+// cursor into view can still scroll the window (or the workspace) programmatically, pushing everything off the top:
+// put them straight back.
+{
+  const frames = () => [document.scrollingElement, document.documentElement, document.body, $('workspace'), $('workspace').querySelector('.dv-host')];
+  const unscroll = (e) => {
+    const t = e.target === document ? document.scrollingElement : e.target;
+    if (!frames().includes(t)) return;
+    if (t.scrollTop || t.scrollLeft) { t.scrollTop = 0; t.scrollLeft = 0; }
+  };
+  document.addEventListener('scroll', unscroll, true);
+  window.addEventListener('scroll', () => { if (window.scrollX || window.scrollY) window.scrollTo(0, 0); });
+}
 /** Bring a panel to the front (opening it if it's closed). */
 const showPanel = (id) => ws.open(id);
 // the ▦ Panels menu: open / close any panel, reset the layout
@@ -1660,7 +1673,7 @@ $('chat-form').onsubmit = async (e) => {
     else warnUser(`AI request failed: ${err.message}`);
   } finally {
     setBusy(false);
-    $('input').focus();
+    $('input').focus({ preventScroll: true });
   }
 };
 
@@ -2626,7 +2639,7 @@ $('shareBtn').onclick = (e) => {
       const n = take.events.length;
       $('shareRecInfo').textContent = `${n} change${n > 1 ? 's' : ''} · ${fmtTime(takeSeconds(take))}${rec.take === take ? ' so far' : ''}`;
     }
-    $('shareTitle').focus();
+    $('shareTitle').focus({ preventScroll: true });
   }
 };
 document.addEventListener('click', (e) => {
@@ -4124,7 +4137,7 @@ for (const id of ['stationName', 'stationTheme']) {
     $('stationThemeView').textContent = $('stationTheme').value || 'No theme yet — ✎ edit stations to write one.';
   };
 }
-$('stationNew').onclick = () => { stations.push({ name: 'New station', theme: '' }); stationIdx = stations.length - 1; saveStations(); renderStations(); $('stationTheme').focus(); };
+$('stationNew').onclick = () => { stations.push({ name: 'New station', theme: '' }); stationIdx = stations.length - 1; saveStations(); renderStations(); $('stationTheme').focus({ preventScroll: true }); };
 $('stationDelete').onclick = () => {
   if (!confirm(`Delete station “${stations[stationIdx]?.name}”?`)) return;
   stations.splice(stationIdx, 1);

@@ -12,7 +12,7 @@
 }
 * { box-sizing: border-box; }
 [hidden] { display: none !important; }
-html, body { height: 100%; margin: 0; }
+html, body { height: 100%; margin: 0; overflow: hidden; overflow: clip; } /* the app fills the window: the page itself never scrolls */
 body {
   background: var(--bg);
   color: var(--text);
@@ -504,7 +504,7 @@ header .share-wrap { margin-left: auto; }
 /* ---------------------------------------------------------------------------
    workspace: panels in tab groups, docked around the editor or floating
    --------------------------------------------------------------------------- */
-main.ws { flex: 1; display: flex; min-height: 0; position: relative; }
+main.ws { flex: 1; display: flex; min-height: 0; position: relative; overflow: hidden; overflow: clip; }
 .ws-center { flex: 1 1 auto; min-width: 240px; display: flex; flex-direction: column; min-height: 0; }
 .ws-center #editor-pane { flex: 1 1 auto; min-height: 120px; }
 #songPanel { padding: 8px 10px; overflow-y: auto; gap: 8px; }
