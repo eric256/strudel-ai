@@ -13,6 +13,7 @@ import { audioCtx } from './hum-ui.js';
 import { $, docks, getCode, isPlaying, load, player, queue, save, scheduler, setupDock, ws } from '../app.js';
 import { nowSong } from './song-lists.js';
 import { html, live, render, repeat } from '../html.js';
+import { themeColor } from '../theme.js';
 let saveMixer;
 const MX_BANDS = [['high', 'highshelf', 4000], ['mid', 'peaking', 1000], ['low', 'lowshelf', 200]];
 const MX_DEFAULT = { vol: 1, pan: 0, high: 0, mid: 0, low: 0, mute: false, solo: false };
@@ -184,17 +185,17 @@ export function drawChannelSpectrum(g, an, w, h, color) {
 }
 export function drawMeter(cv, lvl) {
   const g = cv.getContext('2d'), w = cv.width, h = cv.height;
-  g.fillStyle = '#0b0c10';
+  g.fillStyle = themeColor('canvas');
   g.fillRect(0, 0, w, h);
   const y = (v) => { const db = 20 * Math.log10(Math.max(v, 1e-5)); return h - Math.max(0, Math.min(1, (db + 60) / 60)) * h; }; // −60 … 0 dB
   const top = y(lvl.rms);
   const grad = g.createLinearGradient(0, h, 0, 0);
-  grad.addColorStop(0, '#20d3a6'); grad.addColorStop(0.75, '#20d3a6'); grad.addColorStop(0.88, '#ffd166'); grad.addColorStop(1, '#ff5c7a');
+  grad.addColorStop(0, themeColor('accent-2')); grad.addColorStop(0.75, themeColor('accent-2')); grad.addColorStop(0.88, themeColor('warn')); grad.addColorStop(1, themeColor('danger'));
   g.fillStyle = grad;
   g.fillRect(1, top, w - 2, h - top);
   cv.__hold = Math.min(cv.__hold ?? h, y(lvl.peak));
   cv.__hold += 0.6; // the peak marker falls slowly
-  g.fillStyle = lvl.peak >= 0.99 ? '#ff5c7a' : '#e6e8ee';
+  g.fillStyle = lvl.peak >= 0.99 ? themeColor('danger') : themeColor('text');
   g.fillRect(0, Math.min(h - 2, cv.__hold), w, 2);
 }
 function drawMixer() {
@@ -204,16 +205,16 @@ function drawMixer() {
     const base = el.dataset.base;
     const isMaster = base === '__master';
     const an = isMaster ? masterAnalyser() : mixer.orbits[base] != null ? sdController()?.nodes?.[mixer.orbits[base]]?.__ch?.an : null;
-    const color = getComputedStyle(el).getPropertyValue('--c') || '#7c5cff';
+    const color = getComputedStyle(el).getPropertyValue('--c') || themeColor('accent');
     // EQ curve + spectrum
     const cv = el.querySelector('.mx-eqviz');
     if (cv) {
       const g = cv.getContext('2d'), w = cv.width, h = cv.height;
-      g.fillStyle = '#0b0c10';
+      g.fillStyle = themeColor('canvas');
       g.fillRect(0, 0, w, h);
-      g.strokeStyle = '#1d2029';
+      g.strokeStyle = themeColor('line');
       g.beginPath(); g.moveTo(0, h / 2); g.lineTo(w, h / 2); g.stroke();
-      if (an && isPlaying()) drawChannelSpectrum(g, an, w, h, isMaster ? '#7c5cff' : color);
+      if (an && isPlaying()) drawChannelSpectrum(g, an, w, h, isMaster ? themeColor('accent') : color);
       if (!isMaster) {
         const curve = eqCurve(chOf(base), w);
         if (curve) {

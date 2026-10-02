@@ -4,6 +4,7 @@ import { HumRecorder, freqToMidi, intervalsToSemitones, midiToName, tonicPc, tra
 import { patternLines } from '../lib/labels.js';
 import { $, addMsg, applyMasterGain, applyQuantized, cps, getCode, isPlaying, nowCycle, save, saved, showPanel, state, warnUser } from '../app.js';
 import { runTurn, setBusy } from './chat.js';
+import { themeAlpha, themeColor } from '../theme.js';
 let humBtn;
 let SCALE_INTERVALS = null;
 
@@ -170,16 +171,16 @@ function drawHumLive() {
   const { lo, hi } = midiRange(voiced.map((f) => freqToMidi(f.freq)));
   const y = (m) => h - ((m - lo) / (hi - lo)) * (h - 10) - 5;
   // semitone lines at each C
-  g.strokeStyle = '#1d2029';
+  g.strokeStyle = themeColor('line');
   for (let m = Math.ceil(lo); m <= hi; m++) if (m % 12 === 0) { g.beginPath(); g.moveTo(0, y(m)); g.lineTo(w, y(m)); g.stroke(); }
-  g.fillStyle = '#7c5cff';
+  g.fillStyle = themeColor('accent');
   for (const f of voiced) {
     if (f.t < t0) continue;
     g.fillRect(((f.t - t0) / span) * w, y(freqToMidi(f.freq)) - 1.5, 3, 3);
   }
   const last = frames[frames.length - 1];
   const lvl = last ? Math.min(1, last.rms * 8) : 0;
-  g.fillStyle = '#20d3a6';
+  g.fillStyle = themeColor('accent-2');
   g.fillRect(w - 6, h - lvl * h, 6, lvl * h);
   if (last?.freq && last.confidence > 0.75 && last.rms > 0.006) {
     $('humStatus').textContent = `🎤 ${midiToName(Math.round(freqToMidi(last.freq)))}`;
@@ -196,11 +197,11 @@ function drawHumResult(frames, r) {
   const y = (m) => h - ((m - lo) / (hi - lo)) * (h - 14) - 7;
   const x = (step) => ((step - first) / total) * w;
   for (let s = 0; s <= total; s++) {
-    g.strokeStyle = s % grid === 0 ? '#3a3f4f' : s % (grid / 4) === 0 ? '#23262f' : '#16181f';
+    g.strokeStyle = s % grid === 0 ? themeColor('faint') : s % (grid / 4) === 0 ? themeColor('line') : themeColor('panel');
     g.beginPath(); g.moveTo(x(first + s), 0); g.lineTo(x(first + s), h); g.stroke();
   }
   // the raw pitch track, faint
-  g.fillStyle = 'rgba(124,92,255,.35)';
+  g.fillStyle = themeAlpha('accent', 0.35);
   for (const f of frames) {
     if (!(f.freq && f.confidence > 0.75 && f.rms > 0.006)) continue;
     const pos = (f.c ?? null);
@@ -211,9 +212,9 @@ function drawHumResult(frames, r) {
   g.font = '10px ui-monospace, monospace';
   for (const n of r.notes) {
     const x0 = x(n.start * grid), x1 = x((n.start + n.dur) * grid);
-    g.fillStyle = '#20d3a6';
+    g.fillStyle = themeColor('accent-2');
     g.fillRect(x0 + 1, y(n.midi) - 4, Math.max(3, x1 - x0 - 2), 8);
-    g.fillStyle = '#e6e8ee';
+    g.fillStyle = themeColor('text');
     g.fillText(n.name, x0 + 2, y(n.midi) - 6);
   }
 }

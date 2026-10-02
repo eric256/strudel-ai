@@ -362,6 +362,7 @@
       <button data-sec="setPrompts">📝 Prompts</button>
       <button data-sec="setForms">🎼 Song forms</button>
       <button data-sec="setBands">🎸 Bands</button>
+      <button data-sec="setTheme">🎨 Theme</button>
       <button data-sec="setStations">📻 Stations</button>
       <button data-sec="setBackup">💾 Backup</button>
     </nav>
@@ -451,6 +452,11 @@
       <textarea id="bandInstruments" rows="8" spellcheck="false" placeholder="drums: akaimpc60 — dusty boom-bap kit&#10;bass: gm_acoustic_bass — upright, round"></textarea></label>
     <div id="bandPreview" class="form-preview"></div>
     <div class="sl-buttons"><span class="spacer"></span><button id="bandReset" class="link" title="Bring back the built-in bands (your own bands are kept)">restore built-in bands</button></div>
+    </section>
+    <section id="setTheme" class="settings-sec" hidden>
+      <p class="muted small">Pick a theme: the colours of every panel, meter and graph, and the code editor's colours. Your own themes are saved in this browser; export one to share it, import a theme file someone gave you.</p>
+      <div id="themeList" class="theme-list"></div>
+      <div id="themeEditor"></div>
     </section>
     <section id="setStations" class="settings-sec" hidden>
       <p class="muted small">A station is a name and a theme; the 📻 Station tab plays it.</p>

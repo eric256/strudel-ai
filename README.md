@@ -319,9 +319,14 @@ Edit them like any pads; they're saved with the song. **↩ my pads** goes back 
   - **reset to built-in** undoes your changes.
 - **🎼 Song forms:** edit, add and delete forms (see *Song forms* above).
 - **📻 Stations:** each station's name and theme. The Station tab just picks one and plays it.
+- **🎨 Theme:** the app's colours.
+  - Pick a built-in theme: Dark, Light, High contrast, Synthwave or Studio (warm). Each also sets the code editor's colours.
+  - **Edit:** change any colour (it previews as you drag) and the code editor's theme. Editing a built-in theme saves your version as a new theme; your own themes can be renamed and deleted.
+  - **⬇ export / ⬆ import:** share a theme as a small `.strudel-theme.json` file.
+  - Every colour in the app, including the panels, the mixer meters, the Master graphs and the visualizer, comes from the theme's colour tokens (`public/theme.js`).
 - **💾 Backup:** export everything this browser has saved to a file, import such a file, or reset.
 
-Settings, forms, stations, pads, layout, docks and your last code are saved in the browser's local storage. They survive reloads and updates.
+Settings, themes, forms, stations, pads, layout, docks and your last code are saved in the browser's local storage. They survive reloads and updates.
 
 Each address keeps its own storage, so `https://192.168.1.50` and `https://myhost` don't share settings. Use Backup to copy them from one to the other.
 

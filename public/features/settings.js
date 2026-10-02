@@ -7,6 +7,7 @@ import { $, STORE_KEY, forgetStore, load, save, setupDock, state } from '../app.
 import { renderBandsEditor } from './bands.js';
 import { renderFormsEditor } from './forms.js';
 import { renderStations } from './stations.js';
+import { renderThemeSettings } from './themes.js';
 /** Tiny renderer for the changelog: "## x.y.z" headings, "- " bullets, **bold**, `code`. */
 function renderChangelog(md, versions = 3) {
   const inline = (t) => esc(t).replace(/\*\*(.+?)\*\*/g, '<b>$1</b>').replace(/`([^`]+)`/g, '<code>$1</code>');
@@ -56,6 +57,7 @@ export function openSettings(sec = 'setGeneral') {
   for (const el of document.querySelectorAll('.settings-sec')) el.hidden = el.id !== sec;
   if (sec === 'setForms') renderFormsEditor();
   if (sec === 'setBands') renderBandsEditor();
+  if (sec === 'setTheme') renderThemeSettings();
   if (sec === 'setStations') renderStations();
   if (sec === 'setPrompts') renderPromptEditor();
   $('settingsMsg').textContent = '';
