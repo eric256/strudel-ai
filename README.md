@@ -580,11 +580,33 @@ LLAMACPP_URL=http://localhost:8080 npm start   # http://localhost:3000
 
 Code layout:
 - `server.js`: the web server, the AI providers, share links and favorites. `prompt.js`: the AI's system prompts.
-- `public/app.js`: the browser app (UI, playback, the song engine's AI steps). Playback has two layers:
+- `public/main.js`: the page's entry point. It loads `app.js`.
+- `public/app.js`: the player core, about 1,700 lines:
+  - the Strudel editor, quantized switching and crossfades, and the recorder / replay;
+  - the workspace, the console, the section engine and the transport;
+  - the status bar, and the start-up order of the feature modules.
+
+  Playback has two layers:
   - `engine`: the sections, armed and switched in on the bar line;
   - `queue`: the songs of the Songs list or the Station, which feed their sections to the engine.
 
   The player announces `section`, `song`, `transport` (playing / paused / stopped) and `songs` (the lists changed) events. Now playing, the transport bars, the progress bars, the song lists, the mixer, the master and the chat target react to them.
+- `public/features/`: the features. Each module imports what it needs from `app.js` and from the other modules. The code that ran at start-up is in its `setup()`, which `app.js` calls in the original order.
+  - AI: `llm.js` (the AI client and its costs), `chat.js` (a chat turn), `sound-check.js` (sound, soundfont, scale and slider checks)
+  - songs:
+    - `song-writer.js`: sheet → parts → sections, and the feed loop
+    - `song-lists.js`: the Songs / Station lists, Now playing and progress
+    - `song-library.js`: files, 📁 My songs and ★ Favorites
+    - `song-editor.js`: ✎ Edit song
+    - `song-pads.js`
+    - `forms.js`, `bands.js` and `stations.js`: their editors and pickers
+    - `part-visuals.js`
+  - panels and tools:
+    - `mixer.js` and `mute-solo.js` (the M / S buttons beside the code)
+    - `master-panel.js`, `visualizer.js` and `hydra.js`
+    - `keys.js` (with MIDI) and `pads.js`
+    - `hum-ui.js` and `mp3.js`
+    - `settings.js` (also About and Prompts), `share.js` (also updates) and `debug.js`
 - `public/lib/`: the song engine's pure logic, with no DOM and no app state, so it is unit-tested in Node:
   - `music.js`: chords, transposing, meters, tempo
   - `scales.js`: scale-name repair
@@ -594,7 +616,7 @@ Code layout:
   - `arrange.js`: section code and arrangement
   - `util.js`: small helpers
   - `events.js`: the player's event emitter
-- `public/master.js` (master chain and styles), `format.js` (code wrapping), `hum.js` (humming), `workspace.js` (panels), `sounds.js` (sound guide).
+- `public/master.js` (master chain and styles), `format.js` (code wrapping), `hum.js` (humming), `workspace.js` (panels), `sounds.js` (sound guide), `debuglog.js` (the debug log's collector).
 - `test/`: unit tests (`*.test.mjs`) and the browser smoke test (`smoke/`).
 
 CI runs the checks, the unit tests, a server check, the browser smoke test and a Docker build on every push and pull request.

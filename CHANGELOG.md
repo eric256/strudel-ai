@@ -2,6 +2,15 @@
 
 The version is in `package.json`. Bump it when you release. Open pages also notice *any* redeploy through the build id, which is a hash of the app files, even if the version wasn't bumped.
 
+## 1.35.0
+- **Refactor, part 4: features in their own modules.** `app.js` went from about 5,900 to 1,700 lines. The features now live in 24 modules in `public/features/`:
+  - **AI and chat:** the AI client, chat, sound checks;
+  - **songs:** writer, lists, library, editor, song pads, forms, bands, stations, part visuals;
+  - **panels and tools:** mixer, line M / S buttons, master, visualizer, Hydra, keys, pads, hum, MP3, settings, share / updates, debug log.
+
+  Each module imports what it uses, and its start-up code runs in `setup()` at the same point as before, so the app starts up in the same order. The page now loads a small `main.js` that loads `app.js`. Nothing changes for users.
+- **Smoke test:** now also covers every panel opening, the keys, a pad, Hydra, 📁 My songs, a 🔗 share link opening in a new tab, ⏺ MP3 and the 📻 Station. That is 22 steps.
+
 ## 1.34.0
 - **Refactor, part 3: one way to write a song.** The old block-by-block writer is gone, and every new song comes from the song-sheet engine.
   - **If a song can't be written:** after the usual tries (3 for the sheet, 3 for the parts), the song is started over once from a fresh sheet.
