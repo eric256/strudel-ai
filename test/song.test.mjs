@@ -189,3 +189,23 @@ test('master styles', () => {
   assert.equal(normStyle('xy'), '');
   assert.deepEqual(diffParams(styleParams('dub', { echo: 0.5 }), 'dub'), { echo: 0.5 });
 });
+
+test('events: listeners, wildcard, unsubscribe, a failing listener does not stop the others', async () => {
+  const { createEmitter, onceAFrame } = await import('../public/lib/events.js');
+  const ev = createEmitter();
+  const got = [];
+  const off = ev.on('section', (d) => got.push(['section', d]));
+  ev.on('section', () => { throw new Error('listener bug'); });
+  ev.on('*', (e, d) => got.push(['*', e, d]));
+  const err = console.error; console.error = () => {};
+  ev.emit('section', 1);
+  off();
+  ev.emit('section', 2);
+  console.error = err;
+  assert.deepEqual(got, [['section', 1], ['*', 'section', 1], ['*', 'section', 2]]);
+  let n = 0;
+  const once = onceAFrame(() => n++);
+  once(); once(); once();
+  await new Promise((r) => setTimeout(r, 40));
+  assert.equal(n, 1);
+});

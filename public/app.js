@@ -11,6 +11,7 @@ import { DEFAULT_FORMS, OLD_DEFAULT_FORMS, OLD_FORM_SECTIONS, parseFormSections,
 import { DEFAULT_BANDS, BAND_ROLES, parseInstruments, bandsForRequest as bandsRequest } from './lib/bands.js';
 import { normalizeSheet as normalizeSheetWith, fillPart, libraryIds, isFnPart, definesId, partExpr, miniStrings } from './lib/sheet.js';
 import { SEC_START, sectionCode, arrangeSong, carryLiveState } from './lib/arrange.js';
+import { createEmitter, onceAFrame } from './lib/events.js';
 import { HumRecorder, transcribe, intervalsToSemitones, tonicPc, midiToName, freqToMidi, polyBarsToMini } from './hum.js';
 // Strudel AI — browser app
 /**
@@ -59,6 +60,15 @@ function historyForModel() {
 }
 const normCode = (c) => (c || '').replace(/\s+/g, ' ').trim();
 const STORE_KEY = 'strudel-ai:v1';
+
+/**
+ * The player's events — the panels listen instead of checking on timers:
+ *   'section'   a section (engine step) starts playing       { step }
+ *   'song'      another song starts playing                  { song }
+ *   'transport' playback started, paused, resumed or stopped { state: 'playing' | 'paused' | 'stopped' }
+ *   'songs'     the song lists changed (written, saved, edited, selected …)
+ */
+const player = createEmitter();
 
 // ---------------------------------------------------------------------------
 // Persistence
@@ -460,12 +470,12 @@ const quantize = () => Number($('quantize').value);
  * The crossfade in bars (cycles). The beat options (1 or 2 beats) follow the meter of the song that is
  * switching in: a beat is ¼ bar in 4/4, ⅓ bar in 3/4, ½ bar in 6/8.
  */
-const fadeCycles = (song = setl.songs[setl.current]) => {
+const fadeCycles = (song = queue.songs[queue.current]) => {
   const v = Number($('fade').value);
   return v > 0 && v < 1 ? (v * 4) / meterBeats(songMeter(song)) : v;
 };
 /** One beat of the playing song, in bars. */
-const beatCycles = () => 1 / meterBeats(songMeter(setl.songs[setl.current]));
+const beatCycles = () => 1 / meterBeats(songMeter(queue.songs[queue.current]));
 
 /** Apply code using the current quantize setting. */
 function applyQuantized(code, label) {
@@ -475,7 +485,7 @@ function applyQuantized(code, label) {
 }
 
 $('play').onclick = async () => {
-  if (setlist.paused) return resumeSong();
+  if (engine.paused) return resumeSong();
   cancelPending(false);
   const err = await evaluateCode(getCode());
   if (err) addMsg('error', `Not applied: ${err.message}`);
@@ -496,6 +506,7 @@ $('fade').value = saved.fade ?? '0.5';
 $('fade').onchange = () => save({ fade: $('fade').value });
 
 // Header clock: cycle / bar counter + countdown to armed switch
+let transportWas = false; // for the 'transport' event: was it playing at the last tick?
 setInterval(() => {
   const st = $('status');
   const err = lastReplState.error;
@@ -506,7 +517,7 @@ setInterval(() => {
     const c = nowCycle();
     const bar = Math.floor(c) + 1;
     // beats follow the playing song's meter (4/4 for your own code)
-    const meter = setl.running ? songMeter(setl.songs[setl.current]) : '4/4', beats = meterBeats(meter);
+    const meter = queue.running ? songMeter(queue.songs[queue.current]) : '4/4', beats = meterBeats(meter);
     const beat = Math.floor((c % 1) * beats) + 1;
     st.textContent = `bar ${bar}.${beat}  ${Math.round(cps() * 60 * beats)}bpm${meter === '4/4' ? '' : ` ${meter}`}`;
     st.className = 'status ' + (err ? 'error' : 'playing');
@@ -518,7 +529,13 @@ setInterval(() => {
     pb.hidden = false;
     pb.textContent = `⏱ ${p.label || 'next change'} at ${barBeat(p.at)} (${secs.toFixed(1)}s)`;
   } else pb.hidden = true;
-  try { updateStepStates(); } catch {} // the page is still loading (the setlist isn't defined yet)
+  try { updateStepStates(); } catch {} // the page is still loading (the engine isn't defined yet)
+  // playback started or stopped (by any means: ▶, ■, the editor, the end of a song)
+  const playingNow = isPlaying();
+  if (playingNow !== transportWas) {
+    transportWas = playingNow;
+    try { player.emit('transport', { state: playingNow ? 'playing' : engine.paused ? 'paused' : 'stopped' }); } catch {}
+  }
 }, 100);
 $('pending').onclick = () => { cancelPending(true); addMsg('info', 'pending change cancelled'); };
 
@@ -1475,7 +1492,7 @@ async function runTurn(userText, attempt = 0, bubble = null, failedCode = null) 
         const moved = sg.sheet.sections.filter((x) => x.bpm || x.shift).map((x) => `${x.name}: ${[x.bpm ? `${x.bpm} bpm` : '', x.shift ? `key ${signed(x.shift)}` : ''].filter(Boolean).join(', ')}`);
         // the section playing now switches to its new version on the next bar (the rest already did)
         const nowToo = await refreshPlayingSection(sg);
-        const when = setl.songs.includes(sg) && setl.running ? (nowToo ? ' — from the next bar' : ' — from its next section') : '';
+        const when = queue.songs.includes(sg) && queue.running ? (nowToo ? ' — from the next bar' : ' — from its next section') : '';
         notes.push(`🎵 “${sg.title}” updated${when} · ${sg.sheet.bpm} bpm${moved.length ? `; ${moved.join(' · ')}` : ', one tempo throughout'}`);
       }
     }
@@ -1602,7 +1619,7 @@ $('input').addEventListener('keydown', (e) => {
 // switched in exactly on its bar.
 // ---------------------------------------------------------------------------
 
-const setlist = {
+const engine = {
   running: false,
   steps: [],     // { bars, prompt, code, status, error }
   genIndex: 0,   // next step to generate
@@ -1623,7 +1640,7 @@ const SECTION_GUIDE =
   '5 groups or fewer, and when you add a part consider taking another one out. When the section calls for a change of ' +
   'energy or feel, switch up the beat: rewrite the drum patterns (kick placement, hat rhythm, swing, half-time, broken ' +
   'beat, fills) instead of only stacking new layers on the same groove.';
-const autoAdvance = () => !setlist.hold;
+const autoAdvance = () => !engine.hold;
 
 function parseSetlist(text) {
   return text
@@ -1638,7 +1655,7 @@ function parseSetlist(text) {
 }
 
 async function generateStep(i) {
-  const step = setlist.steps[i];
+  const step = engine.steps[i];
   if (step.song?.library && step.section) {
     // a section of a sheet song: fix the shared parts, then it is re-arranged
     step.status = 'generating';
@@ -1648,7 +1665,7 @@ async function generateStep(i) {
     step.status = 'ready';
     return;
   }
-  const base = (i > 0 && setlist.steps[i - 1].code) || getCode();
+  const base = (i > 0 && engine.steps[i - 1].code) || getCode();
   step.status = 'generating';
   let prompt;
   if (step.song) {
@@ -1660,7 +1677,7 @@ async function generateStep(i) {
         `First section (${step.bars} bars): ${step.prompt}`
       : `Song "${sg.title}" (${sg.desc})\nNext section, ${step.bars} bars (section ${step.songPos + 1} of ${step.songLen}): ${step.prompt}\n\n${SECTION_GUIDE}`;
   } else {
-    prompt = `${step.prompt}\n(This section lasts ${step.bars} bars. It is step ${i + 1} of ${setlist.steps.length} in a planned set.)` +
+    prompt = `${step.prompt}\n(This section lasts ${step.bars} bars. It is step ${i + 1} of ${engine.steps.length} in a planned set.)` +
       (i > 0 ? `\n\n${SECTION_GUIDE}` : '');
   }
   if (step.fixHint) {
@@ -1700,13 +1717,13 @@ async function generateStep(i) {
 
 /** Generate step i once (shared promise), falling back to the previous code on failure. */
 function ensureGenerated(i) {
-  const step = setlist.steps[i];
+  const step = engine.steps[i];
   if (!step) return Promise.resolve();
   if (step.code) return Promise.resolve();
   if (!step.genPromise) {
     // own abort controller, so skipping past this block can cancel just this request
     step.abort = new AbortController();
-    const all = setlist.abort?.signal;
+    const all = engine.abort?.signal;
     if (all?.aborted) step.abort.abort();
     else all?.addEventListener('abort', () => step.abort.abort(), { once: true });
     step.genPromise = generateStep(i)
@@ -1718,7 +1735,7 @@ function ensureGenerated(i) {
       .then(() => {
         if (step.status === 'failed' && !step.code) {
           // reuse previous code so the set keeps going
-          step.code = (i > 0 && setlist.steps[i - 1].code) || getCode();
+          step.code = (i > 0 && engine.steps[i - 1].code) || getCode();
         }
       })
       .finally(() => { delete step.genPromise; });
@@ -1727,36 +1744,36 @@ function ensureGenerated(i) {
 }
 
 async function pumpGeneration() {
-  if (setlist.generating) return;
-  setlist.generating = true;
-  const token = setlist.pumpToken;
+  if (engine.generating) return;
+  engine.generating = true;
+  const token = engine.pumpToken;
   try {
-    while (setlist.running && token === setlist.pumpToken && setlist.genIndex < setlist.steps.length) {
+    while (engine.running && token === engine.pumpToken && engine.genIndex < engine.steps.length) {
       try {
-        await ensureGenerated(setlist.genIndex);
+        await ensureGenerated(engine.genIndex);
       } catch (e) {
         if (e.name === 'AbortError') return;
       }
-      if (token !== setlist.pumpToken) return; // restarted from another block meanwhile
-      setlist.genIndex++;
+      if (token !== engine.pumpToken) return; // restarted from another block meanwhile
+      engine.genIndex++;
     }
   } finally {
-    if (token === setlist.pumpToken) setlist.generating = false;
+    if (token === engine.pumpToken) engine.generating = false;
   }
 }
 
 /** Generate blocks in order starting at block `from` (a running loop elsewhere stops). */
 function restartGeneration(from) {
-  setlist.pumpToken++;
-  setlist.generating = false;
-  setlist.genIndex = Math.max(0, from);
+  engine.pumpToken++;
+  engine.generating = false;
+  engine.genIndex = Math.max(0, from);
   pumpGeneration();
 }
 
 /** Skipping ahead to block i: blocks above it that have no code yet are not written any more. */
 function skipBlocksBefore(i) {
   let n = 0;
-  setlist.steps.forEach((s, j) => {
+  engine.steps.forEach((s, j) => {
     if (j >= i || s.code || !['waiting', 'generating'].includes(s.status)) return;
     s.abort?.abort();
     s.status = 'skipped';
@@ -1767,45 +1784,45 @@ function skipBlocksBefore(i) {
 
 /** Manually switch to step i (on the next "switch on" boundary). */
 function jumpTo(i) {
-  if (!setlist.running || !setlist.steps[i]) return;
+  if (!engine.running || !engine.steps[i]) return;
   // cancel a step that is armed but hasn't started yet
-  for (const s of setlist.steps) {
+  for (const s of engine.steps) {
     if (s.status === 'armed' && s.startedAt !== undefined && nowCycle() < s.startedAt) {
       cancelPending(true);
       s.status = s.code ? 'ready' : 'waiting';
       delete s.startedAt;
     }
   }
-  const target = setlist.steps[i];
+  const target = engine.steps[i];
   if (target.status === 'done' || target.status === 'playing') target.status = 'ready';
   if (target.status === 'skipped') target.status = 'waiting';
   delete target.startedAt;
-  setlist.jumpTarget = i;
-  setlist.playIndex = i;
-  setlist.nextAt = null; // → next quantize boundary
+  engine.jumpTarget = i;
+  engine.playIndex = i;
+  engine.nextAt = null; // → next quantize boundary
   // stop writing the blocks above this one and generate from here on
   const skipped = skipBlocksBefore(i);
   restartGeneration(i);
   if (!target.code) {
     addMsg('info', `⏭ section ${i + 1} is being generated${skipped ? ` (skipping ${skipped} unwritten block${skipped > 1 ? 's' : ''} before it)` : ''} — it will switch in as soon as it's ready`);
   }
-  lastSongsKey = '';
+  songsChanged();
 }
 
 async function tickSetlist() {
-  if (!setlist.running || setlist.paused) return;
+  if (!engine.running || engine.paused) return;
   // manual mode: only move when the user picked a section
-  if (!autoAdvance() && setlist.jumpTarget === null) return;
-  const i = setlist.playIndex;
-  if (i >= setlist.steps.length && setlist.feeder?.active()) return; // more blocks are on their way
-  if (i >= setlist.steps.length) {
+  if (!autoAdvance() && engine.jumpTarget === null) return;
+  const i = engine.playIndex;
+  if (i >= engine.steps.length && engine.feeder?.active()) return; // more blocks are on their way
+  if (i >= engine.steps.length) {
     if (!autoAdvance()) {
-      setlist.jumpTarget = null; // manual mode: keep holding the last section
+      engine.jumpTarget = null; // manual mode: keep holding the last section
       return;
     } else {
       // let the last step play out its bars before declaring the set finished
-      if (setlist.nextAt != null && isPlaying() && nowCycle() < setlist.nextAt) return;
-      addMsg('info', `■ ${setlist.feeder?.label || 'song blocks'} finished`);
+      if (engine.nextAt != null && isPlaying() && nowCycle() < engine.nextAt) return;
+      addMsg('info', `■ ${engine.feeder?.label || 'song blocks'} finished`);
       stopSetlist();
       // the last section has played out: stop (sounds already scheduled still ring out)
       mirror()?.stop();
@@ -1813,48 +1830,50 @@ async function tickSetlist() {
       return;
     }
   }
-  const step = setlist.steps[setlist.playIndex];
+  const step = engine.steps[engine.playIndex];
   if (!step?.code || step.status === 'armed') return;
   if (!isPlaying()) {
     // nothing playing yet → start with the first ready step immediately
     step.status = 'armed';
-    await evaluateCode(atSectionStart(step.code, 0), { label: `block ${setlist.playIndex + 1}` });
+    await evaluateCode(atSectionStart(step.code, 0), { label: `block ${engine.playIndex + 1}` });
     step.startedAt = 0;
-    setlist.nextAt = step.bars;
-    setlist.playIndex++;
-    setlist.jumpTarget = null;
+    switchAt(0);
+    engine.nextAt = step.bars;
+    engine.playIndex++;
+    engine.jumpTarget = null;
     return;
   }
-  if (setlist.nextAt === null && quantize() === 0) {
+  if (engine.nextAt === null && quantize() === 0) {
     // "switch on: immediately" → no waiting for a bar line
     step.status = 'armed';
-    const err = await evaluateCode(atSectionStart(step.code, Math.floor(nowCycle())), { label: `block ${setlist.playIndex + 1}` });
+    const err = await evaluateCode(atSectionStart(step.code, Math.floor(nowCycle())), { label: `block ${engine.playIndex + 1}` });
     if (err) { step.status = 'failed'; step.error = err.message; }
     step.startedAt = nowCycle();
-    setlist.nextAt = Math.ceil(nowCycle()) + step.bars;
-    setlist.playIndex++;
-    setlist.jumpTarget = null;
+    switchAt(step.startedAt);
+    engine.nextAt = Math.ceil(nowCycle()) + step.bars;
+    engine.playIndex++;
+    engine.jumpTarget = null;
     return;
   }
   const q = Math.max(1, quantize() || 1);
   // first step waits for the next quantize boundary; late steps too
-  let at = setlist.nextAt ?? nextBoundary(q);
+  let at = engine.nextAt ?? nextBoundary(q);
   if (at < nextBoundary(1)) at = nextBoundary(q);
   // arm ~2s before the switch (or before its crossfade starts) so the editor shows what's next
   const fade = step.fade ?? fadeCycles(step.song);
   const secsUntil = (at - fade - nowCycle()) / cps();
   if (secsUntil > 2) return;
   step.status = 'armed';
-  const playing = setlist.steps.find((s) => s.status === 'playing');
+  const playing = engine.steps.find((s) => s.status === 'playing');
   const code = atSectionStart(step.section && playing?.song === step.song ? carryLiveState(getCode(), step.code) : step.code, at);
   const err = await evaluateCode(code, {
     at,
     fade,
-    label: step.song ? `“${step.song.title}” ${step.section ? step.prompt : `${step.songPos + 1}/${step.songLen}`}` : `block ${setlist.playIndex + 1}`,
+    label: step.song ? `“${step.song.title}” ${step.section ? step.prompt : `${step.songPos + 1}/${step.songLen}`}` : `block ${engine.playIndex + 1}`,
   });
   if (err) {
     // keep the old music playing, regenerate this section with the error and try again
-    const idx = setlist.playIndex;
+    const idx = engine.playIndex;
     step.fixAttempts = (step.fixAttempts || 0) + 1;
     if (step.fixAttempts <= MAX_FIX_ATTEMPTS) {
       clog('warn', `Block ${idx + 1} failed when test-played (${err.message}) — regenerating; the music keeps playing meanwhile`);
@@ -1863,8 +1882,8 @@ async function tickSetlist() {
       step.code = null;
       step.fixHint = err.message;
       delete step.startedAt;
-      setlist.nextAt = null;
-      setlist.jumpTarget = idx;
+      engine.nextAt = null;
+      engine.jumpTarget = idx;
       ensureGenerated(idx).catch(() => {});
       return;
     }
@@ -1873,10 +1892,11 @@ async function tickSetlist() {
     clog('error', `Block ${idx + 1} still fails (${err.message}) — skipped`);
   } else {
     step.startedAt = at; // stays 'armed' until the switch happens
+    switchAt(at);
   }
-  setlist.nextAt = at + step.bars;
-  setlist.playIndex++;
-  setlist.jumpTarget = null;
+  engine.nextAt = at + step.bars;
+  engine.playIndex++;
+  engine.jumpTarget = null;
 }
 
 function startSetlist({ at = 0, steps = null, feeder = null } = {}) {
@@ -1884,61 +1904,61 @@ function startSetlist({ at = 0, steps = null, feeder = null } = {}) {
   if (!steps.length && !feeder) return;
   stopSetlist();
   stopReplay();
-  Object.assign(setlist, {
+  Object.assign(engine, {
     running: true, paused: null, steps, genIndex: at, playIndex: at, nextAt: null, jumpTarget: at,
     abort: new AbortController(), feeder, hold: false,
   });
   steps.forEach((s, j) => { if (j < at && !s.code) s.status = 'skipped'; }); // started further down: don't write the blocks above
-  setlist.timer = setInterval(() => tickSetlist().catch((e) => warnUser(`song blocks: ${e.message}`)), 100);
+  engine.timer = setInterval(() => tickSetlist().catch((e) => warnUser(`song blocks: ${e.message}`)), 100);
   if (!feeder) addMsg('info', `▶ song blocks started (${steps.length} blocks) — generating ahead…`);
   restartGeneration(at);
 }
 
 /** Add blocks to a running engine (used by Set list / Station). Old finished blocks are trimmed. */
 function appendSteps(steps) {
-  setlist.steps.push(...steps);
-  const keepFrom = Math.min(setlist.playIndex - 3, setlist.genIndex);
+  engine.steps.push(...steps);
+  const keepFrom = Math.min(engine.playIndex - 3, engine.genIndex);
   if (keepFrom > 40) {
     const cut = keepFrom - 20;
-    setlist.steps.splice(0, cut);
-    setlist.playIndex -= cut;
-    setlist.genIndex -= cut;
-    if (setlist.jumpTarget !== null) setlist.jumpTarget = Math.max(0, setlist.jumpTarget - cut);
+    engine.steps.splice(0, cut);
+    engine.playIndex -= cut;
+    engine.genIndex -= cut;
+    if (engine.jumpTarget !== null) engine.jumpTarget = Math.max(0, engine.jumpTarget - cut);
   }
-  lastSongsKey = '';
+  songsChanged();
   pumpGeneration();
 }
 
 /** Remove blocks that haven't started yet (after the playing/armed one). */
 function dropUpcomingSteps() {
-  let keep = setlist.steps.length;
-  for (let i = 0; i < setlist.steps.length; i++) {
-    const st = setlist.steps[i].status;
+  let keep = engine.steps.length;
+  for (let i = 0; i < engine.steps.length; i++) {
+    const st = engine.steps[i].status;
     if (st === 'playing' || st === 'armed' || st === 'done') keep = i + 1;
   }
-  keep = Math.max(keep, Math.min(setlist.playIndex, setlist.steps.length));
-  if (setlist.steps[keep - 1]?.status === 'armed' && nowCycle() < (setlist.steps[keep - 1].startedAt ?? 0)) {
+  keep = Math.max(keep, Math.min(engine.playIndex, engine.steps.length));
+  if (engine.steps[keep - 1]?.status === 'armed' && nowCycle() < (engine.steps[keep - 1].startedAt ?? 0)) {
     cancelPending(true);
     keep--;
   }
-  setlist.steps.splice(keep);
-  setlist.playIndex = Math.min(setlist.playIndex, keep);
-  setlist.genIndex = Math.min(setlist.genIndex, keep);
-  lastSongsKey = '';
+  engine.steps.splice(keep);
+  engine.playIndex = Math.min(engine.playIndex, keep);
+  engine.genIndex = Math.min(engine.genIndex, keep);
+  songsChanged();
 }
 
 function stopSetlist() {
-  setlist.paused = null;
+  engine.paused = null;
   mp3.paused = false;
-  if (!setlist.running) return;
-  setlist.running = false;
-  setlist.jumpTarget = null;
-  const feeder = setlist.feeder;
-  setlist.feeder = null;
+  if (!engine.running) return;
+  engine.running = false;
+  engine.jumpTarget = null;
+  const feeder = engine.feeder;
+  engine.feeder = null;
   feeder?.onStop?.();
-  setlist.abort?.abort();
-  clearInterval(setlist.timer);
-  setlist.steps.forEach((s) => { if (s.status === 'generating' || s.status === 'armed') s.status = 'waiting'; });
+  engine.abort?.abort();
+  clearInterval(engine.timer);
+  engine.steps.forEach((s) => { if (s.status === 'generating' || s.status === 'armed') s.status = 'waiting'; });
 }
 
 /** Ask the LLM for song blocks ("bars | instruction" lines) from a description. */
@@ -1955,13 +1975,19 @@ async function writeBlocks(idea, code, signal) {
 
 const STATUS_ICON = { waiting: '·', generating: '…', ready: '✓', armed: '⏱', playing: '▶', failed: '✗', done: '✔', skipped: '↷' };
 /** Armed blocks become "playing" once their bar arrives (the song views render from these states). */
+/** Mark the section that starts at cycle `at` as playing right when it starts (the 100 ms check is the fallback). */
+function switchAt(at) {
+  const ms = Math.max(0, ((at - nowCycle()) / Math.max(0.01, cps())) * 1000);
+  setTimeout(updateStepStates, ms + 5);
+}
 function updateStepStates() {
   const cur = nowCycle();
-  setlist.steps.forEach((s, i) => {
+  engine.steps.forEach((s, i) => {
     if (s.status === 'armed' && s.startedAt !== undefined && cur >= s.startedAt) {
-      setlist.steps.forEach((o, j) => { if (j !== i && o.status === 'playing') o.status = 'done'; });
+      engine.steps.forEach((o, j) => { if (j !== i && o.status === 'playing') o.status = 'done'; });
       s.status = 'playing';
-      setlist.feeder?.onStepStart?.(s);
+      engine.feeder?.onStepStart?.(s);
+      player.emit('section', { step: s });
     }
   });
 }
@@ -1971,38 +1997,40 @@ function updateStepStates() {
 // there later. The resumed section is anchored so its bar `bar` plays first (sectionStart = −bar).
 // ---------------------------------------------------------------------------
 function pauseSong() {
-  if (!setlist.running || setlist.paused || !isPlaying()) return;
-  const st = setlist.steps.find((x) => x.status === 'playing');
+  if (!engine.running || engine.paused || !isPlaying()) return;
+  const st = engine.steps.find((x) => x.status === 'playing');
   if (!st) return;
   const len = Math.max(1, st.bars);
   const bar = Math.max(0, Math.floor(nowCycle() - (st.startedAt ?? 0))) % len;
   // a next section armed for the bar line: take it back, it plays after the resume
   cancelPending(true);
-  setlist.steps.forEach((x) => { if (x.status === 'armed') { x.status = 'ready'; delete x.startedAt; } });
-  setlist.playIndex = setlist.steps.indexOf(st) + 1;
-  setlist.jumpTarget = null;
-  setlist.paused = { step: st, bar, code: getCode() };
+  engine.steps.forEach((x) => { if (x.status === 'armed') { x.status = 'ready'; delete x.startedAt; } });
+  engine.playIndex = engine.steps.indexOf(st) + 1;
+  engine.jumpTarget = null;
+  engine.paused = { step: st, bar, code: getCode() };
   mp3.paused = true;
   mirror()?.stop();
+  player.emit('transport', { state: 'paused' });
   addMsg('info', `⏸ paused “${st.song?.title || 'song'}” at ${st.prompt || 'this section'}, bar ${bar + 1}/${len}`);
-  lastSongsKey = '';
+  songsChanged();
 }
 async function resumeSong() {
-  const p = setlist.paused;
+  const p = engine.paused;
   if (!p) return;
-  setlist.paused = null;
+  engine.paused = null;
   const err = await evaluateCode(atSectionStart(p.code, -p.bar), { label: `resume ${p.step.prompt || ''}`, undo: false });
-  if (err) { addMsg('error', `Couldn't resume: ${err.message}`); setlist.paused = p; return; }
+  if (err) { addMsg('error', `Couldn't resume: ${err.message}`); engine.paused = p; return; }
   p.step.startedAt = -p.bar;
-  setlist.nextAt = p.step.startedAt + p.step.bars;
+  engine.nextAt = p.step.startedAt + p.step.bars;
+  player.emit('transport', { state: 'playing' });
   mp3.paused = false;
   addMsg('info', `▶ resumed at bar ${p.bar + 1}`);
-  lastSongsKey = '';
+  songsChanged();
 }
 // ⏮ ▶ ⏸ ■ ⏭ in 🎶 Now playing
 $('nowPause').onclick = () => {
-  if (setlist.paused) return resumeSong();
-  if (setlist.running) return pauseSong();
+  if (engine.paused) return resumeSong();
+  if (engine.running) return pauseSong();
   if (isPlaying()) mirror()?.stop(); // your own code: pausing stops it (▶ plays it again)
 };
 /**
@@ -2013,51 +2041,51 @@ function createSongFromChat(text) {
   const [song] = parseSongs(text.replace(/\n+/g, ' '));
   if (!song) return;
   if (!/[|–—:]\s/.test(text)) { song.title = 'New song'; song.autoTitle = true; } // the AI names it with the song sheet
-  if (setl.running) {
-    const at = setl.current < 0 ? setl.songs.length : setl.current + 1; // nothing playing yet: after the songs being written
-    setl.songs.splice(at, 0, song);
-    if (setl.nextSong > at) setl.nextSong = at; // write it before the songs that were queued after it
-    addMsg('info', `✨ “${song.title}” — writing it now; it plays after “${setl.songs[setl.current]?.title || 'this song'}” (⏭ to skip there)`);
+  if (queue.running) {
+    const at = queue.current < 0 ? queue.songs.length : queue.current + 1; // nothing playing yet: after the songs being written
+    queue.songs.splice(at, 0, song);
+    if (queue.nextSong > at) queue.nextSong = at; // write it before the songs that were queued after it
+    addMsg('info', `✨ “${song.title}” — writing it now; it plays after “${queue.songs[queue.current]?.title || 'this song'}” (⏭ to skip there)`);
   } else {
-    Object.assign(setl, { mode: 'set', songs: [...(setl.mode === 'set' ? setl.songs : []), song], current: -1, nextSong: 0 });
-    startSet('set', { at: setl.songs.length - 1, keepSongs: true });
-    setl.single = false;
+    Object.assign(queue, { mode: 'set', songs: [...(queue.mode === 'set' ? queue.songs : []), song], current: -1, nextSong: 0 });
+    startSet('set', { at: queue.songs.length - 1, keepSongs: true });
+    queue.single = false;
     addMsg('info', `✨ “${song.title}” — writing it now; it starts as soon as its first section is ready`);
   }
   // back to working on the (new) song
   $('chatTarget').value = 'auto';
   save({ chatTarget: 'auto' });
   renderChatTarget();
-  lastSongsKey = '';
+  songsChanged();
   showPanel('song');
 }
 
 /** ⏭ the next song of the set list or station. */
 function nextSong() {
-  if (!setl.running) { addMsg('info', '⏭ nothing to skip to — start a set in 🎵 Songs or a 📻 Station'); return; }
-  if (setlist.paused) setlist.paused = null;
-  const k = setl.current + 1;
-  if (setl.songs[k]) { addMsg('info', `⏭ next: “${setl.songs[k].title}”`); jumpToSong(k, setl.mode); }
-  else if (setl.mode === 'station') addMsg('info', '⏭ the next song is still being planned — it plays as soon as it is written');
-  else if ($('setLoop').checked && setl.songs[0]) jumpToSong(0, setl.mode);
+  if (!queue.running) { addMsg('info', '⏭ nothing to skip to — start a set in 🎵 Songs or a 📻 Station'); return; }
+  if (engine.paused) engine.paused = null;
+  const k = queue.current + 1;
+  if (queue.songs[k]) { addMsg('info', `⏭ next: “${queue.songs[k].title}”`); jumpToSong(k, queue.mode); }
+  else if (queue.mode === 'station') addMsg('info', '⏭ the next song is still being planned — it plays as soon as it is written');
+  else if ($('setLoop').checked && queue.songs[0]) jumpToSong(0, queue.mode);
   else addMsg('info', '⏭ this is the last song of the set');
 }
 /** ⏮ restart the song — or, within its first bars, go back to the previous song (like a music player). */
 function prevSong() {
-  if (!setl.running) { if (nowSong) playSong(nowSong); return; }
-  if (setlist.paused) setlist.paused = null;
-  const cur = setl.songs[setl.current];
+  if (!queue.running) { if (nowSong) playSong(nowSong); return; }
+  if (engine.paused) engine.paused = null;
+  const cur = queue.songs[queue.current];
   const first = cur?.firstStep;
   const intoSong = first?.startedAt != null ? nowCycle() - first.startedAt : Infinity;
-  if ((intoSong < 4 || !cur) && setl.current > 0) { addMsg('info', `⏮ back to “${setl.songs[setl.current - 1].title}”`); jumpToSong(setl.current - 1, setl.mode); }
-  else if (cur) { addMsg('info', `⏮ “${cur.title}” from the start`); jumpToSong(setl.current, setl.mode); }
+  if ((intoSong < 4 || !cur) && queue.current > 0) { addMsg('info', `⏮ back to “${queue.songs[queue.current - 1].title}”`); jumpToSong(queue.current - 1, queue.mode); }
+  else if (cur) { addMsg('info', `⏮ “${cur.title}” from the start`); jumpToSong(queue.current, queue.mode); }
 }
 $('nextSong').onclick = nextSong;
 $('prevSong').onclick = prevSong;
 /** The transport: which buttons apply now, and a one-line "what's playing". */
 function renderTransport() {
-  const playing = isPlaying(), paused = !!setlist.paused, running = setl.running;
-  const cur = running ? setl.songs[setl.current] : null;
+  const playing = isPlaying(), paused = !!engine.paused, running = queue.running;
+  const cur = running ? queue.songs[queue.current] : null;
   $('play').disabled = playing && !paused;
   $('play').classList.toggle('on', paused);
   $('nowPause').disabled = !playing && !paused;
@@ -2065,10 +2093,10 @@ function renderTransport() {
   $('stop').disabled = !playing && !running && !paused;
   $('nextSong').disabled = !running;
   $('prevSong').disabled = !running && !nowSong;
-  const st = setlist.steps.find((x) => x.status === 'playing');
-  const line = paused ? `⏸ paused · ${cur?.title || ''} · ${setlist.paused.step.prompt || ''} bar ${setlist.paused.bar + 1}`
+  const st = engine.steps.find((x) => x.status === 'playing');
+  const line = paused ? `⏸ paused · ${cur?.title || ''} · ${engine.paused.step.prompt || ''} bar ${engine.paused.bar + 1}`
     : cur && playing ? `▶ ${cur.title}${st?.prompt ? ` · ${st.prompt}` : ''}`
-    : running ? `✎ ${setl.songs.find((x) => x.status === 'writing')?.title || 'getting the first song ready'}…`
+    : running ? `✎ ${queue.songs.find((x) => x.status === 'writing')?.title || 'getting the first song ready'}…`
     : playing ? '▶ the code in the editor' : nowSong ? `■ stopped · ${nowSong.title}` : '■ stopped';
   if ($('nowLine').textContent !== line) $('nowLine').textContent = line;
   // the same transport at the top left of the code
@@ -2080,25 +2108,30 @@ function renderTransport() {
   if ($('codeLine').textContent !== line) $('codeLine').textContent = line;
 }
 $('codeBar').addEventListener('click', (e) => { const b = e.target.closest('[data-tp]'); if (b && !b.disabled) $(b.dataset.tp).click(); });
-setInterval(renderTransport, 250);
+// the transport follows the player's events (the timer is only a safety net)
+{
+  const soon = onceAFrame(renderTransport);
+  for (const e of ['section', 'song', 'transport', 'songs']) player.on(e, soon);
+  setInterval(renderTransport, 1000);
+}
 
 /** Hold: stay on the current section until another one is picked (or hold is released). */
 function setHold(on) {
-  setlist.hold = on;
+  engine.hold = on;
   // releasing: continue with the section after the current one on the next boundary
-  if (!on && setlist.running && setlist.nextAt === null) setlist.nextAt = nextBoundary(Math.max(1, quantize() || 1));
-  lastSongsKey = '';
+  if (!on && engine.running && engine.nextAt === null) engine.nextAt = nextBoundary(Math.max(1, quantize() || 1));
+  songsChanged();
 }
 
 // Alt+1 … Alt+9 jump to the sections of the song that is playing
 document.addEventListener('keydown', (e) => {
   if (!e.altKey || e.ctrlKey || e.metaKey) return;
   const n = Number(e.key);
-  const song = setl.songs[setl.current];
+  const song = queue.songs[queue.current];
   const step = song?.blocks?.[n - 1];
-  if (n >= 1 && n <= 9 && step && setlist.steps.includes(step)) {
+  if (n >= 1 && n <= 9 && step && engine.steps.includes(step)) {
     e.preventDefault();
-    jumpTo(setlist.steps.indexOf(step));
+    jumpTo(engine.steps.indexOf(step));
   }
 });
 
@@ -2490,7 +2523,7 @@ function restoreSession() {
   addMsg('info', r.fromVersion !== APP_VERSION ? `⬆ updated v${r.fromVersion} → v${APP_VERSION} — your code and chat were kept` : `⬆ updated to build ${APP_BUILD} — your code and chat were kept`);
 }
 
-const canReloadNow = () => !isPlaying() && !state.busy && !hum.recording && !setlist.running && !setl.running && !state.pending;
+const canReloadNow = () => !isPlaying() && !state.busy && !hum.recording && !engine.running && !queue.running && !state.pending;
 function reloadForUpdate() {
   if (upd.reloading) return;
   upd.reloading = true;
@@ -2591,7 +2624,7 @@ async function openSharedSong() {
       $('undo').disabled = false;
     }
     mirror().setCode(song.code);
-    if (song.setText && !setl.running) Object.assign(setl, { mode: 'set', songs: parseSongs(song.setText), current: -1, nextSong: 0 });
+    if (song.setText && !queue.running) Object.assign(queue, { mode: 'set', songs: parseSongs(song.setText), current: -1, nextSong: 0 });
     state.lastAICode = song.code;
     live.applied = song.code;
     const title = song.title ? `“${song.title}”` : 'a shared song';
@@ -2645,7 +2678,7 @@ setTimeout(applyMasterGain, 500);
 // the AI while the previous song plays, then fed into the song-blocks engine.
 // A station is an agent that keeps inventing new songs for a theme.
 // ---------------------------------------------------------------------------
-const setl = {
+const queue = {
   running: false,
   mode: null,          // 'set' | 'station'
   songs: [],           // { title, desc, status, blocks, firstStep, error }
@@ -2657,7 +2690,7 @@ const setl = {
 };
 
 /** This session's songs as "title | description" lines (shared with a link). */
-const setListText = () => (setl.mode === 'set' ? setl.songs.map((sg) => `${sg.title} | ${sg.desc}`).join('\n') : '');
+const setListText = () => (queue.mode === 'set' ? queue.songs.map((sg) => `${sg.title} | ${sg.desc}`).join('\n') : '');
 function parseSongs(text) {
   return text
     .split('\n')
@@ -2696,7 +2729,7 @@ let formIdx = 0;
 const findForm = (name) => findIn(songForms, name);
 const formsForRequest = (choice) => formsRequest(songForms, choice);
 
-const formChoice = () => $(setl.mode === 'station' ? 'stationForm' : 'setForm')?.value || 'auto';
+const formChoice = () => $(queue.mode === 'station' ? 'stationForm' : 'setForm')?.value || 'auto';
 
 function renderFormSelects() {
   for (const id of ['setForm', 'stationForm']) {
@@ -2774,7 +2807,7 @@ const bandsForRequest = (choice) => bandsRequest(bands, choice);
 const normalizeSheet = (raw, choice = 'auto', opts = {}) => normalizeSheetWith(raw, choice, { ...opts, forms: songForms, bands });
 /** A song's master style: its own, else its band's, else one that fits its form, else clean. */
 const songStyle = (sg) => normStyle(sg?.sheet?.master) || normStyle(findBand(sg?.sheet?.band)?.master) || normStyle(sg?.sheet?.form) || 'clean';
-const bandChoice = () => $(setl.mode === 'station' ? 'stationBand' : 'setBand')?.value || 'auto';
+const bandChoice = () => $(queue.mode === 'station' ? 'stationBand' : 'setBand')?.value || 'auto';
 function renderBandSelects() {
   for (const id of ['setBand', 'stationBand']) {
     const el = $(id);
@@ -2936,7 +2969,7 @@ async function sheetSounds() {
 }
 async function writeSongSheet(song, signal) {
   const choice = formChoice(), bandPick = bandChoice();
-  const prev = setl.songs[setl.songs.indexOf(song) - 1]?.sheet;
+  const prev = queue.songs[queue.songs.indexOf(song) - 1]?.sheet;
   let msg = (song.autoTitle ? `SONG (no title yet — give it one in "title"): ${song.desc}\n` : `SONG: "${song.title}" — ${song.desc}\n`) +
     (prev ? `The previous song was ${prev.bpm} bpm, ${normMeter(prev.meter)}, in ${prev.key}; this one should flow from it (a related key or a nearby tempo is nice).\n` : '') +
     `\n${formsForRequest(choice)}\n\n${bandsForRequest(bandPick)}\n\nMASTER STYLES — set "master" to the one that fits (the band's, unless the description asks for another):\n${stylesForPrompt()}\n\nWrite the song sheet JSON.`;
@@ -3066,7 +3099,7 @@ async function writeSongLibrary(song, signal, { fix = null, prev = null } = {}) 
 function repairSong(song, err) {
   song.repairing ||= (async () => {
     clog('warn', `🔧 “${song.title}”: a section failed when test-played (${err}) — fixing the parts…`);
-    song.library = await writeSongLibrary(song, setl.abort?.signal, { fix: err, prev: song.library });
+    song.library = await writeSongLibrary(song, queue.abort?.signal, { fix: err, prev: song.library });
     for (const st of song.blocks || []) {
       if (['playing', 'done', 'armed'].includes(st.status)) continue;
       st.code = sectionCode(song, st.section, { fill: !!st.fillStep });
@@ -3083,8 +3116,8 @@ function repairSong(song, err) {
 async function sheetSteps(song) {
   song.status = 'writing';
   try {
-    song.sheet = await writeSongSheet(song, setl.abort.signal);
-    song.library = await writeSongLibrary(song, setl.abort.signal);
+    song.sheet = await writeSongSheet(song, queue.abort.signal);
+    song.library = await writeSongLibrary(song, queue.abort.signal);
     song.phase = null;
     const steps = arrangeSong(song);
     song.pads = songPads(song);
@@ -3099,7 +3132,7 @@ async function sheetSteps(song) {
 }
 
 async function appendSong(k) {
-  const song = setl.songs[k];
+  const song = queue.songs[k];
   if (!song) return;
   let steps;
   if (song.blocks?.length) {
@@ -3110,14 +3143,14 @@ async function appendSong(k) {
   } else {
     song.status = 'writing';
     song.phase = 'writing blocks one by one';
-    const prev = [...setlist.steps].reverse().find((st) => st.code)?.code || getCode();
+    const prev = [...engine.steps].reverse().find((st) => st.code)?.code || getCode();
     const lines = await writeBlocks(
       `Song "${song.title}": ${song.desc}\n` +
         'Write the blocks for this whole song: roughly 48–96 bars in total, starting with an intro and ending with an outro ' +
         'that can hand over to the next song. First line states tempo and key. Include sections that take parts away ' +
         'and sections that switch up the beat, not only ones that add layers.',
       prev,
-      setl.abort.signal,
+      queue.abort.signal,
     );
     steps = parseSetlist(lines.join('\n'));
   }
@@ -3133,58 +3166,58 @@ async function appendSong(k) {
 
 async function stationMoreSongs() {
   const n = 3;
-  const recent = setl.songs.slice(-12).map((sg) => `${sg.title} (${sg.desc.slice(0, 60)})`);
+  const recent = queue.songs.slice(-12).map((sg) => `${sg.title} (${sg.desc.slice(0, 60)})`);
   const text = await requestLLM({
     mode: 'songs',
     messages: [{
       role: 'user',
-      content: `STATION THEME: ${setl.station.theme}\n` +
+      content: `STATION THEME: ${queue.station.theme}\n` +
         (recent.length ? `Already played or queued — do NOT repeat these, but keep a good flow from the last one:\n- ${recent.join('\n- ')}\n` : '') +
         `Write the next ${n} songs.`,
     }],
-    signal: setl.abort.signal,
+    signal: queue.abort.signal,
   });
   const songs = parseSongs(stripThinking(text).replace(/```[a-z]*\n?|```/g, '')).slice(0, n);
   if (!songs.length) throw new Error('the model did not return songs as "title | description" lines');
-  setl.songs.push(...songs);
+  queue.songs.push(...songs);
 }
 
 async function feedLoop() {
   let failures = 0;
-  while (setl.running) {
+  while (queue.running) {
     try {
-      if (setl.forceJump !== null) {
-        const k = setl.forceJump;
-        setl.forceJump = null;
-        setl.nextSong = k + 1;
+      if (queue.forceJump !== null) {
+        const k = queue.forceJump;
+        queue.forceJump = null;
+        queue.nextSong = k + 1;
         const steps = await appendSong(k);
-        if (steps?.length && setl.running) jumpTo(setlist.steps.indexOf(steps[0]));
+        if (steps?.length && queue.running) jumpTo(engine.steps.indexOf(steps[0]));
         continue;
       }
-      const ahead = setl.nextSong - 1 - setl.current; // songs written but not yet playing
-      if (ahead < 1 && setl.nextSong < setl.songs.length) {
-        await appendSong(setl.nextSong++);
+      const ahead = queue.nextSong - 1 - queue.current; // songs written but not yet playing
+      if (ahead < 1 && queue.nextSong < queue.songs.length) {
+        await appendSong(queue.nextSong++);
         failures = 0;
         continue;
       }
-      if (ahead < 1 && setl.mode === 'set' && $('setLoop').checked && !setl.single && setl.songs.length) {
-        setl.nextSong = 0;
+      if (ahead < 1 && queue.mode === 'set' && $('setLoop').checked && !queue.single && queue.songs.length) {
+        queue.nextSong = 0;
         continue;
       }
-      if (setl.mode === 'station' && setl.songs.length - (setl.current + 1) < Number($('stationAhead').value)) {
-        const before = setl.songs.length;
-        setl.planning = true;
-        try { await stationMoreSongs(); } finally { setl.planning = false; }
-        if (setl.songs.length > before) failures = 0;
+      if (queue.mode === 'station' && queue.songs.length - (queue.current + 1) < Number($('stationAhead').value)) {
+        const before = queue.songs.length;
+        queue.planning = true;
+        try { await stationMoreSongs(); } finally { queue.planning = false; }
+        if (queue.songs.length > before) failures = 0;
         continue;
       }
     } catch (e) {
-      if (e.name === 'AbortError' || !setl.running) return;
-      const sg = setl.songs[setl.nextSong - 1];
+      if (e.name === 'AbortError' || !queue.running) return;
+      const sg = queue.songs[queue.nextSong - 1];
       if (sg && sg.status === 'writing') { sg.status = 'failed'; sg.error = e.message; }
-      clog('error', `${setl.mode === 'station' ? 'Station' : 'Set list'}: ${e.message} (try ${failures + 1}/5)`);
+      clog('error', `${queue.mode === 'station' ? 'Station' : 'Set list'}: ${e.message} (try ${failures + 1}/5)`);
       failures++;
-      if (failures >= 5) { warnUser(`${setl.mode === 'station' ? 'Station' : 'Set list'} stopped: the AI failed 5 times in a row (last: ${e.message})`); addMsg('info', `■ ${setl.mode === 'station' ? 'station' : 'set'} stopped — see ⚠ in the status bar`); stopSet(); return; }
+      if (failures >= 5) { warnUser(`${queue.mode === 'station' ? 'Station' : 'Set list'} stopped: the AI failed 5 times in a row (last: ${e.message})`); addMsg('info', `■ ${queue.mode === 'station' ? 'station' : 'set'} stopped — see ⚠ in the status bar`); stopSet(); return; }
       await sleep(3000 * failures);
     }
     await sleep(400);
@@ -3193,29 +3226,30 @@ async function feedLoop() {
 
 function makeFeeder() {
   return {
-    label: setl.mode === 'station' ? `station “${setl.station.name || 'untitled'}”` : 'set list',
-    active: () => setl.running && (setl.mode === 'station' || setl.nextSong < setl.songs.length || setl.forceJump !== null ||
-      ($('setLoop').checked && !setl.single && setl.songs.length > 0) || setl.songs.some((sg) => sg.status === 'writing')),
+    label: queue.mode === 'station' ? `station “${queue.station.name || 'untitled'}”` : 'set list',
+    active: () => queue.running && (queue.mode === 'station' || queue.nextSong < queue.songs.length || queue.forceJump !== null ||
+      ($('setLoop').checked && !queue.single && queue.songs.length > 0) || queue.songs.some((sg) => sg.status === 'writing')),
     onStepStart: (step) => {
       if (!step.song) return;
       mp3SongStep(step);
       nowSong = step.song; // 🎶 Now playing keeps showing it after it ends
       if (padsState.follow && step.song.pads && padsState.owner !== step.song) loadPads(step.song.pads, step.song);
-      const k = setl.songs.indexOf(step.song);
-      if (k < 0 || (k === setl.current && step.song.status === 'playing')) return;
-      setl.songs.forEach((sg) => { if (sg.status === 'playing' && sg !== step.song) sg.status = 'done'; });
+      const k = queue.songs.indexOf(step.song);
+      if (k < 0 || (k === queue.current && step.song.status === 'playing')) return;
+      queue.songs.forEach((sg) => { if (sg.status === 'playing' && sg !== step.song) sg.status = 'done'; });
       step.song.status = 'playing';
       step.song.playedAt = Date.now();
-      logPlayed(step.song, setl.mode === 'station' ? `station “${setl.station?.name || ''}”` : 'songs');
-      setl.current = k;
+      logPlayed(step.song, queue.mode === 'station' ? `station “${queue.station?.name || ''}”` : 'songs');
+      queue.current = k;
       addMsg('info', `🎵 now playing: “${step.song.title}” — ${step.song.desc}`);
-      if (setl.mode === 'station') document.title = `📻 ${step.song.title} · ${setl.station.name || 'Station'}`;
+      player.emit('song', { song: step.song });
+      if (queue.mode === 'station') document.title = `📻 ${step.song.title} · ${queue.station.name || 'Station'}`;
       // keep the station's memory bounded
-      if (setl.mode === 'station' && setl.current > 30) {
-        const cut = setl.current - 20;
-        setl.songs.splice(0, cut);
-        setl.current -= cut;
-        setl.nextSong -= cut;
+      if (queue.mode === 'station' && queue.current > 30) {
+        const cut = queue.current - 20;
+        queue.songs.splice(0, cut);
+        queue.current -= cut;
+        queue.nextSong -= cut;
         if (songSel.station != null) songSel.station = songSel.station >= cut ? songSel.station - cut : null;
       }
     },
@@ -3224,63 +3258,65 @@ function makeFeeder() {
 }
 
 function startSet(mode, { at = 0, keepSongs = false } = {}) {
-  if (keepSongs && setl.mode === mode && setl.songs.length) {
+  if (keepSongs && queue.mode === mode && queue.songs.length) {
     // resume with the songs we already have (their written blocks/code are reused)
-    setl.songs.forEach((sg) => { sg.status = sg.blocks ? 'ready' : 'waiting'; sg.error = null; });
+    queue.songs.forEach((sg) => { sg.status = sg.blocks ? 'ready' : 'waiting'; sg.error = null; });
   } else if (mode === 'set') {
-    if (setl.mode !== 'set' || !setl.songs.length) { addMsg('info', 'No songs yet — create one in 💬 Chat with 🎯 ✨ new song.'); return; }
-    setl.songs.forEach((sg) => { sg.status = sg.blocks ? 'ready' : 'waiting'; sg.error = null; });
+    if (queue.mode !== 'set' || !queue.songs.length) { addMsg('info', 'No songs yet — create one in 💬 Chat with 🎯 ✨ new song.'); return; }
+    queue.songs.forEach((sg) => { sg.status = sg.blocks ? 'ready' : 'waiting'; sg.error = null; });
   } else {
     const st = currentStation();
     if (!st.theme.trim()) { addMsg('error', 'Give the station a theme first.'); return; }
-    setl.station = { ...st };
-    setl.songs = [];
+    queue.station = { ...st };
+    queue.songs = [];
   }
   stopSet(false);
   songSel[mode] = null; // follow the song that is playing
-  Object.assign(setl, { running: true, mode, nextSong: at, current: at - 1, forceJump: null, abort: new AbortController(), textDirty: false, single: false });
+  Object.assign(queue, { running: true, mode, nextSong: at, current: at - 1, forceJump: null, abort: new AbortController(), textDirty: false, single: false });
   startSetlist({ steps: [], feeder: makeFeeder() });
   updateSetButtons();
   addMsg('info', mode === 'station'
-    ? `📻 station “${setl.station.name || 'untitled'}” on air — planning songs…`
-    : `▶ set started (${setl.songs.length} songs) — writing “${setl.songs[at].title}”…`);
+    ? `📻 station “${queue.station.name || 'untitled'}” on air — planning songs…`
+    : `▶ set started (${queue.songs.length} songs) — writing “${queue.songs[at].title}”…`);
   feedLoop();
 }
 
 function stopSet(stopEngine = true) {
-  if (!setl.running) return;
-  setl.running = false;
-  setl.abort?.abort();
-  setl.songs.forEach((sg) => { if (sg.status === 'writing') sg.status = 'waiting'; });
+  if (!queue.running) return;
+  queue.running = false;
+  queue.abort?.abort();
+  queue.songs.forEach((sg) => { if (sg.status === 'writing') sg.status = 'waiting'; });
   if (stopEngine) mp3TakeEnd(false); // stopped mid-song: drop the partial recording
-  if (stopEngine && setlist.feeder) stopSetlist();
+  if (stopEngine && engine.feeder) stopSetlist();
   updateSetButtons();
   document.title = 'Strudel AI';
 }
 
 function jumpToSong(k, from = 'set') {
-  const mode = setl.running ? setl.mode : 'set';
-  if (!setl.running) return startSet(from, { at: k, keepSongs: true });
-  const song = setl.songs[k];
+  const mode = queue.running ? queue.mode : 'set';
+  if (!queue.running) return startSet(from, { at: k, keepSongs: true });
+  const song = queue.songs[k];
   if (!song) return;
-  const i = song.firstStep ? setlist.steps.indexOf(song.firstStep) : -1;
+  const i = song.firstStep ? engine.steps.indexOf(song.firstStep) : -1;
   if (i >= 0) { song.status = 'ready'; jumpTo(i); return; }
   // not written yet (or trimmed): drop upcoming blocks of other songs and write this one next
   dropUpcomingSteps();
-  setl.songs.forEach((sg, j) => { if (j !== setl.current && sg.status === 'ready' && !setlist.steps.includes(sg.firstStep)) sg.status = 'waiting'; });
-  setl.forceJump = k;
+  queue.songs.forEach((sg, j) => { if (j !== queue.current && sg.status === 'ready' && !engine.steps.includes(sg.firstStep)) sg.status = 'waiting'; });
+  queue.forceJump = k;
   addMsg('info', `⏭ writing “${song.title}” — it will start on the next bar line when ready`);
   void mode;
 }
 
 function updateSetButtons() {
-  const set = setl.running && setl.mode === 'set', st = setl.running && setl.mode === 'station';
+  const set = queue.running && queue.mode === 'set', st = queue.running && queue.mode === 'station';
   void set;
   $('stationStart').disabled = st; $('stationStop').disabled = !st;
 }
 
 const SONG_ICON = { waiting: '·', writing: '✎', ready: '✓', playing: '▶', done: '✔', failed: '✗' };
 let lastSongsKey = '';
+/** Something in the song lists changed: re-render them on the next frame. */
+function songsChanged() { lastSongsKey = ''; player.emit('songs'); }
 const songSel = { set: null, station: null }; // index of the song shown in each tab's song view
 
 function songMeta(sg) {
@@ -3298,7 +3334,7 @@ const sharedLinkHTML = (sg) => (sg.shareUrl ? `<div class="sv-shared">🔗 <inpu
 function songsHTML(songs, live, sel, { tools = false } = {}) {
   return songs.map((sg, k) => {
     const meta = songMeta(sg);
-    const isCurrent = live && setl.songs[setl.current] === sg;
+    const isCurrent = live && queue.songs[queue.current] === sg;
     const toolbar = tools && k === sel ? `<div class="song-tools">${songToolbarHTML(sg, live)}${isCurrent ? NOW_LINK : ''}${sharedLinkHTML(sg)}</div>` : '';
     return `<div class="song ${sg.status}${k === sel ? ' selected' : ''}" data-k="${k}" title="${tools ? 'Show this song’s buttons' : 'Show this song’s sheet and sections'}">
       <span class="ico">${SONG_ICON[sg.status] || '·'}</span>
@@ -3306,13 +3342,13 @@ function songsHTML(songs, live, sel, { tools = false } = {}) {
         ${meta ? `<div class="meta">${esc(meta)}</div>` : ''}${sg.error ? `<span class="err-icon" title="${esc(sg.error)}">⚠</span>` : ''}${toolbar}</div>
       <button class="jump" data-song="${k}" title="Switch to this song">⏭ go</button>
     </div>`;
-  }).join('') + (live && setl.planning ? '<div class="song writing"><span class="ico">✎</span><div class="body"><div class="d">planning the next songs…</div></div></div>' : '');
+  }).join('') + (live && queue.planning ? '<div class="song writing"><span class="ico">✎</span><div class="body"><div class="d">planning the next songs…</div></div></div>' : '');
 }
 
 /** A song's toolbar: play, edit, favorite, save, song pads, MP3, JSON, link (only once the song is written). */
 function songToolbarHTML(sg, live) {
   const sh = sg.sheet;
-  const isCurrent = live && setl.songs[setl.current] === sg;
+  const isCurrent = live && queue.songs[queue.current] === sg;
   const complete = sg.blocks?.length && sg.blocks.every((b) => b.code) && !sg.phase;
   if (!complete) return '';
   const mine = isMine(sg);
@@ -3326,7 +3362,7 @@ function songToolbarHTML(sg, live) {
       ${sg.pads ? btn('pads', padsState.follow ? '🔲 song pads ✓' : '🔲 Song pads', padsState.follow ? 'Song pads are on: the pad dock switches to each song’s pads as the songs change — click to go back to your own pads' : 'Load this song’s 16 pads (its own parts, key and chords) into the pad dock — and keep switching to each new song’s pads as the songs change') : ''}
       ${sg.take ? btn('mp3', `⬇ MP3 <span class="muted">${fmtTime(sg.take.secs)}</span>`, `Download the recording of this song (${(sg.take.size / 1e6).toFixed(1)} MB) — kept until the page is reloaded`)
         : mp3.seg?.sg === sg ? btn('mp3', '🎙 recording…', 'Recording this song as it plays — ⬇ MP3 appears when it has played to its end')
-        : btn('mp3', mp3.want.has(sg) ? '🎙 MP3 next time' : '🎙 MP3', setl.running ? 'Record this song the next time it plays from the start (the music keeps playing)' : 'Play this song from the start and record it — download the MP3 when it ends')}
+        : btn('mp3', mp3.want.has(sg) ? '🎙 MP3 next time' : '🎙 MP3', queue.running ? 'Record this song the next time it plays from the start (the music keeps playing)' : 'Play this song from the start and record it — download the MP3 when it ends')}
       ${btn('json', '⬇ JSON', 'Download the whole song (sheet, parts, sections, pads) as a .json file — import it on any Strudel AI server')}
       ${btn('link', '🔗 Link', 'Create a link that plays this whole song on this server')}
     </div>`;
@@ -3345,7 +3381,7 @@ function shortPrompt(prompt, j) {
 function songViewHTML(sg, live) {
   if (!sg) return '';
   const sh = sg.sheet;
-  const isCurrent = live && setl.songs[setl.current] === sg;
+  const isCurrent = live && queue.songs[queue.current] === sg;
   const mine = isMine(sg);
   let h = `<div class="sv-head"><b>${esc(sg.title)}</b>${isCurrent ? ' <span class="sv-live">▶ playing</span>' : ''}${mine ? ' <span class="sv-mine">📁 My songs</span>' : ''}</div>
     <div class="sv-desc">${esc(sg.desc)}</div>`;
@@ -3367,14 +3403,14 @@ function songViewHTML(sg, live) {
   const steps = sg.blocks || (sh ? sh.sections.map((sec) => ({ section: sec, bars: sec.bars, prompt: sec.name, status: 'waiting' })) : []);
   if (steps.length) {
     if (isCurrent) {
-      h += `<div class="sv-tools"><button class="sv-hold" title="Stay on the current section until you pick another one">${setlist.hold ? '▶ continue the song' : '⏸ hold this section'}</button>
+      h += `<div class="sv-tools"><button class="sv-hold" title="Stay on the current section until you pick another one">${engine.hold ? '▶ continue the song' : '⏸ hold this section'}</button>
         <small class="muted">Alt+1…9 jump to a section</small></div>`;
     }
     // tempo and key of every section, so the lines can mark where they change
     const tempos = steps.map(stepTempo), shifts = steps.map((st) => st.section?.shift || 0);
     h += '<div class="sv-sections">' + steps.map((st, j) => {
-      const i = setlist.steps.indexOf(st);
-      const queued = i >= 0 && setlist.jumpTarget === i && st.status !== 'armed' && st.status !== 'playing';
+      const i = engine.steps.indexOf(st);
+      const queued = i >= 0 && engine.jumpTarget === i && st.status !== 'armed' && st.status !== 'playing';
       const sec = st.section;
       // a section written block by block (no song sheet): its instruments are the labelled parts in its code
       const blockParts = !sec && st.code ? [...new Set(patternLines(st.code).filter((r) => !/^pad\d+$/.test(r.base)).map((r) => r.base))] : [];
@@ -3413,13 +3449,13 @@ function stepTempo(st) {
 function sectionProgress(st) {
   if (st?.status !== 'playing' || st.startedAt == null || !isPlaying()) return null;
   const now = nowCycle();
-  const k = setlist.steps.indexOf(st);
-  const next = setlist.steps.slice(k + 1).find((x) => x.status === 'armed' && x.startedAt != null);
+  const k = engine.steps.indexOf(st);
+  const next = engine.steps.slice(k + 1).find((x) => x.status === 'armed' && x.startedAt != null);
   // the switch: an armed next section, else where the set list will switch next (its bar count when nothing is due)
-  const end = next?.startedAt ?? (setlist.nextAt != null && setlist.nextAt > st.startedAt ? setlist.nextAt : st.startedAt + st.bars);
+  const end = next?.startedAt ?? (engine.nextAt != null && engine.nextAt > st.startedAt ? engine.nextAt : st.startedAt + st.bars);
   const len = Math.max(1, end - st.startedAt);
   const pos = Math.max(0, now - st.startedAt);
-  const hold = setlist.hold && !next;
+  const hold = engine.hold && !next;
   return { bar: Math.min(len, Math.floor(pos % (hold ? len : Infinity)) + 1), bars: len, frac: hold ? (pos % len) / len : Math.min(1, pos / len),
     left: Math.max(0, (end - now) / cps()), hold, waiting: !hold && pos >= len };
 }
@@ -3427,32 +3463,43 @@ function sectionProgress(st) {
 // renderSongs calls it right after it rebuilds a view, so the bar never blinks out)
 function updateSectionProgress() {
   for (const el of document.querySelectorAll('.sv-left[data-i]')) {
-    const st = setlist.steps[Number(el.dataset.i)];
+    const st = engine.steps[Number(el.dataset.i)];
     const sum = el.closest('summary');
-    if (setlist.paused && setlist.paused.step === st) {
-      el.textContent = `⏸ paused at bar ${setlist.paused.bar + 1}/${st.bars}`;
-      sum?.style.setProperty('--p', `${((setlist.paused.bar / Math.max(1, st.bars)) * 100).toFixed(1)}%`);
+    if (engine.paused && engine.paused.step === st) {
+      el.textContent = `⏸ paused at bar ${engine.paused.bar + 1}/${st.bars}`;
+      sum?.style.setProperty('--p', `${((engine.paused.bar / Math.max(1, st.bars)) * 100).toFixed(1)}%`);
       continue;
     }
     const pr = sectionProgress(st);
     if (!pr) { if (el.textContent) { el.textContent = ''; sum?.style.removeProperty('--p'); } continue; }
     sum?.style.setProperty('--p', `${(pr.frac * 100).toFixed(1)}%`);
     // the next section changes the tempo: say so
-    const k = Number(el.dataset.i), nb = stepTempo(setlist.steps[k + 1]), cb = stepTempo(st);
-    const tempo = !pr.hold && nb && cb && nb !== cb && setlist.steps[k + 1]?.song === st.song ? ` · then ${nb > cb ? '↑' : '↓'} ${nb} bpm` : '';
-    el.textContent = pr.hold ? `bar ${pr.bar}/${pr.bars} · ⏸ holding`
+    const k = Number(el.dataset.i), nb = stepTempo(engine.steps[k + 1]), cb = stepTempo(st);
+    const tempo = !pr.hold && nb && cb && nb !== cb && engine.steps[k + 1]?.song === st.song ? ` · then ${nb > cb ? '↑' : '↓'} ${nb} bpm` : '';
+    const text = pr.hold ? `bar ${pr.bar}/${pr.bars} · ⏸ holding`
       : pr.waiting ? 'next section is on its way…'
       : `bar ${pr.bar}/${pr.bars} · next in ${fmtTime(Math.ceil(pr.left))}${tempo}`;
+    if (el.textContent !== text) el.textContent = text;
   }
 }
-setInterval(updateSectionProgress, 250);
+// the progress bars move every frame while something plays (smooth, and never a stale bar); stopped, they rest
+{
+  let running = false;
+  const loop = () => {
+    updateSectionProgress();
+    if (isPlaying() || engine.paused) requestAnimationFrame(loop); else running = false;
+  };
+  const start = () => { if (!running) { running = true; requestAnimationFrame(loop); } };
+  for (const e of ['section', 'transport', 'songs']) player.on(e, start);
+  setInterval(() => (isPlaying() ? start() : updateSectionProgress()), 1000);
+}
 
 let nowSong = null; // the last song that started playing
 function renderSongs() {
   // Songs tab: the running/last set (until the text is edited), otherwise a preview of the text
-  const setSongs = setl.mode === 'set' ? setl.songs : [];
-  const stationSongs = setl.mode === 'station' ? setl.songs : [];
-  const now = setl.mode === 'station' ? setl.songs[setl.current] : null;
+  const setSongs = queue.mode === 'set' ? queue.songs : [];
+  const stationSongs = queue.mode === 'station' ? queue.songs : [];
+  const now = queue.mode === 'station' ? queue.songs[queue.current] : null;
   const pick = (tab, list) => {
     if (typeof songSel[tab] === 'string') return null; // a My songs entry is open
     // the station's playing song is in the On air box (and 🎶 Now playing): only an explicit pick opens a row
@@ -3462,30 +3509,30 @@ function renderSongs() {
   const selSet = pick('set', setSongs), selSt = pick('station', stationSongs);
   const setView = viewedSong('set');
   const stepKey = (sg) => sg?.blocks?.map((b) => b.status + (b.code ? b.code.length : 0) + (b.error || '')).join() || '';
-  const key = JSON.stringify([setl.running, !!setlist.paused, nowSong?.title, stepKey(nowSong), setl.songs.map((x) => x.phase || x.status).join(), setl.mode, setl.planning, now?.title, selSet, selSt, setlist.hold, setlist.jumpTarget, setl.current,
+  const key = JSON.stringify([queue.running, !!engine.paused, nowSong?.title, stepKey(nowSong), queue.songs.map((x) => x.phase || x.status).join(), queue.mode, queue.planning, now?.title, selSet, selSt, engine.hold, engine.jumpTarget, queue.current,
     ...[setSongs, stationSongs].map((l) => l.map((sg) => [sg.title, sg.status, sg.phase, sg.bars, sg.blocks?.filter((b) => b.code).length, sg.error, !!sg.sheet, sg.shareUrl])),
-    stepKey(setView), stepKey(stationSongs[selSt]), stepKey(setl.songs[setl.current]), songSel.set, songEdit.sg?.title, padsState.owner?.title, padsState.follow,
-    mySongs.map((sg) => [sg.title, sg.bars, setl.songs[setl.current] === sg]), mp3.seg?.sg?.title || '', mp3.takes.length, mp3.want.size,
-    favorites.map((f) => [f.id, setl.songs[setl.current] === f.song])]);
+    stepKey(setView), stepKey(stationSongs[selSt]), stepKey(queue.songs[queue.current]), songSel.set, songEdit.sg?.title, padsState.owner?.title, padsState.follow,
+    mySongs.map((sg) => [sg.title, sg.bars, queue.songs[queue.current] === sg]), mp3.seg?.sg?.title || '', mp3.takes.length, mp3.want.size,
+    favorites.map((f) => [f.id, queue.songs[queue.current] === f.song])]);
   if (key === lastSongsKey) return;
   lastSongsKey = key;
-  $('setStatus').innerHTML = setSongs.length ? songsHTML(setSongs, setl.running && setl.mode === 'set', selSet, { tools: true })
+  $('setStatus').innerHTML = setSongs.length ? songsHTML(setSongs, queue.running && queue.mode === 'set', selSet, { tools: true })
     : '<div class="muted small">No songs yet — in 💬 Chat pick 🎯 <b>✨ new song</b> and describe one, or play a favorite or one of My songs.</div>';
   $('mySongs').innerHTML = myListHTML();
   $('favSongs').innerHTML = favListHTML();
-  $('stationStatus').innerHTML = songsHTML(stationSongs, setl.running && setl.mode === 'station', selSt, { tools: true });
+  $('stationStatus').innerHTML = songsHTML(stationSongs, queue.running && queue.mode === 'station', selSt, { tools: true });
   // 🎶 Now playing: the playing song — or, once it's over, the last one that played (stopped)
   // while a set or station is still writing its first song, show that song (with what's being written)
-  const preparing = setl.running && !setl.songs[setl.current] ? setl.songs.find((x) => ['writing', 'waiting', 'ready'].includes(x.status)) : null;
-  const playingSong = (setl.running && setl.songs[setl.current]) || preparing || nowSong;
-  const nowLive = !!(setl.running && playingSong && setl.songs[setl.current] === playingSong);
+  const preparing = queue.running && !queue.songs[queue.current] ? queue.songs.find((x) => ['writing', 'waiting', 'ready'].includes(x.status)) : null;
+  const playingSong = (queue.running && queue.songs[queue.current]) || preparing || nowSong;
+  const nowLive = !!(queue.running && playingSong && queue.songs[queue.current] === playingSong);
   $('nowEmpty').hidden = !!playingSong;
   // ✎ Edit song panel: the editor (rendered when another song is opened) and the song's sections
   const ed = songEdit.sg;
   $('editEmpty').hidden = !!ed;
   if ($('editForm').__sg !== ed) { $('editForm').__sg = ed; $('editForm').innerHTML = ed?.sheet && ed.library ? songEditorHTML(ed) : ''; }
   void setView;
-  for (const [id, sg, live] of [['editSongView', ed, !!(setl.running && setl.songs[setl.current] === ed)], ['nowSongView', playingSong, nowLive]]) {
+  for (const [id, sg, live] of [['editSongView', ed, !!(queue.running && queue.songs[queue.current] === ed)], ['nowSongView', playingSong, nowLive]]) {
     const el = $(id);
     const open = new Set([...el.querySelectorAll('details[open]')].map((d) => d.dataset.j ?? 'lib'));
     el.hidden = !sg;
@@ -3494,7 +3541,7 @@ function renderSongs() {
     for (const d of el.querySelectorAll('details')) if (open.has(d.dataset.j ?? 'lib')) d.open = true;
   }
   updateSectionProgress();
-  const onAir = setl.mode === 'station' && setl.running;
+  const onAir = queue.mode === 'station' && queue.running;
   $('stationNow').hidden = !onAir;
   if (onAir) {
     $('stationNow').innerHTML = now
@@ -3502,7 +3549,12 @@ function renderSongs() {
       : '📻 <b>Warming up…</b><div class="d">the agent is planning and writing the first song</div>';
   }
 }
-setInterval(renderSongs, 300);
+// the song lists re-render when something changes (and once a second for the AI's writing progress)
+{
+  const soon = onceAFrame(renderSongs);
+  for (const e of ['section', 'song', 'transport', 'songs']) player.on(e, soon);
+  setInterval(renderSongs, 1000);
+}
 for (const id of ['setStatus', 'stationStatus']) {
   const tab = id === 'stationStatus' ? 'station' : 'set';
   $(id).addEventListener('click', (e) => {
@@ -3513,18 +3565,18 @@ for (const id of ['setStatus', 'stationStatus']) {
     const act = e.target.closest('[data-act]');
     const tools = e.target.closest('.song-tools');
     if (tools) {
-      const sg = setl.songs[Number(tools.closest('.song[data-k]')?.dataset.k)];
+      const sg = queue.songs[Number(tools.closest('.song[data-k]')?.dataset.k)];
       if (act && sg) songAction(act.dataset.act, sg, act, tools);
       else if (e.target.closest('.sv-copy') && sg?.shareUrl) navigator.clipboard?.writeText(sg.shareUrl).then(() => { e.target.textContent = '✓ Copied'; }, () => {});
       return;
     }
     const row = e.target.closest('.song[data-k]');
-    if (row) { const k = Number(row.dataset.k); songSel[tab] = songSel[tab] === k ? null : k; lastSongsKey = ''; renderSongs(); }
+    if (row) { const k = Number(row.dataset.k); songSel[tab] = songSel[tab] === k ? null : k; songsChanged(); renderSongs(); }
   });
 }
 $('stationNow').addEventListener('click', (e) => {
   if (e.target.closest('[data-open-now]')) { showPanel('song'); return; }
-  const sg = setl.songs[setl.current], act = e.target.closest('[data-act]');
+  const sg = queue.songs[queue.current], act = e.target.closest('[data-act]');
   if (act && sg) songAction(act.dataset.act, sg, act, $('stationNow'));
   else if (e.target.closest('.sv-copy') && sg?.shareUrl) navigator.clipboard?.writeText(sg.shareUrl).then(() => { e.target.textContent = '✓ Copied'; }, () => {});
 });
@@ -3537,8 +3589,8 @@ for (const id of ['editSongView', 'nowSongView']) {
   $(id).addEventListener('click', (e) => {
     const go = e.target.closest('.jump[data-i]');
     if (go) { e.preventDefault(); e.stopPropagation(); jumpTo(Number(go.dataset.i)); return; }
-    if (e.target.closest('.sv-hold')) { e.preventDefault(); setHold(!setlist.hold); renderSongs(); return; }
-    const sg = id === 'nowSongView' ? (setl.running && setl.songs[setl.current]) || nowSong : songEdit.sg;
+    if (e.target.closest('.sv-hold')) { e.preventDefault(); setHold(!engine.hold); renderSongs(); return; }
+    const sg = id === 'nowSongView' ? (queue.running && queue.songs[queue.current]) || nowSong : songEdit.sg;
     const act = e.target.closest('[data-act]')?.dataset.act;
     if (act && sg) { songAction(act, sg, e.target.closest('[data-act]'), $(id)); return; }
     if (e.target.closest('.sv-copy') && sg?.shareUrl) {
@@ -3549,10 +3601,10 @@ for (const id of ['editSongView', 'nowSongView']) {
 
 /** Toolbar actions in a song view. */
 function songAction(act, sg, btn, view) {
-  if (act === 'play') { if (setl.songs.includes(sg) && setl.mode) jumpToSong(setl.songs.indexOf(sg), setl.mode); else playSong(sg); }
+  if (act === 'play') { if (queue.songs.includes(sg) && queue.mode) jumpToSong(queue.songs.indexOf(sg), queue.mode); else playSong(sg); }
   else if (act === 'edit') openSongEditor(sg);
   else if (act === 'edit-save') saveSongEditor($('editForm').querySelector('.sv-edit'), songEdit.sg || sg);
-  else if (act === 'edit-cancel') { ws.close('edit'); songEdit.sg = null; lastSongsKey = ''; renderSongs(); }
+  else if (act === 'edit-cancel') { ws.close('edit'); songEdit.sg = null; songsChanged(); renderSongs(); }
   else if (act === 'save') addToMySongs(sg);
   else if (act === 'fav') toggleFavorite(sg);
   else if (act === 'pads') {
@@ -3562,7 +3614,7 @@ function songAction(act, sg, btn, view) {
   else if (act === 'mp3') songMp3(sg);
   else if (act === 'json') download(`${slug(sg.title)}.strudel-song.json`, JSON.stringify(songToJSON(sg), null, 1));
   else if (act === 'link') shareSong(sg, btn);
-  lastSongsKey = '';
+  songsChanged();
 }
 
 /** The song shown in a tab's song view (same choice renderSongs makes). */
@@ -3571,9 +3623,9 @@ function viewedSong(tab) {
     const [kind, k] = songSel.set.split(':');
     return (kind === 'fav' ? favorites[Number(k)]?.song : mySongs[Number(k)]) || null;
   }
-  const list = tab === 'station' ? (setl.mode === 'station' ? setl.songs : [])
-    : setl.mode === 'set' ? setl.songs : [];
-  const k = songSel[tab] ?? (setl.running && setl.mode === tab && setl.current >= 0 ? setl.current : null);
+  const list = tab === 'station' ? (queue.mode === 'station' ? queue.songs : [])
+    : queue.mode === 'set' ? queue.songs : [];
+  const k = songSel[tab] ?? (queue.running && queue.mode === tab && queue.current >= 0 ? queue.current : null);
   return k != null ? list[k] : null;
 }
 
@@ -3602,7 +3654,7 @@ async function shareSong(sg, btn) {
     btn.disabled = false;
     btn.textContent = '🔗 Share song';
   }
-  lastSongsKey = '';
+  songsChanged();
   renderSongs();
 }
 
@@ -3622,9 +3674,9 @@ function loadSharedSong(s) {
   song.bars = song.blocks.reduce((a, b) => a + b.bars, 0);
   song.firstStep = song.blocks[0];
   stopSet(); stopSetlist();
-  Object.assign(setl, { mode: 'set', songs: [song], current: -1, nextSong: 0, textDirty: false });
+  Object.assign(queue, { mode: 'set', songs: [song], current: -1, nextSong: 0, textDirty: false });
   songSel.set = 0;
-  lastSongsKey = '';
+  songsChanged();
   showPanel('songs');
   return song;
 }
@@ -4365,7 +4417,7 @@ function masterAnalyser() {
 function mixerChannels() {
   const code = getCode();
   const rows = patternLines(code);
-  const sg = setl.running ? setl.songs[setl.current] : nowSong;
+  const sg = queue.running ? queue.songs[queue.current] : nowSong;
   const out = [];
   const add = (base, extra = {}) => { if (base && base !== '$' && !out.some((x) => x.base === base)) out.push({ base, ...extra }); };
   for (const p of sg?.sheet?.parts || []) add(p.id, { role: p.role, sound: p.sound, song: true });
@@ -4413,7 +4465,11 @@ setupDock('mixer', {
   onShow: () => { mixer.key = ''; renderMixerPanel(); cancelAnimationFrame(mixer.raf); drawMixer(); ws.minSize?.('mixer', 330); },
   onHide: () => cancelAnimationFrame(mixer.raf),
 });
-setInterval(renderMixerPanel, 250);
+{
+  const soon = onceAFrame(() => { mixer.key = ''; renderMixerPanel(); });
+  for (const e of ['section', 'song']) player.on(e, soon);
+  setInterval(renderMixerPanel, 1000);
+}
 
 // live visuals: an EQ curve over each channel's spectrum, and a level meter beside each fader
 const eqProbe = { freqs: null, nodes: null };
@@ -4597,8 +4653,9 @@ function setMasterStyle(style, tweaks = null, ramp = 0.4) {
   syncMasterUI();
 }
 /** The song whose style the master follows: the one playing (or the last one that played). */
-const masterSong = () => (setl.running ? setl.songs[setl.current] : nowSong) || null;
-setInterval(() => {
+const masterSong = () => (queue.running ? queue.songs[queue.current] : nowSong) || null;
+/** Keep the master in step with the player: installed, gated, the tempo for its echo, the song's style. */
+function masterTick() {
   const playing = isPlaying();
   if (!playing && !master.chain) return;
   const chain = masterChain();
@@ -4616,7 +4673,9 @@ setInterval(() => {
       clog('info', `🎛 master: ${master.style} for “${sg.title}”`);
     }
   }
-}, 250);
+}
+for (const e of ['section', 'song', 'transport']) player.on(e, () => setTimeout(masterTick, 30)); // (after the new code is evaluated)
+setInterval(masterTick, 1000);
 
 function renderMasterPanel() {
   $('masterStyle').innerHTML = STYLE_NAMES.map((n) => `<option value="${n}" title="${esc(MASTER_STYLES[n].desc)}">${n}</option>`).join('');
@@ -4716,7 +4775,7 @@ $('masterSave').onclick = () => {
   if (Object.keys(d).length) sg.sheet.masterParams = d; else delete sg.sheet.masterParams;
   master.songKey = `${sg.title}|${songStyle(sg)}|${JSON.stringify(sg.sheet.masterParams || {})}`;
   if (isMine(sg)) saveMySongs();
-  lastSongsKey = '';
+  songsChanged();
   renderSongs();
   master.msg = `✓ saved in “${sg.title}”: ${master.style}${Object.keys(d).length ? ` + ${Object.keys(d).length} tweak${Object.keys(d).length > 1 ? 's' : ''}` : ''}${isMine(sg) ? '' : ' (📁 save the song to keep it)'}`;
   syncMasterUI();
@@ -4728,12 +4787,12 @@ $('masterSave').onclick = () => {
 // change, the recording, replay and update notices.
 // ---------------------------------------------------------------------------
 setInterval(() => {
-  const step = setlist.running ? setlist.steps.find((s) => s.status === 'playing') : null;
+  const step = engine.running ? engine.steps.find((s) => s.status === 'playing') : null;
   const sg = $('sbSong');
   if (step) {
     const pos = step.song?.blocks ? ` (${step.song.blocks.indexOf(step) + 1}/${step.song.blocks.length})` : '';
     sg.hidden = false;
-    sg.textContent = `${step.song ? `🎵 ${step.song.title} · ` : '▶ '}${step.prompt}${pos}${setlist.hold ? ' · ⏸ held' : ''}`;
+    sg.textContent = `${step.song ? `🎵 ${step.song.title} · ` : '▶ '}${step.prompt}${pos}${engine.hold ? ' · ⏸ held' : ''}`;
   } else sg.hidden = true;
   $('sbCost').textContent = session.cost > 0 ? `💲${money(session.cost).slice(1)}${Number(load().aiBudget ?? 2) > 0 ? ` / ${money(Number(load().aiBudget ?? 2)).slice(1)}` : ''}` : '';
   $('sbCost').title = `AI this session: ${session.requests} request${session.requests === 1 ? '' : 's'}, ${session.tokensIn} tokens in / ${session.tokensOut} out (Claude only — local models are free)`;
@@ -5063,7 +5122,7 @@ function loadPads(list, owner = null) {
   renderPads.key = '';
   if (!docks.pads.on) { docks.pads.show(true); save({ padsOn: true }); }
   renderPads();
-  lastSongsKey = '';
+  songsChanged();
 }
 
 const padN = (i) => i + 1;
@@ -5247,9 +5306,9 @@ function setPadsFollow(on) {
   padsState.follow = on;
   $('padsFollow').checked = on;
   save({ padsFollow: on });
-  const cur = setl.songs[setl.current];
-  if (on && setl.running && cur?.pads && padsState.owner !== cur) loadPads(cur.pads, cur);
-  lastSongsKey = '';
+  const cur = queue.songs[queue.current];
+  if (on && queue.running && cur?.pads && padsState.owner !== cur) loadPads(cur.pads, cur);
+  songsChanged();
 }
 $('padsFollow').checked = padsState.follow;
 $('padsFollow').onchange = () => setPadsFollow($('padsFollow').checked);
@@ -5322,7 +5381,7 @@ let mySongs = (() => {
 function saveMySongs() {
   try { localStorage.setItem(MY_SONGS_KEY, JSON.stringify(mySongs.map(songToJSON))); }
   catch (e) { warnUser(`Couldn't save My songs (browser storage full?): ${e.message}`); }
-  lastSongsKey = '';
+  songsChanged();
 }
 const isMine = (sg) => mySongs.includes(sg);
 function addToMySongs(sg) {
@@ -5338,7 +5397,7 @@ function myListHTML() {
   if (!mySongs.length) return '<div class="muted small">No songs yet — save one from a set or station (☆ / → My songs), or import a .json file.</div>';
   return mySongs.map((sg, k) => {
     const sel = songSel.set === `mine:${k}`;
-    const playing = setl.running && setl.songs[setl.current] === sg;
+    const playing = queue.running && queue.songs[queue.current] === sg;
     return `<div class="song mine ${playing ? 'playing' : 'ready'}${sel ? ' selected' : ''}" data-mine="${k}" title="Show, edit or play this song">
       <span class="ico">${playing ? '▶' : '♪'}</span>
       <div class="body"><div class="t">${esc(sg.title)}</div><div class="meta">${esc(songMeta(sg))}</div>${sel ? `<div class="song-tools">${songToolbarHTML(sg, false)}${sharedLinkHTML(sg)}</div>` : ''}</div>
@@ -5350,13 +5409,13 @@ function myListHTML() {
 /** Load a song into the Songs tab's player (replaces the set list's running songs). */
 function loadSongIntoSet(song) {
   stopSet(); stopSetlist();
-  Object.assign(setl, { mode: 'set', songs: [song], current: -1, nextSong: 0, textDirty: false });
-  lastSongsKey = '';
+  Object.assign(queue, { mode: 'set', songs: [song], current: -1, nextSong: 0, textDirty: false });
+  songsChanged();
 }
 function playSong(song) {
   loadSongIntoSet(song);
   startSet('set', { keepSongs: true });
-  setl.single = true; // one song: stop after its last section, never loop
+  queue.single = true; // one song: stop after its last section, never loop
 }
 /** A click on a song's buttons inside a list row. Returns true when handled. */
 function rowToolsClick(e, sg) {
@@ -5381,7 +5440,7 @@ $('mySongs').addEventListener('click', (e) => {
     return;
   }
   const row = e.target.closest('[data-mine]');
-  if (row) { const v = `mine:${row.dataset.mine}`; songSel.set = songSel.set === v ? null : v; lastSongsKey = ''; renderSongs(); }
+  if (row) { const v = `mine:${row.dataset.mine}`; songSel.set = songSel.set === v ? null : v; songsChanged(); renderSongs(); }
 });
 $('songImport').onchange = async () => {
   const f = $('songImport').files[0];
@@ -5417,7 +5476,7 @@ async function loadFavorites() {
       if (keep.has(f.id)) return keep.get(f.id); // keep the same object (it may be playing)
       try { return { id: f.id, favorited: f.favorited, song: songFromJSON(f.song) }; } catch { return null; }
     }).filter(Boolean);
-    lastSongsKey = '';
+    songsChanged();
   } catch (e) { clog('warn', `favorites unavailable: ${e.message}`); }
 }
 const favKey = (sg) => `${sg.title}\n${sg.library || ''}`;
@@ -5444,7 +5503,7 @@ function favListHTML() {
   return favorites.map((f, k) => {
     const sg = f.song;
     const sel = songSel.set === `fav:${k}`;
-    const playing = setl.running && setl.songs[setl.current] === sg;
+    const playing = queue.running && queue.songs[queue.current] === sg;
     return `<div class="song fav ${playing ? 'playing' : 'ready'}${sel ? ' selected' : ''}" data-fav="${k}" title="Show or play this song">
       <span class="ico">${playing ? '▶' : '★'}</span>
       <div class="body"><div class="t">${esc(sg.title)}</div><div class="meta">${esc(songMeta(sg))}</div>${sel ? `<div class="song-tools">${songToolbarHTML(sg, false)}${sharedLinkHTML(sg)}</div>` : ''}</div>
@@ -5457,7 +5516,7 @@ $('favSongs').addEventListener('click', (e) => {
   const play = e.target.closest('[data-fav-play]');
   if (play) { const k = Number(play.dataset.favPlay); songSel.set = `fav:${k}`; playSong(favorites[k].song); return; }
   const row = e.target.closest('[data-fav]');
-  if (row) { const v = `fav:${row.dataset.fav}`; songSel.set = songSel.set === v ? null : v; lastSongsKey = ''; renderSongs(); }
+  if (row) { const v = `fav:${row.dataset.fav}`; songSel.set = songSel.set === v ? null : v; songsChanged(); renderSongs(); }
 });
 loadFavorites();
 setInterval(loadFavorites, 60000);
@@ -5496,7 +5555,7 @@ async function applySongEdit(sg, raw, partsCode = null) {
   sg.library = wrapCode(lib);
   rearrangeSong(sg);
   if (isMine(sg)) saveMySongs();
-  lastSongsKey = '';
+  songsChanged();
   const tempos = sheet.sections.map((x) => `${x.name} ${x.bpm || sheet.bpm}${x.shift ? ` key ${signed(x.shift)}` : ''}`).join(' · ');
   clog('ok', `🎵 “${sg.title}” updated: ${sheet.sections.length} sections, ${sheet.sections.reduce((a, x) => a + x.bars, 0)} bars — ${tempos} bpm`);
   return null;
@@ -5506,8 +5565,8 @@ async function applySongEdit(sg, raw, partsCode = null) {
  * mute / solo and its place in the phrase). Returns true when it did.
  */
 async function refreshPlayingSection(sg) {
-  if (!setl.running || setl.songs[setl.current] !== sg || state.pending || setlist.paused || !isPlaying()) return false;
-  const st = setlist.steps.find((x) => x.status === 'playing' && x.song === sg);
+  if (!queue.running || queue.songs[queue.current] !== sg || state.pending || engine.paused || !isPlaying()) return false;
+  const st = engine.steps.find((x) => x.status === 'playing' && x.song === sg);
   const sec = st?.section && sg.sheet.sections.find((x) => x.name === st.section.name);
   if (!sec) return false;
   const code = atSectionStart(carryLiveState(getCode(), sectionCode(sg, sec, { fill: !!st.fillStep })), st.startedAt ?? 0);
@@ -5522,20 +5581,20 @@ async function refreshPlayingSection(sg) {
 function rearrangeSong(sg) {
   const fresh = arrangeSong(sg);
   fresh.forEach((st) => Object.assign(st, { song: sg }));
-  const inEngine = sg.blocks?.some((b) => setlist.steps.includes(b));
+  const inEngine = sg.blocks?.some((b) => engine.steps.includes(b));
   if (!inEngine) {
     sg.blocks = fresh;
   } else {
-    const started = sg.blocks.filter((b) => ['playing', 'done', 'armed'].includes(b.status) && setlist.steps.includes(b));
+    const started = sg.blocks.filter((b) => ['playing', 'done', 'armed'].includes(b.status) && engine.steps.includes(b));
     const lastStarted = started[started.length - 1];
     const fromSec = lastStarted ? sg.sheet.sections.findIndex((x) => x.name === lastStarted.section?.name) + 1 || started.filter((b) => !b.fillStep).length : 0;
     const tail = fresh.filter((st) => sg.sheet.sections.indexOf(st.section) >= fromSec);
     const pending = sg.blocks.filter((b) => !started.includes(b));
-    const at = pending.length ? setlist.steps.indexOf(pending[0]) : setlist.steps.indexOf(lastStarted) + 1;
-    setlist.steps = setlist.steps.filter((b) => !pending.includes(b));
-    setlist.steps.splice(at, 0, ...tail);
-    if (setlist.playIndex > at) setlist.playIndex = at;
-    setlist.genIndex = Math.min(setlist.genIndex, at);
+    const at = pending.length ? engine.steps.indexOf(pending[0]) : engine.steps.indexOf(lastStarted) + 1;
+    engine.steps = engine.steps.filter((b) => !pending.includes(b));
+    engine.steps.splice(at, 0, ...tail);
+    if (engine.playIndex > at) engine.playIndex = at;
+    engine.genIndex = Math.min(engine.genIndex, at);
     sg.blocks = [...started, ...tail];
   }
   sg.blocks.forEach((st, j) => Object.assign(st, { song: sg, songPos: j, songLen: sg.blocks.length, songStart: j === 0 }));
@@ -5547,13 +5606,13 @@ function rearrangeSong(sg) {
 // ✎ Edit song: a panel with the song's sections / chords / parts as text lines and its parts code
 const songEdit = { sg: null };
 // closing ✎ Edit song stops editing
-ws.on('edit', { onOpen: (o) => { if (!o && songEdit.sg) { songEdit.sg = null; lastSongsKey = ''; } } });
+ws.on('edit', { onOpen: (o) => { if (!o && songEdit.sg) { songEdit.sg = null; songsChanged(); } } });
 function openSongEditor(sg) {
   songEdit.sg = sg;
   $('editForm').__sg = null; // render the editor for this song
   ws.open('edit');
   ws.api?.getPanel('edit')?.api.setTitle?.(`✎ ${sg.title}`);
-  lastSongsKey = '';
+  songsChanged();
   renderSongs();
 }
 function songEditorHTML(sg) {
@@ -5596,10 +5655,10 @@ async function saveSongEditor(el, sg) {
   if (title) sg.title = title;
   if (isMine(sg)) saveMySongs();
   $('editForm').__sg = null; // re-render the editor with the song as it is now
-  lastSongsKey = '';
+  songsChanged();
   renderSongs();
   const done = $('editForm').querySelector('.sv-edit-msg');
-  if (done) done.textContent = `✓ applied${setl.running && setl.songs[setl.current] === sg ? ' — from the next section' : ''}${isMine(sg) ? ' and saved' : ' (📁 Save to My songs to keep it)'}`;
+  if (done) done.textContent = `✓ applied${queue.running && queue.songs[queue.current] === sg ? ' — from the next section' : ''}${isMine(sg) ? ' and saved' : ' (📁 Save to My songs to keep it)'}`;
 }
 
 // --- song pads: 16 pads built from the song itself (its parts, key and chords) — no AI needed
@@ -5693,7 +5752,7 @@ for (const b of [$('logDownload'), ...document.querySelectorAll('.log-dl')]) {
 // --- chat ↔ song / pads: the context the chat needs, and applying its replies
 /** The song chat should work on: the one playing (if written from a sheet), else the one open in the Songs tab. */
 function activeSong() {
-  const playing = setl.running ? setl.songs[setl.current] : null;
+  const playing = queue.running ? queue.songs[queue.current] : null;
   if (playing?.sheet && playing.library) return playing;
   if (songEdit.sg?.sheet && songEdit.sg.library) return songEdit.sg;
   const viewed = viewedSong('set');
@@ -5732,7 +5791,7 @@ function chatTarget() {
 }
 const songSectionInEditor = () => {
   const sg = activeSong();
-  return !!(sg && setl.running && setl.songs[setl.current] === sg && getCode().includes(SEC_START));
+  return !!(sg && queue.running && queue.songs[queue.current] === sg && getCode().includes(SEC_START));
 };
 /** If editor code from the AI is really the song's part library, return it as library code (consts), else null. */
 function libraryFromReply(code, sg) {
@@ -5758,6 +5817,7 @@ function renderChatTarget() {
   $('input').placeholder = { song: sg ? `Change the whole song “${sg.title}”… (sections, chords, parts)` : 'No song is open — open one in 🎵 Songs (Enter to send)', pads: 'Program or press the pads… (Enter to send)', code: 'Change the code in the editor… (Enter to send, Shift+Enter for newline)' }[auto ? 'song' : $('chatTarget').value]
     || 'Make it groovier… (Enter to send, Shift+Enter for newline)';
 }
+player.on('song', onceAFrame(renderChatTarget));
 setInterval(renderChatTarget, 1000);
 /** ```pads reply: program pads and/or switch them on / off. Returns a short summary. */
 function applyPadsReply(block) {
@@ -5866,13 +5926,13 @@ function mp3Stop() {
     clog('ok', `🎙 MP3 saved: ${name} (${fmtTime(secs)}, ${(blob.size / 1e6).toFixed(1)} MB)`);
   });
 }
-$('mp3Btn').onclick = () => (mp3.rec ? mp3Stop() : mp3Start(setl.songs[setl.current]?.title || 'strudel-ai'));
+$('mp3Btn').onclick = () => (mp3.rec ? mp3Stop() : mp3Start(queue.songs[queue.current]?.title || 'strudel-ai'));
 setInterval(() => { if (mp3.rec) $('mp3Btn').textContent = `■ ${fmtTime((performance.now() - mp3.rec.t0) / 1000)}`; }, 500);
 
 // ---- song takes: recorded in the background, kept when the song plays to its end ----
 const recordSongsOn = () => $('recSongs').checked;
 if (saved.recSongs !== undefined) $('recSongs').checked = saved.recSongs;
-$('recSongs').onchange = () => { save({ recSongs: $('recSongs').checked }); if (!recordSongsOn()) mp3TakeEnd(false); lastSongsKey = ''; };
+$('recSongs').onchange = () => { save({ recSongs: $('recSongs').checked }); if (!recordSongsOn()) mp3TakeEnd(false); songsChanged(); };
 /** A section of a song started playing: begin, follow or end the song's take. */
 function mp3SongStep(step) {
   const sg = step.song;
@@ -5884,7 +5944,7 @@ function mp3SongStep(step) {
   if (!mp3TapUpdate()) { mp3Finish(mp3.seg); mp3.seg = null; return; }
   mp3.want.delete(sg);
   clog('info', `🎙 recording “${sg.title}” in the background — it can be downloaded when the song is over`);
-  lastSongsKey = '';
+  songsChanged();
 }
 /** End the current take: keep it if the song got to its last section (and `keep` allows), else drop it. */
 function mp3TakeEnd(keep = true) {
@@ -5893,7 +5953,7 @@ function mp3TakeEnd(keep = true) {
   mp3.seg = null;
   mp3TapUpdate();
   const sg = seg.sg, whole = keep && seg.reached >= (sg.blocks?.length || 1) - 1;
-  lastSongsKey = '';
+  songsChanged();
   if (!whole) { mp3Finish(seg); clog('info', `🎙 “${sg.title}” didn't play to its end — its recording was discarded`); return; }
   mp3Finish(seg, (blob, secs) => {
     if (sg.take) URL.revokeObjectURL(sg.take.url);
@@ -5901,7 +5961,7 @@ function mp3TakeEnd(keep = true) {
     mp3.takes = mp3.takes.filter((t) => t !== sg).concat(sg);
     while (mp3.takes.length > MP3_MAX_TAKES) { const old = mp3.takes.shift(); URL.revokeObjectURL(old.take.url); delete old.take; }
     clog('ok', `🎙 “${sg.title}” recorded (${fmtTime(secs)}, ${(blob.size / 1e6).toFixed(1)} MB) — ⬇ MP3 in its song view`);
-    lastSongsKey = '';
+    songsChanged();
     renderSongs();
   });
 }
@@ -5916,7 +5976,7 @@ function songMp3(sg) {
   }
   if (mp3.seg?.sg === sg) return addMsg('info', `🎙 “${sg.title}” is being recorded — ⬇ MP3 appears when it has played to its end`);
   mp3.want.add(sg);
-  if (!setl.running) { playSong(sg); return; } // nothing playing: play it now (and record it)
+  if (!queue.running) { playSong(sg); return; } // nothing playing: play it now (and record it)
   addMsg('info', `🎙 “${sg.title}” will be recorded the next time it plays from the start — the music keeps playing`);
 }
 
@@ -5928,8 +5988,8 @@ function songMp3(sg) {
 function debugContext() {
   const safe = (fn) => { try { return fn(); } catch (e) { return `(unavailable: ${e.message})`; } };
   const ac = safe(() => audioCtx());
-  const sg = safe(() => (setl.running ? setl.songs[setl.current] : null) || nowSong || activeSong());
-  const step = safe(() => setlist.steps.find((x) => x.status === 'playing'));
+  const sg = safe(() => (queue.running ? queue.songs[queue.current] : null) || nowSong || activeSong());
+  const step = safe(() => engine.steps.find((x) => x.status === 'playing'));
   const st = load();
   const app = [
     `version ${APP_VERSION} (build ${APP_BUILD}) · ${location.origin}`,
@@ -5940,8 +6000,8 @@ function debugContext() {
     `settings: ${['quantize', 'fade', 'liveMode', 'autoComplete', 'partVisuals', 'recSongs', 'setForm', 'setBand', 'stationForm', 'stationBand', 'masterStyle', 'masterFollow', 'vizMode', 'aiBudget'].filter((k) => st[k] !== undefined).map((k) => `${k}=${JSON.stringify(st[k])}`).join(' ')}`,
   ].join('\n');
   const now = [
-    `${isPlaying() ? 'playing' : 'stopped'} · ${$('status')?.textContent || ''}${setlist.paused ? ' · paused' : ''}`,
-    sg ? `song “${sg.title}” (${sg.status || '?'}${sg.phase ? `, ${sg.phase}` : ''}) · section ${step?.prompt || '—'} · ${setl.mode || ''} ${setl.running ? `${setl.current + 1}/${setl.songs.length}` : ''}` : 'no song',
+    `${isPlaying() ? 'playing' : 'stopped'} · ${$('status')?.textContent || ''}${engine.paused ? ' · paused' : ''}`,
+    sg ? `song “${sg.title}” (${sg.status || '?'}${sg.phase ? `, ${sg.phase}` : ''}) · section ${step?.prompt || '—'} · ${queue.mode || ''} ${queue.running ? `${queue.current + 1}/${queue.songs.length}` : ''}` : 'no song',
     `master ${master.style}${master.bypass ? ' (bypassed)' : ''} · follow ${master.follow} · ${JSON.stringify(diffParams(master.params, master.style))}`,
     `mixer: ${Object.entries(mixer.ch).filter(([, c]) => c.mute || c.solo || c.vol !== 1 || c.low || c.mid || c.high).map(([b, c]) => `${b}${c.mute ? ' M' : ''}${c.solo ? ' S' : ''} ${c.vol}`).join(', ') || 'flat'}`,
   ].join('\n');
@@ -5968,4 +6028,4 @@ function downloadDebugLog() {
   clog('info', `🐞 debug log saved: ${name} (${c.errors} errors, ${c.warnings} warnings) — send it back for fixes`);
 }
 
-window.strudelAI = { debugReport: () => debugReport(debugContext()), ws, mixer, mixerChannels, master, masterChain, getBands: () => bands, normalizeSheet, playSong, songMp3, loadPads, songPads, transposeProgression, sectionCode, getForms: () => songForms, getFavorites: () => favorites, loadFavorites, getPads: () => pads, mySongs, activeSong, songFromJSON, songToJSON, mp3, session, pads, padsState, keysState, noteOn, noteOff, setPad, docks, rec, replay, startReplay, recordingForShare, viz, checkScales, checkSounds, prepareCode, evaluateCode, dryRun, hum, transcribe, ensureSliders, setlist, setl };
+window.strudelAI = { player, debugReport: () => debugReport(debugContext()), ws, mixer, mixerChannels, master, masterChain, getBands: () => bands, normalizeSheet, playSong, songMp3, loadPads, songPads, transposeProgression, sectionCode, getForms: () => songForms, getFavorites: () => favorites, loadFavorites, getPads: () => pads, mySongs, activeSong, songFromJSON, songToJSON, mp3, session, pads, padsState, keysState, noteOn, noteOff, setPad, docks, rec, replay, startReplay, recordingForShare, viz, checkScales, checkSounds, prepareCode, evaluateCode, dryRun, hum, transcribe, ensureSliders, engine, queue, setlist: engine, setl: queue };

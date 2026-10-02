@@ -580,7 +580,11 @@ LLAMACPP_URL=http://localhost:8080 npm start   # http://localhost:3000
 
 Code layout:
 - `server.js`: the web server, the AI providers, share links and favorites. `prompt.js`: the AI's system prompts.
-- `public/app.js`: the browser app (UI, playback, the song engine's AI steps).
+- `public/app.js`: the browser app (UI, playback, the song engine's AI steps). Playback has two layers:
+  - `engine`: the sections, armed and switched in on the bar line;
+  - `queue`: the songs of the Songs list or the Station, which feed their sections to the engine.
+
+  The player announces `section`, `song`, `transport` (playing / paused / stopped) and `songs` (the lists changed) events. Now playing, the transport bars, the progress bars, the song lists, the mixer, the master and the chat target react to them.
 - `public/lib/`: the song engine's pure logic, with no DOM and no app state, so it is unit-tested in Node:
   - `music.js`: chords, transposing, meters, tempo
   - `scales.js`: scale-name repair
@@ -589,6 +593,7 @@ Code layout:
   - `sheet.js`: song-sheet checks and repair
   - `arrange.js`: section code and arrangement
   - `util.js`: small helpers
+  - `events.js`: the player's event emitter
 - `public/master.js` (master chain and styles), `format.js` (code wrapping), `hum.js` (humming), `workspace.js` (panels), `sounds.js` (sound guide).
 - `test/`: unit tests (`*.test.mjs`) and the browser smoke test (`smoke/`).
 
