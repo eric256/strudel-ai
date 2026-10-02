@@ -212,20 +212,23 @@ A form lists a song's sections with their lengths, e.g. `intro 4, verse 8, pre-c
 - **The form decides section lengths.** If the AI returns the form's sections, their bar counts are replaced with the form's. If it returns a different number of sections, each one is capped at the form's longest section, or at 16 bars when no form matches.
 
 ### 🎵 Songs
-```
-Night Drive | synthwave, 100 bpm, A minor, pulsing bass, neon pads; slow build, big chorus
-Rain on Glass | lo-fi hip hop, 80 bpm, jazzy Rhodes chords, vinyl crackle; laid back
-```
-- **▶ Start set:** song 1 is written, then song 2 is written while song 1 plays, always one song ahead. Each song's sheet is asked to flow from the previous song (a related key or a nearby tempo).
-- **Click a song** to see its **song sheet**: tempo, key, chords, hook and parts, then its sections with their chords, the parts playing, and live status (✓ ready, ⏱ armed, ▶ playing). Each section's code and the shared parts code can be expanded. While a set runs, the view follows the playing song until you click another.
-- **Jump:** **⏭ go** on a song jumps to it. If it isn't written yet, it's written first and switched in as soon as it's ready. **⏭ go** on a section jumps to that section on the next boundary, and **Alt+1 … Alt+9** jump to the playing song's sections.
-- **⏸ hold this section** stays on the current section until you pick another or press **▶ continue the song**.
-- **🔗 Share song:** once a song is fully written, its view has a share button.
-  - The link contains the whole song: its sheet, its parts code and every arranged section.
-  - Opening the link puts the song in the Songs tab with **▶ Play this song**. It plays exactly as written, with no AI calls, so the person opening it doesn't need a model.
-  - The opener's own set list text isn't touched.
-- **Skipping ahead** stops writing anything above the section you picked that has no code yet (only possible for songs written block by block).
-- **loop** replays the set with the code that's already written, so looping needs no further AI calls. When a set (without loop) or a single song finishes, the music stops after the last section. **✨ Write with AI** turns a theme into a set list.
+
+**Create a song in the chat:** in 💬 Chat pick 🎯 **✨ new song** and describe it, e.g. *"dreamy synthwave at 100 bpm with a big hook"* (or *"Night Drive | synthwave, 100 bpm, A minor, slow build, big chorus"* to name it yourself). The AI names it, writes it, and it plays as soon as its first section is ready. If a song is already playing, the new one plays next (⏭ skips to it). The chat then goes back to *auto*, which works on the song that's playing.
+
+The **🎵 Songs** panel is a simple list:
+- **This session:** the songs created or played so far, with their status (✎ writing, ✓ ready, ▶ playing, ✔ played). Click one for its buttons: ✎ Edit, ☆ Favorite, 📁 Save to My songs, 🔲 Song pads, MP3, JSON, 🔗 Link. **⏭ go** jumps to it. **loop** starts over at the first song after the last. **form for new songs** picks the song form (*auto* fits each song's genre).
+- **★ Favorites** and **📁 My songs** below it work the same way: click a song for its buttons, or ▶ to play it.
+
+A song's sheet and sections show in two places only:
+- **🎶 Now playing:** the song that's playing, with live progress.
+  - **⏭ go** on a section jumps to it on the next boundary, and **Alt+1 … Alt+9** jump to the playing song's sections.
+  - **⏸ hold this section** stays on it until you pick another.
+- **✎ Edit song:** **✎ Edit** opens the song in its own panel. There you can edit its tempo, meter, scale, chords, sections, parts and parts code, with its sections listed below the editor.
+  - **✓ apply** checks and test-plays the change and re-arranges the song. A playing song switches over from its next section.
+  - Songs in My songs are saved; for other songs, 📁 Save to My songs keeps the edit.
+  - Closing the panel ends editing.
+
+**🔗 Link** shares a whole written song: its sheet, its parts code and every arranged section. Opening the link puts it in the Songs panel, ready to play exactly as written, with no AI calls. When a set (without loop) or a single song finishes, the music stops after the last section.
 
 ### 📁 My songs, ★ Favorites and portable songs
 Every finished song has a toolbar:

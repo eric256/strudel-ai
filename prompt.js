@@ -197,6 +197,7 @@ Reply with the SONG SHEET as ONE JSON object and nothing else: no markdown fence
 
 Example:
 {
+  "title": "Neon Rain",
   "form": "pop",
   "bpm": 104,
   "meter": "4/4",
@@ -228,6 +229,7 @@ Example:
 }
 
 Rules:
+- TITLE: a short, evocative song title (1–4 words) that fits the description — not the genre name.
 - FORM: the request lists the SONG FORMS you may use (or names the one to use). Pick the one that fits the genre, set
   "form" to its name, and copy its sections IN ORDER with EXACTLY its bar counts (you may number repeats: "verse 1",
   "verse 2"). Short sections keep the song moving: never make a section longer than the form says.
