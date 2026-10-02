@@ -462,6 +462,13 @@ export function createWorkspace({ root, panels, defaults, saved, onSave }) {
       if (onVisible) { p.onVisible = onVisible; onVisible(visible.has(id)); }
       if (onOpen) { p.onOpen = onOpen; onOpen(open.has(id)); }
     },
+    /** Make sure a docked panel's area is at least `px` big (e.g. the mixer needs some height). */
+    minSize(id, px) {
+      const g = groupOf(id);
+      if (!g || g.where === 'float' || L.areas[g.where].size >= px) return;
+      L.areas[g.where].size = px;
+      changed();
+    },
     reset() { L = sanitize(structuredClone(defaults)); changed(); },
     layout: () => structuredClone(L),
     panels: () => [...P.values()].map((p) => ({ id: p.id, title: p.title, icon: p.icon, open: !!groupOf(p.id) })),

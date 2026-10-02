@@ -4333,24 +4333,31 @@ renderAISummary();
 setupDock('console');
 
 // ---------------------------------------------------------------------------
-// 🎚 Mixer: one channel strip per part (every labelled group in the code).
-//  · volume = the part's own group fader, .postgain(slider(…)), so it lives in the code, carries into the next
-//    section and plays back the same; moving it here moves that slider (no re-evaluation)
-//  · mute / solo = the same as the M / S buttons next to the code
-//  · EQ (low shelf 200 Hz, mid peak 1 kHz, high shelf 4 kHz, ±12 dB): a part with EQ gets its own orbit
-//    (Strudel's output bus); the filters sit on that bus, so EQ moves are instant and don't touch the code
+// 🎚 Mixer: a console with one channel per part of the WHOLE song (every part in the song sheet, plus any other
+// labelled line in the code), whether or not it plays in the current section.
+// Every labelled part plays on its own orbit (Strudel's output bus); the mixer puts a channel strip on that bus:
+//   orbit → EQ (high shelf 4 kHz · mid peak 1 kHz · low shelf 200 Hz, ±12 dB) → pan → fader → speakers
+//                                                                                   └→ meter / spectrum
+// Settings are kept per part name, so they apply whenever that part plays — this section, the next, the next song.
+// Nothing here touches the code; the code's own faders (.postgain) still work as a trim.
 // ---------------------------------------------------------------------------
 const MX_BANDS = [['high', 'highshelf', 4000], ['mid', 'peaking', 1000], ['low', 'lowshelf', 200]];
-const mixer = { eq: load().mixerEq || {}, orbits: {}, nextOrbit: 2, busy: false, key: '' };
-const eqFlat = (e) => !e || MX_BANDS.every(([b]) => !Number(e[b]));
-/** The orbit a part plays on (only parts with EQ get one). */
-const mixerOrbit = (base) => mixer.orbits[base] ?? null;
-function assignOrbit(base) {
+const MX_DEFAULT = { vol: 1, pan: 0, high: 0, mid: 0, low: 0, mute: false, solo: false };
+const mixer = { ch: {}, orbits: {}, nextOrbit: 2, key: '', dragging: false };
+{ // settings from before (EQ only) carry over
+  const st = load();
+  for (const [base, e] of Object.entries(st.mixerEq || {})) mixer.ch[base] = { ...MX_DEFAULT, ...e };
+  Object.assign(mixer.ch, st.mixerCh || {});
+}
+const chOf = (base) => (mixer.ch[base] ||= { ...MX_DEFAULT });
+const saveMixer = (() => { let t; return () => { clearTimeout(t); t = setTimeout(() => save({ mixerCh: mixer.ch }), 300); }; })();
+/** Every labelled part gets its own orbit ("$:" lines share the default one). */
+function mixerOrbit(base) {
+  if (!base || base === '$') return null;
   if (mixer.orbits[base] == null) mixer.orbits[base] = mixer.nextOrbit++;
   return mixer.orbits[base];
 }
-for (const [base, e] of Object.entries(mixer.eq)) if (!eqFlat(e) && base !== '$') assignOrbit(base);
-window.__mixerTrap = () => { if (Object.keys(mixer.orbits).length) installOrbitTrap(); };
+window.__mixerTrap = () => installOrbitTrap();
 
 // Strudel turns "bass: …" into pattern.p('bass') and redefines Pattern.prototype.p on every evaluation:
 // trap that assignment so the label's pattern is routed to the part's orbit.
@@ -4371,161 +4378,243 @@ function installOrbitTrap() {
   P.__mixerTrap = true;
 }
 
-/** EQ filters on a part's orbit: orbit output → high → mid → low → the speakers. */
-function orbitEq(base) {
-  const n = mixerOrbit(base);
-  let ctrl;
-  try { ctrl = globalThis.getSuperdoughAudioController(); } catch { return null; }
+const sdController = () => { try { return globalThis.getSuperdoughAudioController(); } catch { return null; } };
+/** The channel strip on a part's orbit (built the first time, rebuilt if the audio engine was reset). */
+function channelNodes(base) {
+  const n = mixer.orbits[base];
+  const ctrl = sdController();
   if (n == null || !ctrl) return null;
   const orbit = ctrl.getOrbit(n, [0, 1]);
-  if (!orbit.__eq) {
+  if (!orbit.__ch) {
     const ac = orbit.audioContext;
-    const nodes = MX_BANDS.map(([, type, f]) => new BiquadFilterNode(ac, { type, frequency: f, Q: type === 'peaking' ? 0.8 : 0.7, gain: 0 }));
+    const eq = MX_BANDS.map(([, type, f]) => new BiquadFilterNode(ac, { type, frequency: f, Q: type === 'peaking' ? 0.8 : 0.7, gain: 0 }));
+    const pan = new StereoPannerNode(ac, { pan: 0 });
+    const gain = new GainNode(ac, { gain: 1 });
+    const an = new AnalyserNode(ac, { fftSize: 1024, smoothingTimeConstant: 0.6 });
     try { orbit.output.disconnect(); } catch {}
-    orbit.output.connect(nodes[0]);
-    nodes[0].connect(nodes[1]);
-    nodes[1].connect(nodes[2]);
-    ctrl.output.connectToDestination(nodes[2], [0, 1]);
-    orbit.__eq = Object.fromEntries(MX_BANDS.map(([b], i) => [b, nodes[i]]));
+    orbit.output.connect(eq[0]);
+    eq[0].connect(eq[1]);
+    eq[1].connect(eq[2]);
+    eq[2].connect(pan);
+    pan.connect(gain);
+    gain.connect(an);
+    ctrl.output.connectToDestination(gain, [0, 1]);
+    orbit.__ch = { high: eq[0], mid: eq[1], low: eq[2], pan, gain, an };
   }
-  return orbit.__eq;
+  return orbit.__ch;
 }
-function applyEq(base) {
-  const nodes = orbitEq(base);
+const anySolo = () => Object.values(mixer.ch).some((c) => c.solo);
+const audible = (base) => { const c = chOf(base); return !c.mute && (!anySolo() || c.solo); };
+function applyChannel(base) {
+  const nodes = channelNodes(base);
   if (!nodes) return;
-  const e = mixer.eq[base] || {};
-  const t = nodes.low.context.currentTime;
-  for (const [b] of MX_BANDS) nodes[b].gain.setTargetAtTime(Number(e[b]) || 0, t, 0.02);
+  const c = chOf(base);
+  const t = nodes.gain.context.currentTime;
+  for (const [b] of MX_BANDS) nodes[b].gain.setTargetAtTime(Number(c[b]) || 0, t, 0.02);
+  nodes.pan.pan.setTargetAtTime(Number(c.pan) || 0, t, 0.02);
+  nodes.gain.gain.setTargetAtTime(audible(base) ? Number(c.vol) : 0, t, 0.015);
 }
-// the audio engine can be reset (or not started yet): keep the filters in place
-setInterval(() => { if (isPlaying()) for (const base of Object.keys(mixer.orbits)) applyEq(base); }, 1000);
+const applyAllChannels = () => { for (const base of Object.keys(mixer.orbits)) applyChannel(base); };
+// the audio engine creates orbits on the first note and can be reset: keep the strips in place
+setInterval(() => { if (isPlaying()) applyAllChannels(); }, 500);
 
-/** Re-evaluate the same code on the next beat, so a part that just got EQ moves to its own orbit. */
-async function rerouteSoon(why) {
-  if (!isPlaying()) return;
-  if (state.pending || mixer.busy) { setTimeout(() => rerouteSoon(why), 400); return; } // never apply an armed section early
-  mixer.busy = true;
-  try { await evaluateCode(getCode(), { at: nextBoundary(0.25), label: why, undo: false }); }
-  finally { mixer.busy = false; }
+/** The master meter: an analyser on the main output. */
+function masterAnalyser() {
+  const ctrl = sdController();
+  const out = ctrl?.output?.destinationGain;
+  if (!out) return null;
+  if (out.__an?.context !== out.context) { out.__an = new AnalyserNode(out.context, { fftSize: 1024, smoothingTimeConstant: 0.6 }); out.connect(out.__an); }
+  return out.__an;
 }
 
-/** The group fader of each part: its last .postgain(slider(v, min, max)) — position of the number in `code`. */
-function groupFaders(code) {
-  const lines = code.split('\n');
+/** The channels: the song's parts (all of them, in the sheet's order) and every other labelled part in the code. */
+function mixerChannels() {
+  const code = getCode();
   const rows = patternLines(code);
-  const offs = [];
-  let o = 0;
-  for (const l of lines) { offs.push(o); o += l.length + 1; }
-  return rows.map((r, k) => {
-    const end = k + 1 < rows.length ? rows[k + 1].line : lines.length;
-    const from = offs[r.line], to = end < lines.length ? offs[end] : code.length;
-    const chunk = code.slice(from, to);
-    const re = /\.postgain\(\s*slider\(\s*([\d.]+)\s*(?:,\s*([\d.]+)\s*)?(?:,\s*([\d.]+)\s*)?/g;
-    let m, last = null;
-    while ((m = re.exec(chunk))) last = m;
-    const fader = last ? { pos: from + last.index + last[0].indexOf(last[1], last[0].indexOf('slider(')), text: last[1], value: Number(last[1]), min: Number(last[2] ?? 0), max: Number(last[3] ?? 1) } : null;
-    return { ...r, key: r.base === '$' ? `$${k}` : r.base, fader, endLine: end - 1 };
-  });
+  const sg = setl.running ? setl.songs[setl.current] : nowSong;
+  const out = [];
+  const add = (base, extra = {}) => { if (base && base !== '$' && !out.some((x) => x.base === base)) out.push({ base, ...extra }); };
+  for (const p of sg?.sheet?.parts || []) add(p.id, { role: p.role, sound: p.sound, song: true });
+  for (const r of rows) add(r.base);
+  for (const ch of out) {
+    const r = rows.find((x) => x.base === ch.base);
+    ch.inSection = !!r;
+    ch.codeMuted = !!r?.muted;
+  }
+  return out;
 }
 
-/** Move a part's fader: through the slider widget in the editor when it's on screen, else by hand. */
-function setGroupVolume(row, v) {
-  const f = row.fader;
-  if (!f) return;
-  const input = [...document.querySelectorAll('#editor-wrap .cm-slider input')].find((i) => i.from === f.pos);
-  if (input) { input.value = String(v); input.dispatchEvent(new Event('input', { bubbles: true })); return; }
-  // off screen: rewrite the number and tell Strudel, using the slider's id from the evaluated code
-  const evaluated = groupFaders(live.applied || '').find((x) => x.key === row.key)?.fader;
-  const text = String(Math.round(v * 1000) / 1000);
-  mirror().editor.dispatch({ changes: { from: f.pos, to: f.pos + f.text.length, insert: text } });
-  if (evaluated) window.postMessage({ type: 'cm-slider', value: Number(text), id: `slider_${evaluated.pos}` });
-}
-
-/** A part without a group fader: add one (applied on the next beat). */
-async function addGroupFader(row) {
-  const lines = getCode().split('\n');
-  let i = row.endLine;
-  while (i > row.line && !lines[i].trim()) i--;
-  const l = lines[i];
-  const c = l.search(/\s*\/\/(?![^"']*["'][^"']*$)/); // before a trailing comment
-  lines[i] = c >= 0 ? `${l.slice(0, c)}.postgain(slider(1, 0, 1.5))${l.slice(c)}` : `${l}.postgain(slider(1, 0, 1.5))`;
-  const next = lines.join('\n');
-  if (!isPlaying()) { mirror().setCode(next); return; }
-  const err = await evaluateCode(next, { at: nextBoundary(0.25), label: `fader for ${row.base}`, undo: false });
-  if (err) addMsg('error', `Couldn't add a fader: ${err.message}`);
-}
-
+const dbText = (v) => (v <= 0.0001 ? '-∞' : `${(20 * Math.log10(v)).toFixed(1)}`);
 function renderMixerPanel() {
-  if (!docks.mixer?.on) return;
-  if (mixer.dragging) return; // don't rebuild under the pointer
-  const rows = groupFaders(getCode());
-  const anySolo = rows.some((r) => r.solo);
-  const key = JSON.stringify([rows.map((r) => [r.key, r.line, r.muted, r.solo, r.fader?.text, r.fader?.min, r.fader?.max, mixerPending.has(r.line)]), mixer.eq, $('masterGain').value]);
+  if (!docks.mixer?.on || mixer.dragging) return;
+  const chans = mixerChannels();
+  const key = JSON.stringify([chans, mixer.ch, $('masterGain').value]);
   if (key === mixer.key) return;
   mixer.key = key;
-  const knob = (base, b, v, disabled) => `<label class="mx-eq-b" title="${b} ${b === 'mid' ? '(1 kHz)' : b === 'low' ? '(200 Hz shelf)' : '(4 kHz shelf)'}: ${v > 0 ? '+' : ''}${v} dB${disabled ? ' — name the line (e.g. lead:) to EQ it' : ''}">
-      <input type="range" class="mx-v" min="-12" max="12" step="0.5" value="${v}" data-eq="${b}" data-base="${esc(base)}"${disabled ? ' disabled' : ''} /><span>${b[0].toUpperCase()}</span></label>`;
-  const strips = rows.map((r) => {
-    const e = mixer.eq[r.base] || {};
-    const silenced = r.muted || (anySolo && !r.solo);
-    const f = r.fader;
-    return `<div class="mx-strip${silenced ? ' silenced' : ''}${mixerPending.has(r.line) ? ' pending' : ''}" style="--c:${vizColor(r.base)}" data-key="${esc(r.key)}">
-      <div class="mx-name" title="${esc(r.label)}: line ${r.line + 1}">${esc(r.base === '$' ? `$ ${r.line + 1}` : r.base)}</div>
-      <div class="mx-ms"><button data-mx="mute" data-line="${r.line}" class="m${r.muted ? ' on' : ''}" title="Mute (on the next beat)">M</button><button data-mx="solo" data-line="${r.line}" class="s${r.solo ? ' on' : ''}" title="Solo (on the next beat)">S</button></div>
-      <div class="mx-eq">${MX_BANDS.map(([b]) => knob(r.base, b, Number(e[b]) || 0, r.base === '$')).join('')}</div>
-      <div class="mx-fader">${f
-        ? `<input type="range" class="mx-v mx-vol" min="${f.min}" max="${f.max}" step="0.01" value="${f.value}" data-vol="${esc(r.key)}" title="Volume: the part's fader .postgain(slider(…)) — double-click for 1" /><span class="mx-val">${Math.round(f.value * 100)}%</span>`
-        : `<button class="mx-addfader" data-add="${esc(r.key)}" title="This part has no group fader: add .postgain(slider(1, 0, 1.5)) to it">+ fader</button>`}</div>
+  const slider = (cls, k, min, max, step, v, title, extra = '') => `<input type="range" class="${cls}" data-k="${k}" min="${min}" max="${max}" step="${step}" value="${v}" title="${title}" ${extra}/>`;
+  const strip = (ch) => {
+    const c = chOf(ch.base);
+    const off = !audible(ch.base);
+    return `<div class="mx-strip${ch.inSection ? '' : ' absent'}${off ? ' silenced' : ''}" style="--c:${vizColor(ch.base)}" data-base="${esc(ch.base)}">
+      <div class="mx-name" title="${esc(`${ch.base}${ch.role ? ` · ${ch.role}` : ''}${ch.sound ? ` · ${ch.sound}` : ''}`)}">${esc(ch.base)}</div>
+      <div class="mx-state">${ch.inSection ? (ch.codeMuted ? '<span class="cm" title="muted in the code (_label:)">muted in code</span>' : '<span class="on">● playing</span>') : '<span title="This part doesn’t play in the current section — its settings apply when it comes in">not in section</span>'}</div>
+      <canvas class="mx-eqviz" width="76" height="40" title="EQ curve over the channel's live spectrum"></canvas>
+      <div class="mx-eqs">${MX_BANDS.map(([b]) => `<label title="${b} ${b === 'mid' ? '(1 kHz peak)' : b === 'low' ? '(200 Hz shelf)' : '(4 kHz shelf)'} — double-click: 0 dB"><span>${b[0].toUpperCase()}</span>${slider('mx-h', b, -12, 12, 0.5, Number(c[b]) || 0, `${b}: ${c[b] || 0} dB`)}</label>`).join('')}
+        <label title="Pan — double-click: centre"><span>P</span>${slider('mx-h', 'pan', -1, 1, 0.05, Number(c.pan) || 0, `pan ${c.pan || 0}`)}</label></div>
+      <div class="mx-ms"><button data-mx="mute" class="m${c.mute ? ' on' : ''}" title="Mute this channel (whole song)">M</button><button data-mx="solo" class="s${c.solo ? ' on' : ''}" title="Solo this channel (whole song)">S</button></div>
+      <div class="mx-fader">${slider('mx-v mx-vol', 'vol', 0, 1.5, 0.01, c.vol, 'Channel fader — double-click: 0 dB')}<canvas class="mx-meter" width="10" height="100"></canvas></div>
+      <div class="mx-val">${dbText(c.vol)} dB</div>
     </div>`;
-  }).join('');
-  const master = `<div class="mx-strip master"><div class="mx-name">master</div><div class="mx-ms"></div><div class="mx-eq"></div>
-    <div class="mx-fader"><input type="range" class="mx-v mx-vol" min="0" max="1.5" step="0.01" value="${$('masterGain').value}" data-master="1" title="Master volume — double-click for 100%" /><span class="mx-val">${Math.round($('masterGain').value * 100)}%</span></div></div>`;
-  $('mixerStrips').innerHTML = rows.length ? strips + master : `<div class="muted small mx-empty">No parts yet: every labelled line in the code (<code>drums: …</code>, <code>bass: …</code>) gets a channel strip here.</div>${master}`;
+  };
+  const master = `<div class="mx-strip master" data-base="__master">
+      <div class="mx-name">master</div><div class="mx-state"><span>${isPlaying() ? '● on' : 'stopped'}</span></div>
+      <canvas class="mx-eqviz" width="76" height="40" title="Spectrum of the whole mix"></canvas>
+      <div class="mx-eqs"></div><div class="mx-ms"></div>
+      <div class="mx-fader">${slider('mx-v mx-vol', 'master', 0, 1.5, 0.01, $('masterGain').value, 'Master volume — double-click: 100%')}<canvas class="mx-meter" width="10" height="100"></canvas></div>
+      <div class="mx-val">${dbText(Number($('masterGain').value))} dB</div>
+    </div>`;
+  $('mixerStrips').innerHTML = (chans.length ? chans.map(strip).join('') : '<div class="muted small mx-empty">No parts yet: every part of the song, and every labelled line in the code (<code>drums: …</code>), gets a channel here.</div>') + master;
 }
-setupDock('mixer', { onShow: () => { mixer.key = ''; renderMixerPanel(); } });
-setInterval(renderMixerPanel, 200);
+setupDock('mixer', {
+  onShow: () => { mixer.key = ''; renderMixerPanel(); cancelAnimationFrame(mixer.raf); drawMixer(); ws.minSize?.('mixer', 330); },
+  onHide: () => cancelAnimationFrame(mixer.raf),
+});
+setInterval(renderMixerPanel, 250);
 
-const mxRow = (key) => groupFaders(getCode()).find((r) => r.key === key);
-const saveEq = (() => { let t; return () => { clearTimeout(t); t = setTimeout(() => save({ mixerEq: mixer.eq }), 300); }; })();
-function setEq(base, band, v) {
-  (mixer.eq[base] ||= {})[band] = v;
-  if (eqFlat(mixer.eq[base])) delete mixer.eq[base];
-  saveEq();
-  if (mixerOrbit(base) == null && !eqFlat(mixer.eq[base])) {
-    assignOrbit(base);
-    window.__mixerTrap();
-    rerouteSoon(`EQ on ${base}`);
+// live visuals: an EQ curve over each channel's spectrum, and a level meter beside each fader
+const eqProbe = { freqs: null, nodes: null };
+function eqCurve(c, width) {
+  const ac = audioCtx();
+  if (!ac) return null;
+  if (!eqProbe.nodes) eqProbe.nodes = MX_BANDS.map(([, type, f]) => new BiquadFilterNode(ac, { type, frequency: f, Q: type === 'peaking' ? 0.8 : 0.7 }));
+  if (eqProbe.freqs?.length !== width) eqProbe.freqs = Float32Array.from({ length: width }, (_, i) => 20 * Math.pow(1000, i / (width - 1))); // 20 Hz … 20 kHz
+  const total = new Float32Array(width);
+  const mag = new Float32Array(width), ph = new Float32Array(width);
+  MX_BANDS.forEach(([b], i) => {
+    eqProbe.nodes[i].gain.value = Number(c[b]) || 0;
+    eqProbe.nodes[i].getFrequencyResponse(eqProbe.freqs, mag, ph);
+    for (let k = 0; k < width; k++) total[k] += 20 * Math.log10(mag[k] || 1e-6);
+  });
+  return total;
+}
+const levelOf = (an, buf) => {
+  an.getFloatTimeDomainData(buf);
+  let sum = 0, peak = 0;
+  for (let i = 0; i < buf.length; i++) { const v = Math.abs(buf[i]); sum += v * v; if (v > peak) peak = v; }
+  return { rms: Math.sqrt(sum / buf.length), peak };
+};
+function drawChannelSpectrum(g, an, w, h, color) {
+  const bins = new Uint8Array(an.frequencyBinCount);
+  an.getByteFrequencyData(bins);
+  const ny = an.context.sampleRate / 2;
+  g.beginPath();
+  g.moveTo(0, h);
+  for (let x = 0; x < w; x++) {
+    const f = 20 * Math.pow(1000, x / (w - 1));
+    const v = bins[Math.min(bins.length - 1, Math.round((f / ny) * bins.length))] / 255;
+    g.lineTo(x, h - v * h);
   }
-  applyEq(base);
+  g.lineTo(w, h);
+  g.closePath();
+  g.fillStyle = color;
+  g.globalAlpha = 0.28;
+  g.fill();
+  g.globalAlpha = 1;
+}
+function drawMeter(cv, lvl) {
+  const g = cv.getContext('2d'), w = cv.width, h = cv.height;
+  g.fillStyle = '#0b0c10';
+  g.fillRect(0, 0, w, h);
+  const y = (v) => { const db = 20 * Math.log10(Math.max(v, 1e-5)); return h - Math.max(0, Math.min(1, (db + 60) / 60)) * h; }; // −60 … 0 dB
+  const top = y(lvl.rms);
+  const grad = g.createLinearGradient(0, h, 0, 0);
+  grad.addColorStop(0, '#20d3a6'); grad.addColorStop(0.75, '#20d3a6'); grad.addColorStop(0.88, '#ffd166'); grad.addColorStop(1, '#ff5c7a');
+  g.fillStyle = grad;
+  g.fillRect(1, top, w - 2, h - top);
+  cv.__hold = Math.min(cv.__hold ?? h, y(lvl.peak));
+  cv.__hold += 0.6; // the peak marker falls slowly
+  g.fillStyle = lvl.peak >= 0.99 ? '#ff5c7a' : '#e6e8ee';
+  g.fillRect(0, Math.min(h - 2, cv.__hold), w, 2);
+}
+function drawMixer() {
+  mixer.raf = requestAnimationFrame(drawMixer);
+  const buf = mixer.buf || (mixer.buf = new Float32Array(1024));
+  for (const el of document.querySelectorAll('#mixerStrips .mx-strip')) {
+    const base = el.dataset.base;
+    const isMaster = base === '__master';
+    const an = isMaster ? masterAnalyser() : mixer.orbits[base] != null ? sdController()?.nodes?.[mixer.orbits[base]]?.__ch?.an : null;
+    const color = getComputedStyle(el).getPropertyValue('--c') || '#7c5cff';
+    // EQ curve + spectrum
+    const cv = el.querySelector('.mx-eqviz');
+    if (cv) {
+      const g = cv.getContext('2d'), w = cv.width, h = cv.height;
+      g.fillStyle = '#0b0c10';
+      g.fillRect(0, 0, w, h);
+      g.strokeStyle = '#1d2029';
+      g.beginPath(); g.moveTo(0, h / 2); g.lineTo(w, h / 2); g.stroke();
+      if (an && isPlaying()) drawChannelSpectrum(g, an, w, h, isMaster ? '#7c5cff' : color);
+      if (!isMaster) {
+        const curve = eqCurve(chOf(base), w);
+        if (curve) {
+          g.strokeStyle = color;
+          g.lineWidth = 1.5;
+          g.beginPath();
+          for (let x = 0; x < w; x++) { const yv = h / 2 - (curve[x] / 15) * (h / 2); x ? g.lineTo(x, yv) : g.moveTo(x, yv); }
+          g.stroke();
+          g.lineWidth = 1;
+        }
+      }
+    }
+    const m = el.querySelector('.mx-meter');
+    if (m) drawMeter(m, an && isPlaying() ? levelOf(an, buf) : { rms: 0, peak: 0 });
+  }
+}
+
+function setChannel(base, k, v) {
+  chOf(base)[k] = v;
+  saveMixer();
+  if (k === 'solo' || k === 'mute') applyAllChannels(); else applyChannel(base);
 }
 $('mixerStrips').addEventListener('pointerdown', (e) => { if (e.target.matches('input[type=range]')) mixer.dragging = true; });
 window.addEventListener('pointerup', () => { if (mixer.dragging) { mixer.dragging = false; mixer.key = ''; } });
 $('mixerStrips').addEventListener('input', (e) => {
-  const t = e.target;
-  if (t.dataset.eq) { setEq(t.dataset.base, t.dataset.eq, Number(t.value)); t.closest('label').title = `${t.dataset.eq}: ${t.value} dB`; return; }
-  if (t.dataset.master) { $('masterGain').value = t.value; $('masterGain').oninput(); t.nextElementSibling.textContent = `${Math.round(t.value * 100)}%`; return; }
-  if (t.dataset.vol) {
-    const row = mxRow(t.dataset.vol);
-    if (row) setGroupVolume(row, Number(t.value));
-    t.nextElementSibling.textContent = `${Math.round(t.value * 100)}%`;
-  }
+  const t = e.target, base = t.closest('.mx-strip')?.dataset.base;
+  if (!base || !t.dataset.k) return;
+  const v = Number(t.value);
+  if (t.dataset.k === 'master') { $('masterGain').value = t.value; $('masterGain').oninput(); }
+  else setChannel(base, t.dataset.k, v);
+  if (t.dataset.k === 'vol' || t.dataset.k === 'master') t.closest('.mx-strip').querySelector('.mx-val').textContent = `${dbText(v)} dB`;
+  t.title = `${t.dataset.k}: ${t.value}`;
 });
 $('mixerStrips').addEventListener('dblclick', (e) => {
   const t = e.target;
   if (!t.matches('input[type=range]')) return;
-  t.value = t.dataset.eq ? 0 : 1;
+  t.value = t.dataset.k === 'vol' || t.dataset.k === 'master' ? 1 : 0;
   t.dispatchEvent(new Event('input', { bubbles: true }));
   mixer.key = '';
 });
 $('mixerStrips').addEventListener('click', (e) => {
-  const b = e.target.closest('button');
-  if (!b) return;
-  if (b.dataset.mx) toggleLine(Number(b.dataset.line), b.dataset.mx);
-  else if (b.dataset.add) { const row = mxRow(b.dataset.add); if (row) addGroupFader(row); }
+  const b = e.target.closest('button[data-mx]');
+  const base = b?.closest('.mx-strip')?.dataset.base;
+  if (!base) return;
+  const c = chOf(base);
+  if (b.dataset.mx === 'mute') { c.mute = !c.mute; if (c.mute) c.solo = false; }
+  else { c.solo = !c.solo; if (c.solo) c.mute = false; }
+  saveMixer();
+  applyAllChannels();
+  mixer.key = '';
+  renderMixerPanel();
 });
 $('mixerFlat').onclick = () => {
-  for (const base of Object.keys(mixer.eq)) { delete mixer.eq[base]; applyEq(base); }
-  save({ mixerEq: mixer.eq });
+  for (const c of Object.values(mixer.ch)) Object.assign(c, { ...MX_DEFAULT, vol: c.vol, mute: c.mute, solo: c.solo });
+  saveMixer();
+  applyAllChannels();
+  mixer.key = '';
+};
+$('mixerReset').onclick = () => {
+  mixer.ch = {};
+  saveMixer();
+  applyAllChannels();
   mixer.key = '';
 };
 
@@ -5674,4 +5763,4 @@ function songMp3(sg) {
 }
 
 // handy for debugging from the browser console
-window.strudelAI = { ws, mixer, groupFaders, normalizeSheet, playSong, songMp3, loadPads, songPads, transposeProgression, sectionCode, getForms: () => songForms, getFavorites: () => favorites, loadFavorites, getPads: () => pads, mySongs, activeSong, songFromJSON, songToJSON, mp3, session, pads, padsState, keysState, noteOn, noteOff, setPad, docks, rec, replay, startReplay, recordingForShare, viz, checkScales, checkSounds, prepareCode, evaluateCode, dryRun, hum, transcribe, ensureSliders, setlist, setl };
+window.strudelAI = { ws, mixer, mixerChannels, normalizeSheet, playSong, songMp3, loadPads, songPads, transposeProgression, sectionCode, getForms: () => songForms, getFavorites: () => favorites, loadFavorites, getPads: () => pads, mySongs, activeSong, songFromJSON, songToJSON, mp3, session, pads, padsState, keysState, noteOn, noteOff, setPad, docks, rec, replay, startReplay, recordingForShare, viz, checkScales, checkSounds, prepareCode, evaluateCode, dryRun, hum, transcribe, ensureSliders, setlist, setl };

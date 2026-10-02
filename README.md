@@ -345,15 +345,21 @@ Fix attempts always work on the AI's own failed code (sent as *code to fix*), no
 
 ## 🎚 Mixer
 
-**🎚 Mixer** opens a panel with a channel strip for every part, meaning every labelled line in the code (`drums:`, `bass:`, pad lines …), plus the master.
-- **Volume:** the part's own group fader, `.postgain(slider(…))`. Moving it here moves that slider in the code, live and without re-evaluating, so the level is in the code: it carries into the next section and plays back the same. A part without a group fader shows **+ fader**, which adds `.postgain(slider(1, 0, 1.5))`.
-- **EQ:** low shelf at 200 Hz, mid peak at 1 kHz and high shelf at 4 kHz, ±12 dB each.
-  - EQ changes are instant and don't touch the code.
-  - A part with EQ plays on its own output bus (a Strudel *orbit*), with the filters on that bus. The first EQ move on a part re-routes it on the next beat.
-  - EQ settings are remembered per part name, so `bass` keeps its EQ from song to song. **flat EQ** resets them all.
-  - Anonymous `$:` lines can't be EQ'd: name the line (e.g. `lead:`) to give it EQ.
-- **M / S:** mute and solo, the same as the buttons next to the code. Silenced strips are dimmed.
-- Double-click a control to reset it (EQ to 0 dB, volume to 1).
+**🎚 Mixer** opens a console with a channel for **every part of the song**, whether or not it plays in the current section. That's every part in the song sheet, plus any other labelled line in the code (your own parts, pad lines). It ends with the master.
+
+Each channel strip has:
+- **Name and state:** ● playing, *not in section* (the strip is dimmed, but its settings apply when the part comes in), or *muted in code*.
+- **EQ display:** the EQ curve drawn over the channel's live spectrum.
+- **EQ and pan:** H (high shelf at 4 kHz), M (mid peak at 1 kHz) and L (low shelf at 200 Hz), ±12 dB each, plus **P** (pan).
+- **M / S:** mute and solo the channel, for the whole song.
+- **Fader** (0 dB at the default position) with a **level meter** beside it: RMS level, a slowly falling peak line, and red at full scale.
+
+How it works:
+- Every labelled part plays on its own Strudel *orbit* (output bus). The channel strip sits on that bus: EQ → pan → fader → speakers, and the meter and spectrum tap the fader's output.
+- Mixer changes are instant and never touch the code. The code's own faders (`.postgain(slider(…))`) still work as a trim before the channel.
+- Settings are kept per part name in the browser, so `bass` keeps its fader, EQ, pan, mute and solo from section to section and song to song.
+- **flat EQ** resets every EQ and pan. **reset all** also resets faders, mutes and solos.
+- Anonymous `$:` lines share the default bus and don't get a channel: name them (e.g. `lead:`) to mix them.
 
 ## Master volume
 The 🔊 fader in the header sets the overall output level (0–150%), and double-clicking it resets it to 100%. It's remembered, and "duck music" while humming lowers it relative to this level.
