@@ -97,6 +97,7 @@
             <option value="code">🎛 code in the editor</option>
             <option value="song">🎵 whole song</option>
             <option value="pads">🔲 pads</option>
+            <option value="new">✨ new song</option>
           </select></label>
         <span class="muted small" id="aiSummary" title="Change in ⚙ Settings → AI"></span>
         <span class="spacer"></span>
@@ -110,24 +111,18 @@
       </form>
       </section>
       <section id="setTab" class="panel tab">
-        <p class="hint"><b>Songs</b> — one song per line: <code>title | description</code> (style, tempo, key, mood…).
-          For each song the AI writes a <b>song sheet</b> (chords, hook, parts, form) and the parts once; the app then arranges the
-          sections from them, so choruses repeat and the song stays in key. The next song is written while the current one plays.
-          Click a song to see its sheet and sections.</p>
-        <textarea id="setText" spellcheck="false" placeholder="Night Drive | synthwave, 100 bpm, A minor, pulsing bass, neon pads&#10;Rain on Glass | lo-fi hip hop, 80 bpm, jazzy Rhodes chords, vinyl crackle"></textarea>
-        <div class="sl-buttons">
-          <button id="setStart">▶ Start set</button>
-          <button id="setStop" disabled>■ Stop</button>
-          <label><input type="checkbox" id="setLoop" /> loop</label>
+        <div class="my-head">
+          <b>🎵 This session</b>
+          <span class="muted small nowrap" title="Create a song from the 💬 Chat: pick 🎯 ✨ new song and describe it">new: 💬 → ✨ new song</span>
           <span class="spacer"></span>
-          <button id="setWrite">✨ Write with AI</button>
+          <label title="Start over at the first song after the last one"><input type="checkbox" id="setLoop" /> loop</label>
         </div>
+        <div id="setStatus" class="songs"></div>
         <div class="sl-buttons">
-          <label title="Song form for every song in the set — auto picks one that fits each song's genre">form
+          <label title="Song form for new songs — auto picks one that fits each song's genre">form for new songs
             <select id="setForm" class="form-select"></select></label>
           <button class="link forms-edit" title="See, edit and add song forms">🎼 edit forms</button>
         </div>
-        <div id="setStatus" class="songs"></div>
         <div class="my-head">
           <b>★ Favorites</b> <span class="muted small" title="Favorites are stored on this server: everyone who opens it sees them, and they survive restarts">shared on this server</span>
         </div>
@@ -139,7 +134,11 @@
           <button id="logDownload" class="link" title="Download every song played this session as a text file">⬇ played this session</button>
         </div>
         <div id="mySongs" class="songs"></div>
-        <div id="setSongView" class="song-view" hidden></div>
+      </section>
+      <section id="editPanel" class="panel tab">
+        <div id="editEmpty" class="now-empty muted">Open a song for editing with its ✎ Edit button (in 🎵 Songs, 📻 Station or 🎶 Now playing).</div>
+        <div id="editForm"></div>
+        <div id="editSongView" class="song-view" hidden></div>
       </section>
       <section id="stationTab" class="panel tab">
         <p class="hint"><b>Station</b> — give it a theme and it runs on its own: an AI agent keeps inventing new songs for the theme,

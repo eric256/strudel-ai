@@ -604,3 +604,7 @@ body.hydra-on { background: #000; }
 .np-line { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-family: var(--mono); }
 .fatal { padding: 10px 14px; background: #2a1219; color: var(--danger); border-bottom: 1px solid #5a2030; }
 .dv-fixed-tab { padding: 0 12px; display: flex; align-items: center; height: 100%; white-space: nowrap; }
+/* ✎ Edit song panel */
+#editPanel { padding: 8px 10px; overflow-y: auto; gap: 8px; }
+#editForm .sv-edit { border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; background: #121419; }
+.nowrap { white-space: nowrap; }

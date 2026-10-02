@@ -735,6 +735,7 @@ const PANELS = [
   { id: 'songs', title: 'Songs', icon: '🎵', el: $('setTab'), area: 'right' },
   { id: 'station', title: 'Station', icon: '📻', el: $('stationTab'), area: 'right' },
   { id: 'song', title: 'Now playing', icon: '🎶', el: $('songPanel'), area: 'right' },
+  { id: 'edit', title: 'Edit song', icon: '✎', el: $('editPanel'), area: 'right' },
   { id: 'viz', title: 'Visualizer', icon: '📊', el: $('viz-dock'), area: 'bottom' },
   { id: 'keys', title: 'Keys', icon: '🎹', el: $('keys-dock'), area: 'bottom' },
   { id: 'pads', title: 'Pads', icon: '🔲', el: $('pads-dock'), area: 'bottom' },
@@ -1644,6 +1645,7 @@ $('chat-form').onsubmit = async (e) => {
   if (!text) return;
   $('input').value = '';
   addMsg('user', text);
+  if ($('chatTarget').value === 'new') { createSongFromChat(text); return; }
   setBusy(true);
   state.abort = new AbortController();
   try {
@@ -2074,6 +2076,33 @@ $('nowPause').onclick = () => {
   if (setlist.running) return pauseSong();
   if (isPlaying()) mirror()?.stop(); // your own code: pausing stops it (▶ plays it again)
 };
+/**
+ * ✨ New song (🎯 in the chat): the message describes it ("Title | description", or just a description — then its
+ * first words become the title). It's written and plays next: after the song playing now, or right away.
+ */
+function createSongFromChat(text) {
+  const [song] = parseSongs(text.replace(/\n+/g, ' '));
+  if (!song) return;
+  if (!/[|–—:]\s/.test(text)) { song.title = 'New song'; song.autoTitle = true; } // the AI names it with the song sheet
+  if (setl.running) {
+    const at = setl.current < 0 ? setl.songs.length : setl.current + 1; // nothing playing yet: after the songs being written
+    setl.songs.splice(at, 0, song);
+    if (setl.nextSong > at) setl.nextSong = at; // write it before the songs that were queued after it
+    addMsg('info', `✨ “${song.title}” — writing it now; it plays after “${setl.songs[setl.current]?.title || 'this song'}” (⏭ to skip there)`);
+  } else {
+    Object.assign(setl, { mode: 'set', songs: [...(setl.mode === 'set' ? setl.songs : []), song], current: -1, nextSong: 0 });
+    startSet('set', { at: setl.songs.length - 1, keepSongs: true });
+    setl.single = false;
+    addMsg('info', `✨ “${song.title}” — writing it now; it starts as soon as its first section is ready`);
+  }
+  // back to working on the (new) song
+  $('chatTarget').value = 'auto';
+  save({ chatTarget: 'auto' });
+  renderChatTarget();
+  lastSongsKey = '';
+  showPanel('song');
+}
+
 /** ⏭ the next song of the set list or station. */
 function nextSong() {
   if (!setl.running) { addMsg('info', '⏭ nothing to skip to — start a set in 🎵 Songs or a 📻 Station'); return; }
@@ -2576,7 +2605,7 @@ $('shareBtn').onclick = (e) => {
   pop.hidden = !pop.hidden;
   if (!pop.hidden) {
     $('shareResult').hidden = true;
-    $('shareSetlist').checked = !!$('setText').value.trim() && load().shareSetlist !== false;
+    $('shareSetlist').checked = !!setListText() && load().shareSetlist !== false;
     const take = rec.take?.events.length ? rec.take : rec.last;
     $('shareRecWrap').hidden = !take;
     $('shareRec').checked = !!take && load().shareRec !== false;
@@ -2603,7 +2632,7 @@ $('shareCreate').onclick = async () => {
       body: JSON.stringify({
         code: getCode(),
         title: $('shareTitle').value.trim(),
-        setText: $('shareSetlist').checked ? $('setText').value : null,
+        setText: $('shareSetlist').checked ? setListText() : null,
         recording: $('shareRec').checked && !$('shareRecWrap').hidden ? recordingForShare() : null,
       }),
     });
@@ -2641,7 +2670,7 @@ async function openSharedSong() {
       $('undo').disabled = false;
     }
     mirror().setCode(song.code);
-    if (song.setText) { $('setText').value = song.setText; save({ setText: song.setText }); }
+    if (song.setText && !setl.running) Object.assign(setl, { mode: 'set', songs: parseSongs(song.setText), current: -1, nextSong: 0 });
     state.lastAICode = song.code;
     live.applied = song.code;
     const title = song.title ? `“${song.title}”` : 'a shared song';
@@ -2707,6 +2736,8 @@ const setl = {
   station: null,       // { name, theme }
 };
 
+/** This session's songs as "title | description" lines (shared with a link). */
+const setListText = () => (setl.mode === 'set' ? setl.songs.map((sg) => `${sg.title} | ${sg.desc}`).join('\n') : '');
 function parseSongs(text) {
   return text
     .split('\n')
@@ -3130,7 +3161,7 @@ function testLibrary(lib, sheet) {
 async function writeSongSheet(song, signal) {
   const choice = formChoice();
   const prev = setl.songs[setl.songs.indexOf(song) - 1]?.sheet;
-  let msg = `SONG: "${song.title}" — ${song.desc}\n` +
+  let msg = (song.autoTitle ? `SONG (no title yet — give it one in "title"): ${song.desc}\n` : `SONG: "${song.title}" — ${song.desc}\n`) +
     (prev ? `The previous song was ${prev.bpm} bpm, ${normMeter(prev.meter)}, in ${prev.key}; this one should flow from it (a related key or a nearby tempo is nice).\n` : '') +
     `\n${formsForRequest(choice)}\n\nWrite the song sheet JSON.`;
   let lastErr;
@@ -3138,7 +3169,10 @@ async function writeSongSheet(song, signal) {
     song.phase = 'writing the song sheet';
     const text = await requestLLM({ mode: 'sheet', messages: [{ role: 'user', content: msg }], signal, label: `“${song.title}” sheet` });
     try {
-      const sh = normalizeSheet(parseJSONLoose(text), choice);
+      const raw = parseJSONLoose(text);
+      const sh = normalizeSheet(raw, choice);
+      // a song created from a description gets its name from the songwriter
+      if (song.autoTitle && typeof raw.title === 'string' && raw.title.trim()) { song.title = raw.title.trim().slice(0, 60); song.autoTitle = false; }
       clog('ok', `✓ “${song.title}” sheet: ${sh.form || 'form ?'} · ${sh.bpm} bpm · ${sh.key} · ${sh.sections.length} sections · parts ${sh.parts.map((p) => p.id).join(', ')}`);
       return sh;
     } catch (e) {
@@ -3469,9 +3503,8 @@ function startSet(mode, { at = 0, keepSongs = false } = {}) {
     // resume with the songs we already have (their written blocks/code are reused)
     setl.songs.forEach((sg) => { sg.status = sg.blocks ? 'ready' : 'waiting'; sg.error = null; });
   } else if (mode === 'set') {
-    const songs = parseSongs($('setText').value);
-    if (!songs.length) { addMsg('error', 'The set list is empty — add one song per line.'); return; }
-    setl.songs = songs;
+    if (setl.mode !== 'set' || !setl.songs.length) { addMsg('info', 'No songs yet — create one in 💬 Chat with 🎯 ✨ new song.'); return; }
+    setl.songs.forEach((sg) => { sg.status = sg.blocks ? 'ready' : 'waiting'; sg.error = null; });
   } else {
     const st = currentStation();
     if (!st.theme.trim()) { addMsg('error', 'Give the station a theme first.'); return; }
@@ -3502,7 +3535,7 @@ function stopSet(stopEngine = true) {
 
 function jumpToSong(k, from = 'set') {
   const mode = setl.running ? setl.mode : 'set';
-  if (!setl.running) return startSet(from, { at: k, keepSongs: from === 'station' || (setl.mode === 'set' && !setl.textDirty) });
+  if (!setl.running) return startSet(from, { at: k, keepSongs: true });
   const song = setl.songs[k];
   if (!song) return;
   const i = song.firstStep ? setlist.steps.indexOf(song.firstStep) : -1;
@@ -3517,7 +3550,7 @@ function jumpToSong(k, from = 'set') {
 
 function updateSetButtons() {
   const set = setl.running && setl.mode === 'set', st = setl.running && setl.mode === 'station';
-  $('setStart').disabled = set; $('setStop').disabled = !set;
+  void set;
   $('stationStart').disabled = st; $('stationStop').disabled = !st;
 }
 
@@ -3562,7 +3595,7 @@ function songToolbarHTML(sg, live) {
   const btn = (act, label, title) => `<button data-act="${act}" title="${esc(title)}">${label}</button>`;
   return `<div class="sv-toolbar">
       ${canPlay ? btn('play', '▶ Play', 'Play this song from the start (already written — no AI needed)') : ''}
-      ${mine && sh && sg.library ? btn('edit', songEdit.sg === sg ? '✎ editing…' : '✎ Edit', 'Edit the sections, chords and parts (or ask the chat)') : ''}
+      ${sh && sg.library ? btn('edit', songEdit.sg === sg ? '✎ editing…' : '✎ Edit', 'Open this song in the ✎ Edit song panel: sections, chords, parts and their code (or ask the chat)') : ''}
       ${btn('fav', favOf(sg) ? '★ favorite' : '☆ Favorite', favOf(sg) ? 'A favorite on this server — click to remove it from the shared list' : 'Add to ★ Favorites: everyone on this server sees it, and it survives restarts')}
       ${mine ? '' : btn('save', '📁 Save to My songs', 'Copy this song into 📁 My songs, where you can edit it, keep it and export it')}
       ${sg.pads ? btn('pads', padsState.follow ? '🔲 song pads ✓' : '🔲 Song pads', padsState.follow ? 'Song pads are on: the pad dock switches to each song’s pads as the songs change — click to go back to your own pads' : 'Load this song’s 16 pads (its own parts, key and chords) into the pad dock — and keep switching to each new song’s pads as the songs change') : ''}
@@ -3584,7 +3617,6 @@ function songViewHTML(sg, live) {
   let h = `<div class="sv-head"><b>${esc(sg.title)}</b>${isCurrent ? ' <span class="sv-live">▶ playing</span>' : ''}${mine ? ' <span class="sv-mine">📁 My songs</span>' : ''}</div>
     <div class="sv-desc">${esc(sg.desc)}</div>`;
   h += songToolbarHTML(sg, live);
-  if (songEdit.sg === sg && sh && sg.library) return h + songEditorHTML(sg);
   if (sg.shareUrl) {
     h += `<div class="sv-shared">🔗 <input readonly value="${esc(sg.shareUrl)}" /><button class="sv-copy">📋 Copy</button><a href="${esc(sg.shareUrl)}" target="_blank" rel="noopener">open ↗</a></div>`;
   }
@@ -3680,13 +3712,13 @@ setInterval(updateSectionProgress, 250);
 let nowSong = null; // the last song that started playing
 function renderSongs() {
   // Songs tab: the running/last set (until the text is edited), otherwise a preview of the text
-  const setSongs = setl.mode === 'set' && setl.songs.length && !setl.textDirty ? setl.songs : parseSongs($('setText').value);
+  const setSongs = setl.mode === 'set' ? setl.songs : [];
   const stationSongs = setl.mode === 'station' ? setl.songs : [];
   const now = setl.mode === 'station' ? setl.songs[setl.current] : null;
   const pick = (tab, list) => {
     if (typeof songSel[tab] === 'string') return null; // a My songs entry is open
     // the station's playing song is in the On air box (and 🎶 Now playing): only an explicit pick opens a row
-    const k = songSel[tab] ?? (tab === 'set' && setl.running && setl.mode === tab && setl.current >= 0 ? setl.current : null);
+    const k = songSel[tab]; // only an explicit pick opens a row's buttons (the playing song is in 🎶 Now playing)
     return k != null && list[k] ? k : null;
   };
   const selSet = pick('set', setSongs), selSt = pick('station', stationSongs);
@@ -3699,7 +3731,8 @@ function renderSongs() {
     favorites.map((f) => [f.id, setl.songs[setl.current] === f.song])]);
   if (key === lastSongsKey) return;
   lastSongsKey = key;
-  $('setStatus').innerHTML = songsHTML(setSongs, setl.running && setl.mode === 'set', selSet);
+  $('setStatus').innerHTML = setSongs.length ? songsHTML(setSongs, setl.running && setl.mode === 'set', selSet, { tools: true })
+    : '<div class="muted small">No songs yet — in 💬 Chat pick 🎯 <b>✨ new song</b> and describe one, or play a favorite or one of My songs.</div>';
   $('mySongs').innerHTML = myListHTML();
   $('favSongs').innerHTML = favListHTML();
   $('stationStatus').innerHTML = songsHTML(stationSongs, setl.running && setl.mode === 'station', selSt, { tools: true });
@@ -3709,9 +3742,13 @@ function renderSongs() {
   const playingSong = (setl.running && setl.songs[setl.current]) || preparing || nowSong;
   const nowLive = !!(setl.running && playingSong && setl.songs[setl.current] === playingSong);
   $('nowEmpty').hidden = !!playingSong;
-  for (const [id, sg, live] of [['setSongView', setView, setl.running && setl.mode === 'set'], ['nowSongView', playingSong, nowLive]]) {
+  // ✎ Edit song panel: the editor (rendered when another song is opened) and the song's sections
+  const ed = songEdit.sg;
+  $('editEmpty').hidden = !!ed;
+  if ($('editForm').__sg !== ed) { $('editForm').__sg = ed; $('editForm').innerHTML = ed?.sheet && ed.library ? songEditorHTML(ed) : ''; }
+  void setView;
+  for (const [id, sg, live] of [['editSongView', ed, !!(setl.running && setl.songs[setl.current] === ed)], ['nowSongView', playingSong, nowLive]]) {
     const el = $(id);
-    if (sg && songEdit.sg === sg && el.querySelector('.sv-edit')) continue; // don't wipe the editor while typing
     const open = new Set([...el.querySelectorAll('details[open]')].map((d) => d.dataset.j ?? 'lib'));
     el.hidden = !sg;
     el.innerHTML = songViewHTML(sg, live);
@@ -3738,7 +3775,7 @@ for (const id of ['setStatus', 'stationStatus']) {
     const act = e.target.closest('[data-act]');
     const tools = e.target.closest('.song-tools');
     if (tools) {
-      const sg = (tab === 'station' ? setl.songs : [])[Number(tools.closest('.song[data-k]')?.dataset.k)];
+      const sg = setl.songs[Number(tools.closest('.song[data-k]')?.dataset.k)];
       if (act && sg) songAction(act.dataset.act, sg, act, tools);
       else if (e.target.closest('.sv-copy') && sg?.shareUrl) navigator.clipboard?.writeText(sg.shareUrl).then(() => { e.target.textContent = '✓ Copied'; }, () => {});
       return;
@@ -3753,12 +3790,17 @@ $('stationNow').addEventListener('click', (e) => {
   if (act && sg) songAction(act.dataset.act, sg, act, $('stationNow'));
   else if (e.target.closest('.sv-copy') && sg?.shareUrl) navigator.clipboard?.writeText(sg.shareUrl).then(() => { e.target.textContent = '✓ Copied'; }, () => {});
 });
-for (const id of ['setSongView', 'nowSongView']) {
+// the ✎ Edit song form: apply / cancel
+$('editForm').addEventListener('click', (e) => {
+  const act = e.target.closest('[data-act]');
+  if (act && songEdit.sg) songAction(act.dataset.act, songEdit.sg, act, $('editForm'));
+});
+for (const id of ['editSongView', 'nowSongView']) {
   $(id).addEventListener('click', (e) => {
     const go = e.target.closest('.jump[data-i]');
     if (go) { e.preventDefault(); e.stopPropagation(); jumpTo(Number(go.dataset.i)); return; }
     if (e.target.closest('.sv-hold')) { e.preventDefault(); setHold(!setlist.hold); renderSongs(); return; }
-    const sg = id === 'nowSongView' ? (setl.running && setl.songs[setl.current]) || nowSong : viewedSong('set');
+    const sg = id === 'nowSongView' ? (setl.running && setl.songs[setl.current]) || nowSong : songEdit.sg;
     const act = e.target.closest('[data-act]')?.dataset.act;
     if (act && sg) { songAction(act, sg, e.target.closest('[data-act]'), $(id)); return; }
     if (e.target.closest('.sv-copy') && sg?.shareUrl) {
@@ -3770,9 +3812,9 @@ for (const id of ['setSongView', 'nowSongView']) {
 /** Toolbar actions in a song view. */
 function songAction(act, sg, btn, view) {
   if (act === 'play') { if (setl.songs.includes(sg) && setl.mode) jumpToSong(setl.songs.indexOf(sg), setl.mode); else playSong(sg); }
-  else if (act === 'edit') { songEdit.sg = songEdit.sg === sg ? null : sg; lastSongsKey = ''; renderSongs(); }
-  else if (act === 'edit-save') saveSongEditor(view.querySelector('.sv-edit'), sg);
-  else if (act === 'edit-cancel') { songEdit.sg = null; lastSongsKey = ''; renderSongs(); }
+  else if (act === 'edit') openSongEditor(sg);
+  else if (act === 'edit-save') saveSongEditor($('editForm').querySelector('.sv-edit'), songEdit.sg || sg);
+  else if (act === 'edit-cancel') { ws.close('edit'); songEdit.sg = null; lastSongsKey = ''; renderSongs(); }
   else if (act === 'save') addToMySongs(sg);
   else if (act === 'fav') toggleFavorite(sg);
   else if (act === 'pads') {
@@ -3792,7 +3834,7 @@ function viewedSong(tab) {
     return (kind === 'fav' ? favorites[Number(k)]?.song : mySongs[Number(k)]) || null;
   }
   const list = tab === 'station' ? (setl.mode === 'station' ? setl.songs : [])
-    : setl.mode === 'set' && setl.songs.length && !setl.textDirty ? setl.songs : parseSongs($('setText').value);
+    : setl.mode === 'set' ? setl.songs : [];
   const k = songSel[tab] ?? (setl.running && setl.mode === tab && setl.current >= 0 ? setl.current : null);
   return k != null ? list[k] : null;
 }
@@ -3849,29 +3891,8 @@ function loadSharedSong(s) {
   return song;
 }
 
-$('setText').value = saved.setText ?? '';
-$('setText').oninput = () => { save({ setText: $('setText').value }); if (setl.mode === 'set' && !setl.running) setl.textDirty = true; lastSongsKey = ''; };
 if (saved.setLoop !== undefined) $('setLoop').checked = saved.setLoop;
 $('setLoop').onchange = () => save({ setLoop: $('setLoop').checked });
-$('setStart').onclick = () => startSet('set');
-$('setStop').onclick = () => { stopSet(); cancelPending(true); addMsg('info', '■ set stopped'); };
-$('setWrite').onclick = async () => {
-  const idea = prompt('What should the set be? (e.g. "a 5-song chill-to-dance warm-up set for a rooftop party")');
-  if (!idea) return;
-  const btn = $('setWrite');
-  btn.disabled = true; btn.textContent = 'writing…';
-  try {
-    const text = await requestLLM({ mode: 'songs', messages: [{ role: 'user', content: `SET THEME: ${idea}\nWrite 5 songs for this set, in playing order.` }] });
-    const songs = parseSongs(stripThinking(text).replace(/```[a-z]*\n?|```/g, ''));
-    if (!songs.length) throw new Error('the model did not return songs as "title | description" lines');
-    $('setText').value = `# ${idea}\n` + songs.map((sg) => `${sg.title} | ${sg.desc}`).join('\n');
-    $('setText').oninput();
-  } catch (e) {
-    warnUser(`Writing the set list failed: ${e.message}`);
-  } finally {
-    btn.disabled = false; btn.textContent = '✨ Write with AI';
-  }
-};
 
 // --- saved stations
 const DEFAULT_STATIONS = [
@@ -5409,7 +5430,7 @@ function myListHTML() {
     const playing = setl.running && setl.songs[setl.current] === sg;
     return `<div class="song mine ${playing ? 'playing' : 'ready'}${sel ? ' selected' : ''}" data-mine="${k}" title="Show, edit or play this song">
       <span class="ico">${playing ? '▶' : '♪'}</span>
-      <div class="body"><div class="t">${esc(sg.title)}</div><div class="meta">${esc(songMeta(sg))}</div></div>
+      <div class="body"><div class="t">${esc(sg.title)}</div><div class="meta">${esc(songMeta(sg))}</div>${sel ? `<div class="song-tools">${songToolbarHTML(sg, false)}${sharedLinkHTML(sg)}</div>` : ''}</div>
       <button class="jump" data-mine-play="${k}" title="Play this song (no AI needed)">▶</button>
       <button class="link" data-mine-del="${k}" title="Remove from My songs">🗑</button>
     </div>`;
@@ -5426,7 +5447,17 @@ function playSong(song) {
   startSet('set', { keepSongs: true });
   setl.single = true; // one song: stop after its last section, never loop
 }
+/** A click on a song's buttons inside a list row. Returns true when handled. */
+function rowToolsClick(e, sg) {
+  const tools = e.target.closest('.song-tools');
+  if (!tools || !sg) return false;
+  const act = e.target.closest('[data-act]');
+  if (act) songAction(act.dataset.act, sg, act, tools);
+  else if (e.target.closest('.sv-copy') && sg.shareUrl) navigator.clipboard?.writeText(sg.shareUrl).then(() => { e.target.textContent = '✓ Copied'; }, () => {});
+  return true;
+}
 $('mySongs').addEventListener('click', (e) => {
+  if (rowToolsClick(e, mySongs[Number(e.target.closest('[data-mine]')?.dataset.mine)])) return;
   const play = e.target.closest('[data-mine-play]');
   if (play) { const k = Number(play.dataset.minePlay); songSel.set = `mine:${k}`; playSong(mySongs[k]); return; }
   const del = e.target.closest('[data-mine-del]');
@@ -5505,12 +5536,13 @@ function favListHTML() {
     const playing = setl.running && setl.songs[setl.current] === sg;
     return `<div class="song fav ${playing ? 'playing' : 'ready'}${sel ? ' selected' : ''}" data-fav="${k}" title="Show or play this song">
       <span class="ico">${playing ? '▶' : '★'}</span>
-      <div class="body"><div class="t">${esc(sg.title)}</div><div class="meta">${esc(songMeta(sg))}</div></div>
+      <div class="body"><div class="t">${esc(sg.title)}</div><div class="meta">${esc(songMeta(sg))}</div>${sel ? `<div class="song-tools">${songToolbarHTML(sg, false)}${sharedLinkHTML(sg)}</div>` : ''}</div>
       <button class="jump" data-fav-play="${k}" title="Play this song (no AI needed)">▶</button>
     </div>`;
   }).join('');
 }
 $('favSongs').addEventListener('click', (e) => {
+  if (rowToolsClick(e, favorites[Number(e.target.closest('[data-fav]')?.dataset.fav)]?.song)) return;
   const play = e.target.closest('[data-fav-play]');
   if (play) { const k = Number(play.dataset.favPlay); songSel.set = `fav:${k}`; playSong(favorites[k].song); return; }
   const row = e.target.closest('[data-fav]');
@@ -5600,8 +5632,18 @@ function rearrangeSong(sg) {
   if (padsState.owner === sg) loadPads(sg.pads, sg);
 }
 
-// the text editor in the song view: sections / chords / parts as lines
+// ✎ Edit song: a panel with the song's sections / chords / parts as text lines and its parts code
 const songEdit = { sg: null };
+// closing ✎ Edit song stops editing
+ws.on('edit', { onOpen: (o) => { if (!o && songEdit.sg) { songEdit.sg = null; lastSongsKey = ''; } } });
+function openSongEditor(sg) {
+  songEdit.sg = sg;
+  $('editForm').__sg = null; // render the editor for this song
+  ws.open('edit');
+  ws.api?.getPanel('edit')?.api.setTitle?.(`✎ ${sg.title}`);
+  lastSongsKey = '';
+  renderSongs();
+}
 function songEditorHTML(sg) {
   const r = rawSheet(sg.sheet);
   return `<div class="sv-edit">
@@ -5640,9 +5682,11 @@ async function saveSongEditor(el, sg) {
   if (err) { msg.textContent = `⚠ ${err}`; msg.classList.add('bad'); return; }
   if (title) sg.title = title;
   if (isMine(sg)) saveMySongs();
-  songEdit.sg = null;
+  $('editForm').__sg = null; // re-render the editor with the song as it is now
   lastSongsKey = '';
   renderSongs();
+  const done = $('editForm').querySelector('.sv-edit-msg');
+  if (done) done.textContent = `✓ applied${setl.running && setl.songs[setl.current] === sg ? ' — from the next section' : ''}${isMine(sg) ? ' and saved' : ' (📁 Save to My songs to keep it)'}`;
 }
 
 // --- song pads: 16 pads built from the song itself (its parts, key and chords) — no AI needed
@@ -5740,6 +5784,7 @@ for (const b of [$('logDownload'), ...document.querySelectorAll('.log-dl')]) {
 function activeSong() {
   const playing = setl.running ? setl.songs[setl.current] : null;
   if (playing?.sheet && playing.library) return playing;
+  if (songEdit.sg?.sheet && songEdit.sg.library) return songEdit.sg;
   const viewed = viewedSong('set');
   return viewed?.sheet && viewed.library ? viewed : null;
 }
@@ -5798,6 +5843,7 @@ function renderChatTarget() {
   if (opt.textContent !== label) opt.textContent = label;
   const auto = $('chatTarget').value === 'auto' && songSectionInEditor();
   $('chatTarget').querySelector('option[value="auto"]').textContent = auto ? 'auto → whole song' : 'auto';
+  if ($('chatTarget').value === 'new') { $('input').placeholder = 'Describe a new song: style, tempo, key, mood, instruments… (or “Title | description”)'; return; }
   $('input').placeholder = { song: sg ? `Change the whole song “${sg.title}”… (sections, chords, parts)` : 'No song is open — open one in 🎵 Songs (Enter to send)', pads: 'Program or press the pads… (Enter to send)', code: 'Change the code in the editor… (Enter to send, Shift+Enter for newline)' }[auto ? 'song' : $('chatTarget').value]
     || 'Make it groovier… (Enter to send, Shift+Enter for newline)';
 }
