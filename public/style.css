@@ -619,3 +619,26 @@ body.hydra-on { background: #000; }
 .hydra-editor { padding: 4px 10px 6px; display: flex; flex-direction: column; gap: 4px; }
 .hydra-editor textarea { font: 12px var(--mono); width: 100%; resize: vertical; }
 #hydraMix { width: 70px; }
+
+/* 🧪 dockview layout (trial): matches the app's colours; the code editor floats over its panel's slot */
+.dv-host { position: absolute; inset: 0;
+  --dv-group-view-background-color: var(--panel);
+  --dv-tabs-and-actions-container-background-color: var(--panel-2);
+  --dv-activegroup-visiblepanel-tab-background-color: var(--panel);
+  --dv-activegroup-hiddenpanel-tab-background-color: var(--panel-2);
+  --dv-inactivegroup-visiblepanel-tab-background-color: var(--panel);
+  --dv-inactivegroup-hiddenpanel-tab-background-color: var(--panel-2);
+  --dv-activegroup-visiblepanel-tab-color: var(--text);
+  --dv-activegroup-hiddenpanel-tab-color: var(--muted);
+  --dv-inactivegroup-visiblepanel-tab-color: var(--text);
+  --dv-inactivegroup-hiddenpanel-tab-color: var(--muted);
+  --dv-separator-border: var(--border);
+  --dv-paneview-header-border-color: var(--border);
+  --dv-drag-over-background-color: color-mix(in srgb, var(--accent) 25%, transparent);
+  --dv-drag-over-border-color: var(--accent);
+}
+.dv-host .panel { flex: 1; min-height: 0; height: 100%; display: flex; flex-direction: column; }
+.dv-host .dock { height: 100%; border-top: none; }
+.dv-host .viz-bar > b:first-child { display: none; }
+.dv-editor-slot { width: 100%; height: 100%; }
+.ws-center.dv-editor-overlay { position: absolute; z-index: 1; min-width: 0; }
