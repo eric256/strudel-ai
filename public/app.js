@@ -1,5 +1,4 @@
-import { createWorkspace } from './workspace.js';
-import { loadDockview, createDockviewWorkspace } from './workspace-dockview.js';
+import { loadDockview, createWorkspace } from './workspace.js';
 import { HumRecorder, transcribe, intervalsToSemitones, tonicPc, midiToName, freqToMidi, polyBarsToMini } from './hum.js';
 // Strudel AI — browser app
 /**
@@ -173,11 +172,6 @@ function setAutocomplete(on) {
 }
 if (saved.autoComplete !== undefined) $('autoComplete').checked = saved.autoComplete;
 if (saved.partVisuals !== undefined) $('partVisuals').checked = saved.partVisuals;
-$('layoutEngine').value = saved.layoutEngine === 'dockview' ? 'dockview' : 'builtin';
-$('layoutEngine').onchange = () => {
-  save({ layoutEngine: $('layoutEngine').value });
-  if (confirm('Reload now to switch the layout engine? (the music stops)')) location.reload();
-};
 $('partVisuals').onchange = async () => {
   save({ partVisuals: $('partVisuals').checked });
   // the song section playing now gets (or loses) its visuals on the next bar
@@ -733,8 +727,8 @@ $('tempVal').textContent = $('temp').value;
 $('temp').oninput = () => { $('tempVal').textContent = $('temp').value; save({ temp: $('temp').value }); };
 
 // ---------------------------------------------------------------------------
-// Workspace: chat, songs, station, the playing song and the tool docks are panels
-// that tab together, dock around the editor or float as windows (see workspace.js).
+// Workspace: the code editor, chat, songs, station, now playing and the tool docks are dockview panels that tab
+// together, split anywhere, float or pop out into their own window (see workspace.js).
 // ---------------------------------------------------------------------------
 const PANELS = [
   { id: 'chat', title: 'Chat', icon: '💬', el: $('chatTab'), area: 'right' },
@@ -747,52 +741,23 @@ const PANELS = [
   { id: 'mixer', title: 'Mixer', icon: '🎚', el: $('mixer-dock'), area: 'bottom' },
   { id: 'console', title: 'Console', icon: '🖥', el: $('console-dock'), area: 'bottom' },
 ];
-const DEFAULT_LAYOUT = {
-  areas: { right: { size: 430 }, bottom: { size: 220 }, left: { size: 360 }, top: { size: 200 } },
-  groups: [
-    { id: 'main', where: 'right', panels: ['chat', 'songs', 'station'], active: 'chat', weight: 1.6 },
-    { id: 'now', where: 'right', panels: ['song'], active: 'song', weight: 1 },
-  ],
-};
-/** Before the workspace: the side panel's tab and width, and docks shown under / above the code or in the side panel. */
-function migratedLayout() {
-  const l = structuredClone(DEFAULT_LAYOUT);
-  const TAB = { chatTab: 'chat', setTab: 'songs', stationTab: 'station' };
-  if (TAB[saved.tab]) l.groups[0].active = TAB[saved.tab];
-  if (saved.paneWidth) l.areas.right.size = Math.round(saved.paneWidth);
-  for (const n of ['viz', 'keys', 'pads', 'console']) { // (the mixer is new: nothing to carry over)
-    if (!saved[`${n}On`]) continue;
-    const where = { side: 'right', top: 'top' }[saved[`${n}Dock`]] || 'bottom';
-    const g = l.groups.find((x) => x.where === where && x.id !== 'main' && x.id !== 'now');
-    if (g) g.panels.push(n);
-    else l.groups.push({ id: `m${n}`, where, panels: [n], active: n });
-  }
-  return l;
+let ws;
+try {
+  ws = createWorkspace({ dv: await loadDockview(), root: $('workspace'), center: document.querySelector('#workspace .ws-center'), panels: PANELS, saved: saved.panelLayout || null, onSave: (layout) => save({ panelLayout: layout }) });
+} catch (e) {
+  const msg = document.createElement('div');
+  msg.className = 'fatal';
+  msg.textContent = `The panel layout could not be loaded (${e.message || e}). Reload the page; if it keeps failing, check that the server serves /vendor/dockview/.`;
+  document.body.prepend(msg);
+  throw e;
 }
-// 🧪 layout engine: the built-in one, or dockview as a trial (⚙ Settings → General); each keeps its own saved layout
-let ws = null;
-if (saved.layoutEngine === 'dockview') {
-  try {
-    const dv = await loadDockview();
-    ws = createDockviewWorkspace({ dv, root: $('workspace'), center: document.querySelector('#workspace .ws-center'), panels: PANELS, saved: saved.dockLayout || null, onSave: (layout) => save({ dockLayout: layout }) });
-  } catch (e) {
-    console.warn('dockview layout failed — using the built-in one', e);
-  }
-}
-ws ||= createWorkspace({
-  root: $('workspace'),
-  panels: PANELS,
-  defaults: DEFAULT_LAYOUT,
-  saved: saved.layout || migratedLayout(),
-  onSave: (layout) => save({ layout }),
-});
 /** Bring a panel to the front (opening it if it's closed). */
 const showPanel = (id) => ws.open(id);
 // the ▦ Panels menu: open / close any panel, reset the layout
 function renderLayoutMenu() {
-  $('layoutMenu').innerHTML = ws.panels().map((p) => `<label><input type="checkbox" data-panel="${p.id}"${p.open ? ' checked' : ''} /> ${p.icon} ${esc(p.title)}</label>`).join('') +
+  $('layoutMenu').innerHTML = ws.panels().map((p) => `<label${p.fixed ? ' title="Always shown"' : ''}><input type="checkbox" data-panel="${p.id}"${p.open ? ' checked' : ''}${p.fixed ? ' disabled' : ''} /> ${p.icon} ${esc(p.title)}</label>`).join('') +
     '<div class="lm-foot"><button id="layoutReset" class="link" title="Back to the default layout">↺ reset layout</button></div>' +
-    '<small class="muted">Drag a tab or a header to move it: onto another group to tab it, to an edge to dock it, anywhere else to float it. ⧉ floats / docks a group.</small>';
+    '<small class="muted">Drag a tab onto another group to tab it, or to a group\'s edge to split it. Right-click a tab to maximise, float or pop it out into its own window.</small>';
 }
 $('layoutBtn').onclick = (e) => {
   e.stopPropagation();
@@ -2103,7 +2068,53 @@ async function resumeSong() {
   addMsg('info', `▶ resumed at bar ${p.bar + 1}`);
   lastSongsKey = '';
 }
-$('nowPause').onclick = () => (setlist.paused ? resumeSong() : pauseSong());
+// ⏮ ▶ ⏸ ■ ⏭ in 🎶 Now playing
+$('nowPause').onclick = () => {
+  if (setlist.paused) return resumeSong();
+  if (setlist.running) return pauseSong();
+  if (isPlaying()) mirror()?.stop(); // your own code: pausing stops it (▶ plays it again)
+};
+/** ⏭ the next song of the set list or station. */
+function nextSong() {
+  if (!setl.running) { addMsg('info', '⏭ nothing to skip to — start a set in 🎵 Songs or a 📻 Station'); return; }
+  if (setlist.paused) setlist.paused = null;
+  const k = setl.current + 1;
+  if (setl.songs[k]) { addMsg('info', `⏭ next: “${setl.songs[k].title}”`); jumpToSong(k, setl.mode); }
+  else if (setl.mode === 'station') addMsg('info', '⏭ the next song is still being planned — it plays as soon as it is written');
+  else if ($('setLoop').checked && setl.songs[0]) jumpToSong(0, setl.mode);
+  else addMsg('info', '⏭ this is the last song of the set');
+}
+/** ⏮ restart the song — or, within its first bars, go back to the previous song (like a music player). */
+function prevSong() {
+  if (!setl.running) { if (nowSong) playSong(nowSong); return; }
+  if (setlist.paused) setlist.paused = null;
+  const cur = setl.songs[setl.current];
+  const first = cur?.firstStep;
+  const intoSong = first?.startedAt != null ? nowCycle() - first.startedAt : Infinity;
+  if ((intoSong < 4 || !cur) && setl.current > 0) { addMsg('info', `⏮ back to “${setl.songs[setl.current - 1].title}”`); jumpToSong(setl.current - 1, setl.mode); }
+  else if (cur) { addMsg('info', `⏮ “${cur.title}” from the start`); jumpToSong(setl.current, setl.mode); }
+}
+$('nextSong').onclick = nextSong;
+$('prevSong').onclick = prevSong;
+/** The transport: which buttons apply now, and a one-line "what's playing". */
+function renderTransport() {
+  const playing = isPlaying(), paused = !!setlist.paused, running = setl.running;
+  const cur = running ? setl.songs[setl.current] : null;
+  $('play').disabled = playing && !paused;
+  $('play').classList.toggle('on', paused);
+  $('nowPause').disabled = !playing && !paused;
+  $('nowPause').classList.toggle('on', paused);
+  $('stop').disabled = !playing && !running && !paused;
+  $('nextSong').disabled = !running;
+  $('prevSong').disabled = !running && !nowSong;
+  const st = setlist.steps.find((x) => x.status === 'playing');
+  const line = paused ? `⏸ paused · ${cur?.title || ''} · ${setlist.paused.step.prompt || ''} bar ${setlist.paused.bar + 1}`
+    : cur && playing ? `▶ ${cur.title}${st?.prompt ? ` · ${st.prompt}` : ''}`
+    : running ? `✎ ${setl.songs.find((x) => x.status === 'writing')?.title || 'getting the first song ready'}…`
+    : playing ? '▶ the code in the editor' : nowSong ? `■ stopped · ${nowSong.title}` : '■ stopped';
+  if ($('nowLine').textContent !== line) $('nowLine').textContent = line;
+}
+setInterval(renderTransport, 250);
 
 /** Hold: stay on the current section until another one is picked (or hold is released). */
 function setHold(on) {
@@ -3698,9 +3709,6 @@ function renderSongs() {
   const playingSong = (setl.running && setl.songs[setl.current]) || preparing || nowSong;
   const nowLive = !!(setl.running && playingSong && setl.songs[setl.current] === playingSong);
   $('nowEmpty').hidden = !!playingSong;
-  $('nowTransport').hidden = !nowLive;
-  $('nowPause').textContent = setlist.paused ? '▶ Resume' : '⏸ Pause';
-  $('nowPause').classList.toggle('on', !!setlist.paused);
   for (const [id, sg, live] of [['setSongView', setView, setl.running && setl.mode === 'set'], ['nowSongView', playingSong, nowLive]]) {
     const el = $(id);
     if (sg && songEdit.sg === sg && el.querySelector('.sv-edit')) continue; // don't wipe the editor while typing

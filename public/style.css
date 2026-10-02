@@ -500,70 +500,19 @@ header .share-wrap { margin-left: auto; }
 .sv-edit-msg.bad { color: #ffd166; }
 .song.fav .ico { color: #ffd166; }
 
+/* workspace: dockview fills main; the editor column is laid over the code panel (see workspace.js) */
 /* ---------------------------------------------------------------------------
    workspace: panels in tab groups, docked around the editor or floating
    --------------------------------------------------------------------------- */
 main.ws { flex: 1; display: flex; min-height: 0; position: relative; }
 .ws-center { flex: 1 1 auto; min-width: 240px; display: flex; flex-direction: column; min-height: 0; }
 .ws-center #editor-pane { flex: 1 1 auto; min-height: 120px; }
-.ws-area { display: flex; min-width: 0; min-height: 0; background: var(--panel); }
-.ws-area[hidden], .ws-split[hidden], .ws-body > .panel[hidden] { display: none; }
-.ws-col { flex: 0 0 var(--ws-size, 400px); flex-direction: column; max-width: calc(100% - 300px); }
-.ws-row { flex: 0 0 var(--ws-size, 220px); flex-direction: row; max-height: calc(100% - 140px); }
-.ws-split { flex: 0 0 5px; background: var(--panel); touch-action: none; }
-.ws-split.v { cursor: col-resize; border-left: 1px solid var(--border); }
-.ws-split.h { cursor: row-resize; border-top: 1px solid var(--border); }
-.ws-gsplit { flex: 0 0 5px; background: var(--border); touch-action: none; }
-.ws-gsplit.v { cursor: row-resize; }
-.ws-gsplit.h { cursor: col-resize; }
-.ws-split:hover, .ws-gsplit:hover, body.ws-resizing .ws-split:active, body.ws-resizing .ws-gsplit:active { background: var(--accent); }
-.ws-group { flex: 1 1 0; min-width: 0; min-height: 0; display: flex; flex-direction: column; background: var(--panel); overflow: hidden; }
-.ws-float { position: absolute; inset: 0; pointer-events: none; z-index: 20; }
-.ws-group.floating {
-  position: absolute; pointer-events: auto; border: 1px solid #3a3f50; border-radius: 8px;
-  box-shadow: 0 14px 40px rgba(0, 0, 0, .55); resize: both; min-width: 220px; min-height: 140px;
-}
-.ws-head { display: flex; align-items: stretch; flex: 0 0 auto; background: var(--panel-2); border-bottom: 1px solid var(--border); user-select: none; touch-action: none; }
-.ws-group.floating .ws-head { background: #23263a; }
-.ws-tabs { display: flex; min-width: 0; overflow-x: auto; scrollbar-width: none; }
-.ws-tab {
-  display: flex; align-items: center; gap: 5px; padding: 5px 4px 5px 10px; font-size: 13px; color: var(--muted);
-  cursor: grab; white-space: nowrap; border-right: 1px solid var(--border);
-}
-.ws-tab:hover { color: var(--text); }
-.ws-tab.active { color: var(--text); background: var(--panel); box-shadow: inset 0 -2px 0 var(--accent); }
-.ws-x { border: none; background: none; padding: 0 4px; font-size: 10px; color: var(--muted); opacity: .55; }
-.ws-x:hover { opacity: 1; color: var(--danger); }
-.ws-fill { flex: 1; min-width: 24px; cursor: grab; }
-.ws-dockbtn { border: none; border-radius: 0; background: none; color: var(--muted); padding: 0 9px; font-size: 13px; }
-.ws-dockbtn:hover { color: var(--text); }
-.ws-body { flex: 1; min-height: 0; display: flex; flex-direction: column; position: relative; }
-.ws-body > .panel { flex: 1; min-height: 0; display: flex; flex-direction: column; }
-.ws-body > .dock { height: auto; border-top: none; }
-.ws-body .viz-bar > b:first-child { display: none; } /* the tab already names the panel */
-.ws-body .viz-bar { padding-top: 4px; }
 #songPanel { padding: 8px 10px; overflow-y: auto; gap: 8px; }
 .now-empty { font-size: 13px; padding: 6px 2px; }
-.ws-hint {
-  position: absolute; z-index: 60; pointer-events: none; border: 2px solid var(--accent); border-radius: 6px;
-  background: color-mix(in srgb, var(--accent) 22%, transparent); transition: all .08s ease-out;
-}
-.ws-hint[hidden] { display: none; }
-.ws-ghost {
-  position: fixed; z-index: 100; pointer-events: none; padding: 4px 10px; font-size: 13px;
-  background: var(--panel-2); border: 1px solid var(--accent); border-radius: 6px; box-shadow: 0 6px 18px rgba(0, 0, 0, .5);
-}
-body.ws-dragging { cursor: grabbing; user-select: none; }
-body.ws-dragging canvas, body.ws-dragging iframe, body.ws-resizing canvas, body.ws-resizing iframe { pointer-events: none; }
-body.ws-resizing { user-select: none; }
 .ws-menu-wrap { position: relative; display: inline-flex; }
 .layout-menu { min-width: 230px; gap: 6px; left: 0; right: auto; }
 .layout-menu .lm-foot { border-top: 1px solid var(--border); padding-top: 6px; }
-@media (max-width: 800px) {
-  main.ws { flex-direction: column; }
-  .ws-col { flex: 0 0 45vh; max-width: none; }
-  .ws-split.v { display: none; }
-}
+
 /* pads in a narrow dock: the editor goes under the grid */
 .pads-body { flex-wrap: wrap; }
 .pad-editor { flex: 1 1 260px; }
@@ -605,8 +554,6 @@ body.ws-resizing { user-select: none; }
 .mx-val { font: 10px var(--mono); color: var(--muted); text-align: center; }
 .mx-empty { align-self: center; padding: 0 10px; max-width: 320px; }
 .now-transport { display: flex; gap: 8px; align-items: center; }
-#nowPause { font-weight: 600; min-width: 110px; }
-#nowPause.on { color: var(--accent-2); border-color: var(--accent-2); }
 .sv-stopped { color: var(--muted); font-size: 11px; border: 1px solid var(--border); border-radius: 8px; padding: 0 6px; }
 
 /* 🌀 hydra: the video synth runs behind everything; the code area turns see-through */
@@ -620,7 +567,7 @@ body.hydra-on { background: #000; }
 .hydra-editor textarea { font: 12px var(--mono); width: 100%; resize: vertical; }
 #hydraMix { width: 70px; }
 
-/* 🧪 dockview layout (trial): matches the app's colours; the code editor floats over its panel's slot */
+/* dockview: the app's colours; the code editor floats over its panel's slot */
 .dv-host { position: absolute; inset: 0;
   --dv-group-view-background-color: var(--panel);
   --dv-tabs-and-actions-container-background-color: var(--panel-2);
@@ -642,3 +589,18 @@ body.hydra-on { background: #000; }
 .dv-host .viz-bar > b:first-child { display: none; }
 .dv-editor-slot { width: 100%; height: 100%; }
 .ws-center.dv-editor-overlay { position: absolute; z-index: 1; min-width: 0; }
+
+/* 🎶 Now playing: the transport stays at the top, even when the panel is shrunk */
+#songPanel { padding: 0 10px 8px; }
+.now-transport {
+  position: sticky; top: 0; z-index: 2; display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  margin: 0 -10px 4px; padding: 7px 10px; background: var(--panel-2); border-bottom: 1px solid var(--border);
+}
+.np-buttons { display: flex; gap: 4px; }
+.np-buttons button { min-width: 40px; height: 34px; padding: 0 8px; font-size: 16px; line-height: 1; }
+#play { color: var(--accent-2); }
+#stop { color: var(--danger); }
+.np-buttons button.on { border-color: var(--accent-2); box-shadow: 0 0 0 1px var(--accent-2) inset; }
+.np-line { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-family: var(--mono); }
+.fatal { padding: 10px 14px; background: #2a1219; color: var(--danger); border-bottom: 1px solid #5a2030; }
+.dv-fixed-tab { padding: 0 12px; display: flex; align-items: center; height: 100%; white-space: nowrap; }

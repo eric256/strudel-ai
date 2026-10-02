@@ -11,8 +11,6 @@
   <header>
     <div class="brand">🎛️ <b>strudel</b><span>ai</span> <small id="appVersion" class="ver"></small></div>
     <div class="transport">
-      <button id="play" title="Evaluate / play (Ctrl+Enter)">▶ Play</button>
-      <button id="stop" title="Stop (Ctrl+.)">■ Stop</button>
       <button id="undo" title="Revert to previous code version" disabled>↶ Undo</button>
       <label class="master" title="Master volume">🔊
         <input type="range" id="masterGain" min="0" max="1.5" step="0.01" value="1" />
@@ -49,11 +47,8 @@
   </header>
 
   <main id="workspace" class="ws">
-    <div class="ws-area ws-col" data-area-box="left" hidden></div>
-    <div class="ws-split v" data-area="left" hidden title="Drag to resize · double-click to reset"></div>
+    <!-- dockview fills this; the editor column is laid over the code panel's slot (see workspace.js) -->
     <div class="ws-center">
-      <div class="ws-area ws-row" data-area-box="top" hidden></div>
-      <div class="ws-split h" data-area="top" hidden title="Drag to resize · double-click to reset"></div>
       <section id="editor-pane">
       <div id="editor-wrap"></div>
       <div id="error-bar" hidden></div>
@@ -81,13 +76,7 @@
         </div>
       </div>
     </section>
-      <div class="ws-split h" data-area="bottom" hidden title="Drag to resize · double-click to reset"></div>
-      <div class="ws-area ws-row" data-area-box="bottom" hidden></div>
     </div>
-    <div class="ws-split v" data-area="right" hidden title="Drag to resize · double-click to reset"></div>
-    <div class="ws-area ws-col" data-area-box="right" hidden></div>
-    <div class="ws-float"></div>
-    <div class="ws-hint" hidden></div>
   </main>
 
   <!-- the panels; the workspace moves each into its tab group (closed ones wait here) -->
@@ -176,10 +165,17 @@
         <div id="stationStatus" class="songs"></div>
       </section>
       <section id="songPanel" class="panel tab">
-        <div id="nowEmpty" class="now-empty muted">Nothing is playing. Start a song in 🎵 Songs or a 📻 Station and it shows up here, with its sections and progress.</div>
-        <div id="nowTransport" class="now-transport" hidden>
-          <button id="nowPause" title="Pause the song where it is — section and bar — and resume it from there later (▶ Play resumes too)">⏸ Pause</button>
+        <div id="nowTransport" class="now-transport">
+          <div class="np-buttons">
+            <button id="prevSong" title="Back: restart this song — or, near its start, go to the previous song">⏮</button>
+            <button id="play" title="Play: resume a paused song, or play the code in the editor (Ctrl+Enter)">▶</button>
+            <button id="nowPause" title="Pause the song where it is — section and bar — and resume it from there with ▶">⏸</button>
+            <button id="stop" title="Stop (Ctrl+.)">■</button>
+            <button id="nextSong" title="Skip to the next song">⏭</button>
+          </div>
+          <div id="nowLine" class="np-line muted small">stopped</div>
         </div>
+        <div id="nowEmpty" class="now-empty muted">Nothing is playing. Start a song in 🎵 Songs or a 📻 Station and it shows up here, with its sections and progress.</div>
         <div id="nowSongView" class="song-view" hidden></div>
       </section>
       <section id="viz-dock" class="panel dock">
@@ -341,9 +337,6 @@
           <option value="2">2 bars</option>
         </select>
       </label><span class="muted small">crossfade into new blocks and AI changes</span></div>
-      <div class="set-row"><label class="quant set-fade" title="How panels are laid out. dockview (trial) adds splits anywhere, maximise and pop-out windows (right-click a tab). Takes effect after a reload; each engine keeps its own layout.">🧪 layout
-        <select id="layoutEngine"><option value="builtin">built-in</option><option value="dockview">dockview (trial)</option></select>
-      </label><span class="muted small">dockview: split anywhere, maximise, pop a panel out into its own window · reloads the page</span></div>
       <div class="set-row"><label class="live" title="Song sections show a Strudel visual under each part's line, in the part's colour: drums a punchcard, bass a piano roll, chords and pads a spiral, melodies a pitch wheel, fx a scope"><input type="checkbox" id="partVisuals" checked /> 🎨 part visuals</label><span class="muted small">a visual under each part of a song section (punchcard, piano roll, spiral, pitch wheel, scope)</span></div>
       <div class="set-row"><label class="live" title="Autocomplete in the code editor: Strudel functions (with docs and examples), sounds, drum banks, scales and chords. Ctrl+Space shows it any time."><input type="checkbox" id="autoComplete" checked /> ⌨ autocomplete</label><span class="muted small">Strudel functions with docs, sounds, banks, scales, chords · Ctrl+Space</span></div>
       <div class="set-row"><label class="live" title="Record every song in the background as it plays; when a song has played to its end, its song view gets a ⬇ MP3 download button. Songs that are cut short are discarded."><input type="checkbox" id="recSongs" checked /> 🎙 record songs</label><span class="muted small">record songs as they play · ⬇ MP3 in the song view once a song has finished</span></div>

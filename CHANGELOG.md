@@ -2,6 +2,17 @@
 
 The version is in `package.json`. Bump it when you release. Open pages also notice *any* redeploy through the build id, which is a hash of the app files, even if the version wasn't bumped.
 
+## 1.28.0
+- **dockview is the layout:** the built-in layout engine and the trial setting are gone. The default layout is the code on the left, Chat / Songs / Station on the right, and Now playing below them. Layouts saved by the trial start fresh once.
+- **The transport moved into 🎶 Now playing:** ⏮ ▶ ⏸ ■ ⏭.
+  - **⏭** skips to the next song.
+  - **⏮** restarts the song, or near its start goes back to the previous song.
+  - **▶** resumes a paused song or plays the editor's code.
+  - A status line next to the buttons says what's playing.
+
+  Play and Stop are no longer in the header.
+- **Now playing is always shown:** it can't be closed, nothing tabs over it, and it never shrinks below its transport bar. The code editor and Now playing tabs have no close button.
+
 ## 1.27.1
 - **dockview trial fixed:** dockview takes a panel's content out of the page while another tab covers it, which broke chat, playing songs and more (the app couldn't find their elements). Panels now stay in the page while hidden, and the app remembers its elements so it still finds them, including in popped-out windows.
 
