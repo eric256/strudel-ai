@@ -241,6 +241,13 @@ Rules:
     (2 bars on, 2 off): "riff@in", "counter.alt1@alt". Use these on riffs, counter-melodies and percussion.
 - CHORDS: 2–3 progressions, 4 chords each, one chord per bar, all in the song's key and scale.
   Chord symbols: C Am F G7 Dm7 C^7 (major 7th) Am9 Fsus Bb E7 F#m Bo (diminished). Never write "maj7": use "^7".
+- LONG FORMS (long ballad, ambient journey — about 4 minutes) must keep MOVING: no two neighbouring sections sound the
+  same. Every section changes something: swap a part for its alt variant, bring a part in or out (@in / @out / @alt), add
+  or drop a layer, or move the register. Repeated names with a prime (A, A') are variations: same chords, different
+  variants. A long ballad grows: sparse verses, fuller choruses, a stripped breakdown, the last choruses biggest (harmony,
+  counter-melody, maybe a key lift). An ambient journey drifts: 6–9 parts with alt variants, slow-moving textures
+  (pads, drones, noise or field-like sounds, sparse percussion that comes and goes), each section bringing in or
+  letting go of one or two of them.
 - METER: "4/4" for most dance music (house, techno, drum & bass, hip hop, pop, synthwave). Where the genre or the
   description invites it, use another: "3/4" or "6/8" for waltzes, ballads, folk and some jazz; "12/8" for blues and soul
   shuffles; "5/4" or "7/8" for prog, math rock, fusion, some film and ambient music. A description that names a meter wins.
@@ -305,6 +312,9 @@ Exactly ONE fenced code block with language "javascript", nothing after it:
 - METER: one cycle is ONE BAR in the request's meter. Write rhythms with that many steps per bar: 4/4 → 4, 8, 16;
   3/4 → 3, 6, 12 ("bd ~ ~", "hh*6"); 6/8 → 6, 12 ("bd ~ ~ sd ~ ~"); 5/4 → 5, 10; 7/8 → 7 ("bd ~ sd ~ bd sd ~"); 12/8 → 12.
   Never force a 4/4 groove into another meter.
+- SLOW AND LONG SONGS (ballads, ambient): let things evolve over many bars — filters and levels that move slowly
+  (.lpf(sine.range(400, 2000).slow(16)), .gain(perlin.range(0.3, 0.6).slow(8))), long attacks and releases on pads,
+  chords spread over 2 bars with .slow(2), sparse or rubato-feeling melodies with rests.
 - PHRASES SPAN BARS: a part should not repeat the same single bar over and over. Make each part a 2- or 4-bar phrase:
   * change it bar by bar with <…> (one entry per bar): s("<[bd ~ ~ bd] [bd ~ bd ~] [bd ~ ~ bd] [bd bd ~ bd]>")
   * stretch a line over bars with .slow(2) / .slow(4): n("0 2 4 7 9 7 4 2 0 -1 -3 -1").scale("A:minor").slow(2)

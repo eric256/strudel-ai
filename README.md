@@ -186,7 +186,8 @@ Encoding happens in the browser while you record (lamejs, 192 kbps stereo), so n
 
 ### 🎼 Song forms
 A form lists a song's sections with their lengths, e.g. `intro 4, verse 8, pre-chorus 4, chorus 8, …, outro 4`.
-- **Built-in forms:** pop, edm, drum & bass, hip hop, lo-fi, ambient and short, with short 4- and 8-bar sections (about 32–64 bars per song).
+- **Built-in forms:** pop, verse-chorus, edm, house, techno, trance, drum & bass, hip hop, lo-fi, jazz AABA, dub, chiptune, build & release, ambient and short. They use 4- and 8-bar sections, about 32–64 bars per song.
+- **Long forms, about 4 minutes:** **long ballad** (80 bars: sparse verses, fuller choruses, a stripped breakdown, the biggest choruses last) and **ambient journey** (80 bars: intro, drift, A, A′, swell, B, B′, still, return, outro). For these the AI is told that every section must change something: an alternate line, a part coming in or out, a layer added or dropped. Ambient parts are slow-moving textures.
 - **🎼 edit forms** (in the Songs and Station tabs) opens the editor:
   - Change a form's name, what it's *used for* (genres and moods, which is how *auto* picks it) and its sections.
   - Add your own forms or delete any.
@@ -243,7 +244,7 @@ Edit them like any pads; they're saved with the song. **↩ my pads** goes back 
 ### 📻 Station
 - **Setup:** pick or create a station: a name and a theme, e.g. *"late-night lo-fi with jazzy chords, 70–90 bpm, rainy city mood"*. Stations are saved in the browser, and three examples are included.
 - **How the agent runs:** **📻 Start station** starts an agent that keeps the queue filled with **songs ahead** (1–3) planned songs. It asks the AI for new songs that fit the theme, aren't in the recently played list, and flow from the last one (related keys and tempos, an energy arc). Then it writes and plays them like a set list, endlessly.
-- **What you see:** the **On air** box shows the current song, and the list shows what's played, playing and coming up. Click a song for its sheet and sections. **⏭ go**, hold and Alt+1…9 work as in the Songs tab.
+- **What you see:** the **On air** box shows the current song with its buttons (favorite, save, song pads, MP3, JSON, link) and **🎶 Now playing ↗**, which opens the song's sheet, sections and progress in the Now playing panel. The list shows what's played, playing and coming up. Click a song to get its buttons. **⏭ go**, hold and Alt+1…9 work as in the Songs tab.
 - If the AI fails 5 times in a row, the station stops itself.
 
 ## About
@@ -336,6 +337,18 @@ Fix attempts always work on the AI's own failed code (sent as *code to fix*), no
 - If a reply needed fixing, its bubble shows the code that finally worked, with a note like *🔧 fixed automatically (1 retry)*.
 - An error reaches the chat only when every attempt has failed.
 
+## 🎚 Mixer
+
+**🎚 Mixer** opens a panel with a channel strip for every part, meaning every labelled line in the code (`drums:`, `bass:`, pad lines …), plus the master.
+- **Volume:** the part's own group fader, `.postgain(slider(…))`. Moving it here moves that slider in the code, live and without re-evaluating, so the level is in the code: it carries into the next section and plays back the same. A part without a group fader shows **+ fader**, which adds `.postgain(slider(1, 0, 1.5))`.
+- **EQ:** low shelf at 200 Hz, mid peak at 1 kHz and high shelf at 4 kHz, ±12 dB each.
+  - EQ changes are instant and don't touch the code.
+  - A part with EQ plays on its own output bus (a Strudel *orbit*), with the filters on that bus. The first EQ move on a part re-routes it on the next beat.
+  - EQ settings are remembered per part name, so `bass` keeps its EQ from song to song. **flat EQ** resets them all.
+  - Anonymous `$:` lines can't be EQ'd: name the line (e.g. `lead:`) to give it EQ.
+- **M / S:** mute and solo, the same as the buttons next to the code. Silenced strips are dimmed.
+- Double-click a control to reset it (EQ to 0 dB, volume to 1).
+
 ## Master volume
 The 🔊 fader in the header sets the overall output level (0–150%), and double-clicking it resets it to 100%. It's remembered, and "duck music" while humming lowers it relative to this level.
 
@@ -377,6 +390,8 @@ Chat 💬, Songs 🎵, Station 📻, **Now playing** 🎶, Visualizer 📊, Keys
 - **Resize:** drag the bars between the editor and an area, or between two groups. Double-click an area's bar to reset its size.
 - **Open / close:** **✕** on a tab closes it, and the header buttons (📊 🎹 🔲 🖥) toggle their panels. **▦ Panels** lists every panel and has **↺ reset layout**.
 - **Now playing** shows the song that's playing, wherever you are in the app, with its sections, progress and toolbar.
+  - **⏸ Pause** stops the song where it is, at that section and bar, and **▶ Resume** (or ▶ Play) picks it up from that bar. The rest of the song follows as usual. The song's MP3 recording pauses too.
+  - When a song ends and nothing follows, it stays in Now playing marked **■ stopped**, with **▶ Play** to hear it again.
 - The layout is saved in the browser. The side panel and docks from earlier versions are carried over.
 
 ## Hum a melody 🎤
