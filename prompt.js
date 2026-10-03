@@ -243,9 +243,12 @@ Rules:
     (2 bars on, 2 off): "riff@in", "counter.alt1@alt". Use these on riffs, counter-melodies and percussion.
 - PLAN: when the request has a PLAN (meter, key), it was decided for this song: use that meter and key (and the form
   and band the request names) — "meter" and "key" / "scale" in your sheet match it.
-- MELODY and HOOK are two different tunes in scale degrees (same notation): the MELODY is the song's main tune — it
-  carries the verses (or the A sections, the theme) and is longer and more flowing; the HOOK is the short, catchy figure
-  of the choruses / drops. A "melody" role part named theme / melody / lead plays the melody, the hook part the hook.
+- MELODY and HOOK are two tunes of ONE song, in scale degrees (same notation): the MELODY is the main tune — it carries
+  the verses (or the A sections, the theme), 2–4 bars, flowing; the HOOK is the short, catchy figure of the choruses /
+  drops. Make them RELATED, like a verse and its chorus: build the hook from a fragment of the melody (its rhythm cell,
+  or its most memorable 2–4 notes, moved up or simplified), and end the melody on a note that leads into the hook's first
+  note. Give the melody to a "melody" part named "theme" (or "lead") that plays in the verses, and the hook to a part
+  named "hook" that plays in the choruses.
 - CHORDS: 2–3 progressions, 4 chords each, one chord per bar, all in the song's key and scale.
   Chord symbols: C Am F G7 Dm7 C^7 (major 7th) Am9 Fsus Bb E7 F#m Bo (diminished). Never write "maj7": use "^7".
 - LONG FORMS (long ballad, ambient journey — about 4 minutes) must keep MOVING: no two neighbouring sections sound the

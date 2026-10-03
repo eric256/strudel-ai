@@ -2,6 +2,7 @@
 // the form / band you picked (or the ones that fit the genre, one of the close matches at random, so songs vary), and the
 // meters and keys the form and the band allow. The AI then writes the song inside that plan.
 import { findIn } from './forms.js';
+import { GENRES, detectGenre, genresOf } from './genres.js';
 
 const STOP = new Set(['and', 'the', 'with', 'for', 'music', 'songs', 'song', 'long', 'short', 'like', 'style', 'about', 'minutes', 'some', 'its', 'slow', 'fast']);
 const words = (t) => String(t || '').toLowerCase().split(/[^a-z0-9]+/).filter((w) => w.length >= 3 && !STOP.has(w));
@@ -48,12 +49,16 @@ function pickFitting(items, desc, rand) {
 const pickOne = (list, rand) => (list.length ? list[Math.floor(rand() * list.length)] : null);
 
 /**
- * The plan for a song: { form, band, meter, key, scale, from: { meter, key } } (form / band are the items, or null when
- * nothing fits — then the AI chooses). Your picks win; then what the description names; then what fits the genre.
+ * The plan for a song: { genre, form, band, meter, key, scale, from: { meter, key } } (form / band are the items, or null
+ * when nothing fits — then the AI chooses). Your picks win; then the description's genre (lib/genres.js): one of that
+ * genre's forms and bands at random; then the closest "use for" match.
  */
 export function planSong(desc, { forms = [], bands = [], form = 'auto', band = 'auto', rand = Math.random } = {}) {
-  const f = form && form !== 'auto' ? findIn(forms, form) : pickFitting(forms, desc, rand);
-  const b = band && band !== 'auto' ? findIn(bands, band) : pickFitting(bands, desc, rand);
+  const genre = detectGenre(desc);
+  const ofGenre = (items) => (genre ? items.filter((x) => genresOf(x).includes(genre)) : []);
+  const pick = (items) => pickOne(ofGenre(items), rand) || pickFitting(items, desc, rand);
+  const f = form && form !== 'auto' ? findIn(forms, form) : pick(forms);
+  const b = band && band !== 'auto' ? findIn(bands, band) : pick(bands);
   // what the form and the band both allow (else either's list)
   const allowed = (k) => {
     const a = listOf(f?.[k]), c = listOf(b?.[k]);
@@ -65,12 +70,13 @@ export function planSong(desc, { forms = [], bands = [], form = 'auto', band = '
   // the first meter is the usual one: mostly that, now and then another
   const meter = dm || (meters.length ? (rand() < 0.75 ? meters[0] : pickOne(meters, rand)) : null);
   const key = dk || pickOne(allowed('keys'), rand);
-  return { form: f || null, band: b || null, meter, key, scale: key ? keyScale(key) : null, from: { meter: !!dm, key: !!dk } };
+  return { genre, form: f || null, band: b || null, meter, key, scale: key ? keyScale(key) : null, from: { meter: !!dm, key: !!dk } };
 }
 
 /** The plan as lines for the song-sheet request. */
 export function planForRequest(plan) {
   const lines = [];
+  if (plan.genre) lines.push(`- genre: ${GENRES[plan.genre].name}`);
   if (plan.meter) lines.push(`- meter: ${plan.meter}${plan.from.meter ? ' (as the description says)' : ''}`);
   if (plan.key) lines.push(`- key: ${plan.key} (scale "${keyScale(plan.key)}")${plan.from.key ? ' (as the description says)' : ''} — the chords, hook and melody are in this key`);
   return lines.length ? `PLAN — decided for this song (use it):\n${lines.join('\n')}` : '';

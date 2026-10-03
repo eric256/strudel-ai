@@ -61,7 +61,7 @@ async function writeSongSheet(song, signal) {
   // the plan: the form and band (yours, or ones that fit the genre), and a meter and key they allow
   const plan = planSong(`${song.title} ${song.desc}`, { forms: songForms, bands, form: formChoice(song), band: bandChoice(song) });
   const choice = plan.form?.name || formChoice(song), bandPick = plan.band?.name || bandChoice(song);
-  clog('info', `🧭 “${song.title}”: ${[plan.form && `form ${plan.form.name}`, plan.band && `band ${plan.band.name}`, plan.meter, plan.key].filter(Boolean).join(' · ') || 'the AI picks form, band, meter and key'}`);
+  clog('info', `🧭 “${song.title}”: ${[plan.genre && `genre ${plan.genre}`, plan.form && `form ${plan.form.name}`, plan.band && `band ${plan.band.name}`, plan.meter, plan.key].filter(Boolean).join(' · ') || 'the AI picks form, band, meter and key'}`);
   const prev = queue.songs[queue.songs.indexOf(song) - 1]?.sheet;
   let msg = (song.autoTitle ? `SONG (no title yet — give it one in "title"): ${song.desc}\n` : `SONG: "${song.title}" — ${song.desc}\n`) +
     (prev ? `The previous song was ${prev.bpm} bpm, ${normMeter(prev.meter)}, in ${prev.key}; this one should flow from it (a related key or a nearby tempo is nice).\n` : '') +
@@ -121,8 +121,9 @@ async function writeSongLibrary(song, signal, { fix = null, prev = null } = {}) 
     const p = sh.parts.find((q) => id.startsWith(q.id + '_'));
     const variant = id.slice(p.id.length + 1);
     const kind = HARMONIC_ROLE.test(p.role) ? 'function of prog' : 'plain pattern';
-    const extra = p.role === 'melody' && /hook/.test(p.id + p.desc) ? ` — plays the hook: n("${sh.hook}").scale("${sh.scale}")`
-      : p.role === 'melody' && sh.melody && /melody|theme|lead|tune/.test(p.id + p.desc) ? ` — plays the main melody: n("${sh.melody}").scale("${sh.scale}")` : '';
+    // the parts that carry the song's tunes play them exactly (variants vary them: harmony, an answer, the solo)
+    const extra = p.tune === 'hook' ? ` — plays the HOOK: n("${sh.hook}").scale("${sh.scale}")${variant === 'main' ? '' : ' (this variant: a version of it)'}`
+      : p.tune === 'melody' ? ` — plays the MAIN MELODY: n("${sh.melody}").scale("${sh.scale}")${variant === 'main' ? '' : ' (this variant: a version of it)'}` : '';
     const vdesc = variant === 'main' ? ''
       : /^fill\d*$/.test(variant) && p === fp ? ` (ONE-bar fill leading into a chorus, drop or solo${fillVariantsOf(p).length > 1 ? ` — make each of ${fillVariantsOf(p).join(', ')} a different kind: a snare roll, a tom run, a hat or open-hat build, a drop-out stop with one hit, a syncopated kick break` : ''})`
       : /^alt/.test(variant) ? ` (an ALTERNATE ${p.role || 'part'}: same sound and register as ${p.id}_main, but a clearly different line — new rhythm, contour or figure — that still fits the chords and the other parts; it gives the sections that use it their own character)`
