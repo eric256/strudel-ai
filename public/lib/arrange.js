@@ -64,28 +64,45 @@ export function arrangeSong(song) {
   const fp = fillPart(sh), fills = fillVariants(sh);
   const steps = [];
   let nFill = 0;
+  const nth = (j) => sh.sections.slice(0, j).filter((x) => x.name === sh.sections[j].name).length; // which repeat of its name
   sh.sections.forEach((sec, j) => {
     const next = sh.sections[j + 1];
     const wantFill = fp && next && sec.bars >= 4 && FILL_INTO.includes(next.type) && next.type !== sec.type &&
       sec.play.some((x) => x.part === fp.id);
     const prevFill = steps[steps.length - 1]?.fillStep;
     steps.push({
-      bars: wantFill ? sec.bars - 1 : sec.bars, prompt: sec.name, section: sec, code: sectionCode(song, sec),
+      bars: wantFill ? sec.bars - 1 : sec.bars, prompt: sec.name, section: sec, secIndex: j, secNth: nth(j), code: sectionCode(song, sec),
       status: 'ready', error: null,
       // land a drop, and the downbeat after a fill, hard; everything else uses the fade setting
       fade: prevFill || sec.type === 'drop' ? 0 : undefined,
     });
     if (wantFill) {
       const fill = fills[nFill++ % fills.length];
-      steps.push({ bars: 1, prompt: `${sec.name} · ${fill}`, section: sec, fillStep: fill, code: sectionCode(song, sec, { fill }), status: 'ready', error: null, fade: 0 });
+      steps.push({ bars: 1, prompt: `${sec.name} · ${fill}`, section: sec, secIndex: j, secNth: nth(j), fillStep: fill, code: sectionCode(song, sec, { fill }), status: 'ready', error: null, fade: 0 });
     }
   });
   if (sh.ending === 'cut') {
     const last = sh.sections[sh.sections.length - 1];
-    steps.push({ bars: GAP_BARS, prompt: '· silence', section: last, gap: true, status: 'ready', error: null, fade: 0,
+    steps.push({ bars: GAP_BARS, prompt: '· silence', section: last, secIndex: sh.sections.length - 1, secNth: nth(sh.sections.length - 1), gap: true, status: 'ready', error: null, fade: 0,
       code: `${tempoLine(sh.bpm, sh.meter)}\n// ── a moment of silence before the next song ──\nsilence\n` });
   }
   return steps;
+}
+
+/**
+ * Where a playing section is in an edited song. Songs repeat names (A, B, A), so the first match would send the song
+ * back: the same repeat of its name (the 2nd A is still the 2nd A), else the one with its name nearest to where it was,
+ * else the same position. -1 when there are no sections.
+ * @param {{name: string}[]} sections  the edited song's sections
+ * @param {string} name  the playing section's name
+ * @param {number} [at]  its index in the song before the edit
+ * @param {number} [nth]  which repeat of its name it was (0 = the first)
+ */
+export function sectionAfterEdit(sections, name, at = -1, nth = -1) {
+  const same = sections.map((x, k) => (x.name === name ? k : -1)).filter((k) => k >= 0);
+  if (nth >= 0 && same[nth] != null) return same[nth];
+  if (same.length) return at < 0 ? same[0] : same.reduce((a, k) => (Math.abs(k - at) < Math.abs(a - at) ? k : a));
+  return sections.length ? Math.max(0, Math.min(sections.length - 1, at)) : -1;
 }
 
 /**

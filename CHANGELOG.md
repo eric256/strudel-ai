@@ -2,6 +2,14 @@
 
 The version is in `package.json`. Bump it when you release. Open pages also notice *any* redeploy through the build id, which is a hash of the app files, even if the version wasn't bumped.
 
+## 1.49.1
+- **Fix: 🎶 Now playing lost its place after a chat edit to a song that repeats section names** (A, B, A).
+  - **Cause:** the edited song went on from the first section with the playing one's name, so in the second A it jumped back and replayed the sections after the first A.
+  - **Fix:** every section step now knows its place in the song and which repeat of its name it is (the 2nd A stays the 2nd A). The song goes on from the section after the one playing.
+  - **The section playing now** also switches to its new version from the right section.
+- **Fix: in 🎼 Studio, a chat edit now also reaches the section playing right now.** It edits the song open in the editor while a copy of it plays, which used to wait for the next section.
+- **Smoke test:** a chat edit made while a repeat of the verse plays goes on from that section.
+
 ## 1.49.0
 - **🎼 Studio works on a song, not the code.**
   - **The problem:** it was easy to be in Studio and have the chat act like ⌨ Jam, changing the editor's code.

@@ -446,7 +446,7 @@ try {
     expect(st.mode === 'radio' && st.targets.includes('new') && st.open.includes('station'), `Radio: ${JSON.stringify(st)}`);
   });
 
-  await step('🎼 Studio: a song described in the chat is written and opened in ✎ Edit song; chat edits change it (even when it has finished)', async () => {
+  await step('🎼 Studio: a song described in the chat is written and opened in ✎ Edit song; chat edits change it (even when it has finished), and go on from the section playing (A … A)', async () => {
     await ev(() => strudelAI.setMode('studio'));
     await ev(() => { document.querySelector('#editForm .se-head button.link:last-child')?.click(); });
     await ev(() => { const s = document.getElementById('chatTarget'); s.value = 'song'; s.dispatchEvent(new Event('change')); });
@@ -468,6 +468,24 @@ try {
     await p.waitForTimeout(300);
     const after = await ev(() => { const sg = strudelAI.activeSong(); return { secs: sg.sheet.sections.length, blocks: sg.blocks.filter((b) => !b.fillStep && !b.gap).length, ed: document.querySelectorAll('#editForm .se-sec').length }; });
     expect(after.blocks === before.blocks + 2 && after.ed === before.ed + 2, `the new verses aren't everywhere: ${JSON.stringify({ before, after })}`);
+    // playing again, in a repeat of the verse (the song has A … A A): an edit goes on from that section, not the first A
+    await ev(() => [...document.querySelectorAll('#editForm .se-head button')].find((b) => /play/.test(b.textContent)).click());
+    await p.waitForFunction(() => strudelAI.queue.running && strudelAI.engine.steps.some((x) => x.status === 'playing'), null, { timeout: 20000 });
+    const k = await ev(() => { const s = strudelAI.activeSong().sheet.sections; const name = s[1].name; return s.map((x, i) => (x.name === name ? i : -1)).filter((i) => i >= 0)[1]; });
+    await ev((k) => { document.querySelectorAll('#editForm .se-sec')[k].click(); [...document.querySelectorAll('#editForm .se-selrow button')].find((b) => /go/.test(b.textContent)).click(); }, k);
+    await p.waitForFunction((k) => { const cur = strudelAI.queue.songs[strudelAI.queue.current]; return cur?.blocks?.some((b) => b.status === 'playing' && b.secIndex === k && !b.fillStep); }, k, { timeout: 30000 });
+    await ev(() => { document.getElementById('input').value = 'ADDVERSES build out a couple more verses'; document.getElementById('chat-form').requestSubmit(); });
+    await p.waitForFunction((n) => strudelAI.activeSong()?.sheet.sections.length === n + 4, before.secs, { timeout: 20000 });
+    await p.waitForTimeout(300);
+    const flow = await ev(() => {
+      const cur = strudelAI.queue.songs[strudelAI.queue.current], names = cur.sheet.sections.map((x) => x.name);
+      const i = cur.blocks.findIndex((b) => b.status === 'playing');
+      return { names, next: cur.blocks.slice(i + 1).filter((b) => !b.fillStep && !b.gap && b.status !== 'armed').map((b) => b.section.name), playing: cur.blocks[i]?.secIndex };
+    });
+    // (the section after it may already be armed — then the list starts one later)
+    expect(flow.playing === k && (JSON.stringify(flow.next) === JSON.stringify(flow.names.slice(k + 1)) || JSON.stringify(flow.next) === JSON.stringify(flow.names.slice(k + 2))),
+      `after the edit the song doesn't go on from the section playing: ${JSON.stringify({ k, ...flow })}`);
+    await ev(() => document.getElementById('stop').click());
   });
 
   await step('⬆ promotion: a jam becomes a song (opened in 🎼 Studio); the song becomes a 🎸 band and a 📻 station', async () => {

@@ -10,7 +10,7 @@ import { DEFAULT_BANDS, parseInstruments, enforceBand, bandsForRequest, parseTwe
 import { planSong, planForRequest, genreScore, describedKey, describedMeter } from '../public/lib/plan.js';
 import { normalizeSheet, libraryIds, fillPart, isFnPart, miniStrings, assignTunes, STYLE_FEEL, normFeel } from '../public/lib/sheet.js';
 import { GENRES, detectGenre, genresOf } from '../public/lib/genres.js';
-import { GAP_BARS, feelCode, sectionCode, arrangeSong, carryLiveState, LIB_START, SEC_START } from '../public/lib/arrange.js';
+import { GAP_BARS, feelCode, sectionAfterEdit, sectionCode, arrangeSong, carryLiveState, LIB_START, SEC_START } from '../public/lib/arrange.js';
 import { parseJSONLoose, closest, esc } from '../public/lib/util.js';
 import { normStyle, styleParams, diffParams, MASTER_STYLES } from '../public/master.js';
 import { SOUND_GUIDE, ACOUSTIC_PERC, soundGuide } from '../public/sounds.js';
@@ -362,4 +362,29 @@ test('acoustic: the genre, its bands and forms, recorded sounds, and a human fee
   const code = sectionCode({ title: 'T', sheet: sh, library: 'setcpm(90/4)\nconst drums_main = s("cajon")\nconst gtr_main = (prog) => chord(prog).voicing().s("gm_acoustic_guitar_steel")' }, sh.sections[0]);
   assert.match(code, /^drums: drums_main\.mul\(velocity\(.*\)\)\.nudge\(.*\)\.postgain/m);
   assert.match(code, /^gtr: gtr_main\(sectionChords\)\.mul\(velocity/m);
+});
+
+test('after an edit, the song goes on from the section playing — found by its place, not just its name', () => {
+  const secs = (names) => names.split(' ').map((name) => ({ name }));
+  // A, B, A: playing the second A (index 2) — the edit added two verses before the outro
+  assert.equal(sectionAfterEdit(secs('intro A B A v3 v4 outro'), 'A', 3, 1), 3, 'not the first A');
+  assert.equal(sectionAfterEdit(secs('intro A B A v3 v4 outro'), 'A', 3), 3, 'by its place, without the repeat count');
+  assert.equal(sectionAfterEdit(secs('intro A B A outro'), 'A', 1, 0), 1);
+  // a section added before it: still the 2nd A (by place alone it would be a tie)
+  assert.equal(sectionAfterEdit(secs('intro new A B A outro'), 'A', 3, 1), 4);
+  // one A taken out: the nearest A
+  assert.equal(sectionAfterEdit(secs('intro B A outro'), 'A', 3, 1), 2);
+  // renamed or deleted: the same place; no sections: -1
+  assert.equal(sectionAfterEdit(secs('intro A B outro'), 'gone', 2), 2);
+  assert.equal(sectionAfterEdit(secs('intro A'), 'gone', 5), 1);
+  assert.equal(sectionAfterEdit([], 'A', 1), -1);
+  assert.equal(sectionAfterEdit(secs('A B A'), 'A'), 0, 'no place known: the first');
+  // every step knows its section's place (fills and the gap after a hard ending too)
+  const song = { title: 'T', sheet: normalizeSheet(structuredClone(RAW), 'auto', ctx), library: LIB };
+  song.sheet.ending = 'cut';
+  const steps = arrangeSong(song);
+  for (const st of steps) {
+    assert.equal(st.secIndex, st.gap ? song.sheet.sections.length - 1 : song.sheet.sections.indexOf(st.section), st.prompt);
+    assert.equal(st.secNth, song.sheet.sections.slice(0, st.secIndex).filter((x) => x.name === st.section.name).length, st.prompt);
+  }
 });
