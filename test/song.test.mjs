@@ -8,11 +8,12 @@ import { setScales, fixScaleString } from '../public/lib/scales.js';
 import { DEFAULT_FORMS, parseFormSections, formBars, findIn, formsForRequest } from '../public/lib/forms.js';
 import { DEFAULT_BANDS, parseInstruments, enforceBand, bandsForRequest, parseTweaks } from '../public/lib/bands.js';
 import { planSong, planForRequest, genreScore, describedKey, describedMeter } from '../public/lib/plan.js';
-import { normalizeSheet, libraryIds, fillPart, isFnPart, miniStrings, assignTunes } from '../public/lib/sheet.js';
+import { normalizeSheet, libraryIds, fillPart, isFnPart, miniStrings, assignTunes, STYLE_FEEL, normFeel } from '../public/lib/sheet.js';
 import { GENRES, detectGenre, genresOf } from '../public/lib/genres.js';
-import { GAP_BARS, sectionCode, arrangeSong, carryLiveState, LIB_START, SEC_START } from '../public/lib/arrange.js';
+import { GAP_BARS, feelCode, sectionCode, arrangeSong, carryLiveState, LIB_START, SEC_START } from '../public/lib/arrange.js';
 import { parseJSONLoose, closest, esc } from '../public/lib/util.js';
-import { normStyle, styleParams, diffParams } from '../public/master.js';
+import { normStyle, styleParams, diffParams, MASTER_STYLES } from '../public/master.js';
+import { SOUND_GUIDE, ACOUSTIC_PERC, soundGuide } from '../public/sounds.js';
 
 setScales(JSON.parse(readFileSync(new URL('../public/scales.json', import.meta.url), 'utf8')));
 
@@ -323,4 +324,42 @@ test('tunes: the hook and the main melody each get a part that plays them', () =
   assert.equal(theme.id, 'theme');
   assert.equal(theme.sound, 'gm_flute');
   assert.ok(secs[0].play.some((x) => x.part === 'theme') && !secs[1].play.some((x) => x.part === 'theme'), 'the theme plays in the verses');
+});
+
+test('acoustic: the genre, its bands and forms, recorded sounds, and a human feel', () => {
+  assert.equal(detectGenre('a gentle acoustic folk song with fingerstyle guitar'), 'acoustic');
+  assert.equal(detectGenre('an irish jig for a celtic session'), 'acoustic');
+  // a genre's first word names it (a station's genre is passed on to its songs that way)
+  for (const [id, g] of Object.entries(GENRES)) assert.equal(detectGenre(`a song (${g.words[0]})`), id, id);
+  for (let k = 0; k < 20; k++) {
+    const p = planSong('an unplugged acoustic song, campfire singalong', { forms: DEFAULT_FORMS, bands: DEFAULT_BANDS });
+    assert.equal(p.genre, 'acoustic');
+    assert.ok(genresOf(p.band).includes('acoustic') && genresOf(p.form).includes('acoustic'), `${p.form.name} / ${p.band.name}`);
+  }
+  assert.ok(MASTER_STYLES.acoustic && normStyle('acoustic') === 'acoustic');
+  // the acoustic bands are played by recorded (🎙) instruments where there are some
+  for (const b of DEFAULT_BANDS.filter((x) => x.master === 'acoustic')) {
+    const rec = parseInstruments(b.instruments).filter((i) => /🎙/.test(SOUND_GUIDE[i.sound] || ''));
+    assert.ok(rec.length >= 2, `${b.name}: recorded instruments`);
+  }
+  assert.ok(ACOUSTIC_PERC.every((k) => !/^gm_/.test(k)));
+  assert.deepEqual(soundGuide(new Set(['cajon', 'piano'])).map((l) => l.split(':')[0]), ['piano', 'cajon']);
+  // feel: the sheet's, else the band's, else the master style's (electronic styles stay tight)
+  const raw = (extra) => ({ bpm: 90, key: 'G major', chords: { verse: 'G C D G' }, parts: [{ name: 'drums', role: 'drums', sound: 'cajon' }, { name: 'gtr', role: 'chords', sound: 'gm_acoustic_guitar_steel' }], sections: [{ name: 'verse', bars: 8, chords: 'verse', play: ['drums', 'gtr'] }, { name: 'chorus', bars: 4, chords: 'verse', play: ['drums', 'gtr'] }], ...extra });
+  assert.equal(normalizeSheet(raw({ master: 'acoustic' })).feel, STYLE_FEEL.acoustic);
+  assert.equal(normalizeSheet(raw({ master: 'techno' })).feel, 0);
+  assert.equal(normalizeSheet(raw({ master: 'acoustic', feel: 0 })).feel, 0, 'an edit to 0 stays 0');
+  assert.equal(normalizeSheet(raw({ master: 'techno', feel: 0.456 })).feel, 0.46);
+  assert.equal(normFeel(7), 1);
+  assert.equal(normFeel(''), null);
+  // the feel in the code: softer/louder notes and a little late, drums steadier than the rest, each part its own stream
+  assert.equal(feelCode(0, 'drums'), '');
+  const d = feelCode(0.8, 'drums', 0), c = feelCode(0.8, 'chords', 1);
+  assert.match(c, /^\.mul\(velocity\(rand\.late\([\d.]+\)\.range\(0\.76, 1\)\)\)\.nudge\(rand\.late\([\d.]+\)\.range\(0, 0\.018\)\)$/);
+  assert.match(d, /range\(0, 0\.007\)/);
+  assert.notEqual(d.match(/late\(([\d.]+)\)/)[1], c.match(/late\(([\d.]+)\)/)[1]);
+  const sh = normalizeSheet(raw({ master: 'acoustic' }));
+  const code = sectionCode({ title: 'T', sheet: sh, library: 'setcpm(90/4)\nconst drums_main = s("cajon")\nconst gtr_main = (prog) => chord(prog).voicing().s("gm_acoustic_guitar_steel")' }, sh.sections[0]);
+  assert.match(code, /^drums: drums_main\.mul\(velocity\(.*\)\)\.nudge\(.*\)\.postgain/m);
+  assert.match(code, /^gtr: gtr_main\(sectionChords\)\.mul\(velocity/m);
 });

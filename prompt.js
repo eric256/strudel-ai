@@ -174,8 +174,9 @@ Glass Harbor | lo-fi house, 118 bpm, C dorian, warm Rhodes chords, soft kick, sh
 // Song sheets (Songs tab / Station): the AI plans the whole song as data, then
 // writes every part once; the app arranges the sections from those parts.
 // ---------------------------------------------------------------------------
-export const SHEET_PROMPT = `You are a songwriter and arranger planning ONE instrumental electronic song that will be performed live
-with Strudel (synths, drum machines, samples and General-MIDI soundfonts; no vocals).
+export const SHEET_PROMPT = `You are a songwriter and arranger planning ONE instrumental song that will be performed live
+with Strudel (synths, drum machines, recorded acoustic instruments, samples and General-MIDI soundfonts; no vocals) —
+electronic, a band or acoustic, whatever the description asks for.
 Reply with the SONG SHEET as ONE JSON object and nothing else: no markdown fences, no comments, no text before or after.
 
 Example:
@@ -356,6 +357,20 @@ Exactly ONE fenced code block with language "javascript", nothing after it:
   * vary the last bar of a phrase: .lastOf(4, x => x.ply(2)) or .lastOf(4, x => x.add(note(12)))
   Melodies, basslines and arpeggios should develop over 2–4 bars; drums need at least a variation every 4th bar.
 - The parts must sound good TOGETHER: bass in octaves 1–2, chords and pads c3–c5, melodies c4–c6; leave space (rests) in busy parts.
+- ACOUSTIC AND LIVE-BAND PARTS (recorded 🎙 instruments, guitars, piano, strings, hand percussion) should sound PLAYED:
+  * dynamics inside the phrase: .velocity("<0.9 0.7 0.8 0.65>") or .velocity("1 0.6 0.8 0.6") — accents and soft notes,
+    never every note at the same level;
+  * a strummed guitar: chord(prog).voicing().struct("x ~ x x ~ x x ~") with softer upstrokes .velocity("[1 0.6]*4");
+    a picked guitar, banjo or harp: n("0 2 1 3 2 1").chord(prog).voicing() arpeggios;
+  * piano: left hand (rootNotes(2)) and right hand (voicing()) as two lines in a stack, with rests;
+  * let notes ring: .clip(1) or longer, .release(0.3–1); no synth filters on acoustic sounds (a little .room is fine);
+  * a hand-percussion or acoustic kit: each recorded drum has several hits and .n() picks one (soft→loud, two takes of each):
+    cajon n 0–5 bass tone, 6–11 middle, 12–17 slap; framedrum 0–8 low, 9–17 high; bassdrum1 0–7 soft→loud;
+    snare_modern 8–17 snare soft→loud (0–7 snares off, 18–19 rolls), snare_rim cross-stick; hihat 2–9 closed soft→loud,
+    13–14 open; shaker_small 0–11 shakes. E.g. s("cajon*4").n("<0 1> 8 [12 15] 9"), s("hihat*8").n("[3 7]*4"),
+    s("bassdrum1 ~ snare_modern ~").n("5 ~ 14 ~"), s("shaker_small*8").velocity("0.4 0.7"); ghost notes at 0.3–0.5;
+  * rhythm a little looser: a light swing where it fits (.swingBy(1/6, 4)); the app adds a small human timing and dynamics
+    feel on top, so keep your patterns on the grid.
 - Use the "space" sample rarely.
 
 ${STRUDEL_REFERENCE}${SCALE_LIST}`;

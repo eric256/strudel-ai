@@ -17,6 +17,54 @@ export const SOUND_GUIDE = {
   pink: 'risers, rain, texture · softer noise · ambient, lo-fi',
   brown: 'rumble, ocean, wind · dark noise · ambient, drone',
 
+  // 🎙 real recordings (sampled acoustic instruments — the most natural-sounding; prefer them for acoustic music)
+  piano: 'chords, melody · 🎙 recorded grand piano, natural and full · ballad, folk, jazz, pop, classical',
+  steinway: 'chords, melody · 🎙 recorded Steinway grand, rich and bright · ballad, classical, jazz',
+  kawai: 'chords, melody · 🎙 recorded Kawai piano, warm and soft · singer-songwriter, folk, lo-fi',
+  piano1: 'chords · 🎙 recorded piano, close and intimate · ballad, lo-fi, ambient',
+  harp: 'arps, chords · 🎙 recorded concert harp · cinematic, ballad, ambient',
+  folkharp: 'arps, melody · 🎙 recorded folk (Celtic) harp · celtic, folk, ambient',
+  strumstick: 'melody, picked chords · 🎙 recorded strumstick, a dulcimer-like plucked string · folk, americana, bluegrass',
+  psaltery_pluck: 'melody, arps · 🎙 plucked psaltery, a bright zither · folk, celtic, medieval',
+  dantranh: 'melody · 🎙 Vietnamese zither, bending notes · world, ambient',
+  vibraphone: 'melody, chords · 🎙 recorded vibraphone · jazz, lounge, lo-fi',
+  vibraphone_soft: 'chords, melody · 🎙 vibraphone, soft mallets · jazz ballads, ambient',
+  marimba: 'melody, arps · 🎙 recorded marimba, woody · world, folk, ambient',
+  kalimba: 'melody, arps · 🎙 recorded kalimba (kalimba2–5: other kalimbas) · folk, lo-fi, ambient',
+  glockenspiel: 'melody accents · 🎙 glockenspiel · pop, folk, lullaby',
+  handchimes: 'melody, accents · 🎙 hand chimes, pure and soft · ambient, holiday, folk',
+  tubularbells: 'accents · 🎙 tubular bells · cinematic, ambient',
+  sax: 'melody, solos · 🎙 recorded saxophone (sax_vib: with vibrato) · jazz, soul, ballad',
+  saxello: 'melody · 🎙 saxello, a soft curved soprano sax · jazz, folk-jazz',
+  harmonica: 'melody, licks · 🎙 recorded harmonica (harmonica_soft, harmonica_vib) · folk, blues, country, americana',
+  recorder_tenor_vib: 'melody · 🎙 recorder with vibrato, like a low whistle · celtic, folk, medieval',
+  recorder_soprano_stacc: 'melody · 🎙 soprano recorder, short notes, like a tin whistle · celtic, folk, playful',
+  recorder_alto_sus: 'melody, long notes · 🎙 alto recorder, sustained · folk, early music, ambient',
+  ocarina: 'melody · 🎙 ocarina, hollow and sweet · folk, world, game music',
+  didgeridoo: 'drone · 🎙 didgeridoo · world, ambient, tribal',
+  pipeorgan_quiet: 'pads, chords · 🎙 real pipe organ, quiet stops · hymn, cinematic, ambient',
+  organ_8inch: 'chords · 🎙 small pipe organ, gentle · folk, chamber',
+  // 🎙 hand percussion & acoustic kit pieces (s("cajon"), s("shaker_small") … ; .n() picks another hit of the same drum)
+  cajon: 'drums · 🎙 cajón: bass tone (n 0–5), middle (6–11), slap (12–17) — an unplugged kit on its own · acoustic, folk, flamenco, pop unplugged',
+  framedrum: 'drums · 🎙 frame drum, like a bodhrán · celtic, folk, world',
+  conga: 'perc · 🎙 congas · latin, funk, afro',
+  bongo: 'perc · 🎙 bongos · latin, folk, afro',
+  darbuka: 'perc · 🎙 darbuka · world, middle eastern',
+  shaker_small: 'perc · 🎙 small shaker, steady 8ths/16ths · acoustic, folk, latin, pop',
+  shaker_large: 'perc · 🎙 large shaker · acoustic, latin',
+  tambourine: 'perc · 🎙 tambourine on 2 and 4 · folk, pop, gospel, rock',
+  cabasa: 'perc · 🎙 cabasa · bossa nova, latin',
+  guiro: 'perc · 🎙 güiro scrapes · latin, cumbia',
+  woodblock: 'perc · 🎙 woodblock · latin, folk, playful',
+  clave: 'perc · 🎙 claves · latin, son, bossa',
+  triangles: 'perc · 🎙 triangle · folk, latin, holiday',
+  sleighbells: 'perc · 🎙 sleigh bells · holiday, folk, pop',
+  bassdrum1: 'drums · 🎙 acoustic bass drum, a soft thump · folk, acoustic, cinematic',
+  snare_modern: 'drums · 🎙 acoustic snare (snare_rim: cross-stick) · acoustic, folk, rock, jazz',
+  hihat: 'drums · 🎙 acoustic hi-hat · acoustic, folk, jazz',
+  sus_cymbal: 'swells, crashes · 🎙 suspended cymbal · cinematic, folk, jazz',
+  timpani: 'drums, builds · 🎙 recorded timpani · cinematic, epic',
+
   // keys & piano
   gm_piano: 'chords, melody · acoustic grand · ballad, jazz, pop, cinematic',
   gm_epiano1: 'chords, comping · warm Rhodes · lo-fi, neo-soul, jazz, chillhop',
@@ -148,6 +196,10 @@ export const SOUND_GUIDE = {
  * The guide lines for the sounds that exist: registry keys (lower case) and drum-machine banks.
  * @param {Set<string>} available  sound names and bank names, lower case
  */
+/** The hand percussion and acoustic kit pieces (an acoustic part's sounds come from these, as plain s("…") names). */
+export const ACOUSTIC_PERC = ['cajon', 'framedrum', 'conga', 'bongo', 'darbuka', 'shaker_small', 'shaker_large', 'tambourine', 'cabasa', 'guiro',
+  'woodblock', 'clave', 'triangles', 'sleighbells', 'bassdrum1', 'snare_modern', 'snare_rim', 'hihat', 'sus_cymbal', 'tom_stick', 'tom2_stick'];
+
 export function soundGuide(available) {
   const lines = [];
   for (const [name, desc] of Object.entries(SOUND_GUIDE)) {

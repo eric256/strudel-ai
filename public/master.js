@@ -34,7 +34,8 @@ export const MASTER_DEFAULTS = Object.fromEntries(MASTER_PARAMS.map((p) => [p.ke
 export const MASTER_STYLES = {
   clean: { desc: 'transparent: light glue, nothing else — any genre', p: {} },
   'lo-fi': { desc: 'lo-fi hip hop, chillhop, jazz-hop: dusty, warm, rolled-off highs, vinyl crackle', p: { low: 2, high: -5, filter: -0.18, drive: 0.3, crush: 0.25, vinyl: 0.45, space: 0.18, size: 0.35, glue: 0.5, width: 0.85 } },
-  warm: { desc: 'jazz, soul, neo-soul, bossa nova, acoustic: round, soft, a little tape', p: { low: 1.5, mid: -1, high: -1.5, drive: 0.15, space: 0.15, size: 0.45, glue: 0.35 } },
+  warm: { desc: 'jazz, soul, neo-soul, bossa nova: round, soft, a little tape', p: { low: 1.5, mid: -1, high: -1.5, drive: 0.15, space: 0.15, size: 0.45, glue: 0.35 } },
+  acoustic: { desc: 'acoustic, folk, unplugged, singer-songwriter, bluegrass, celtic: natural and open — a wooden room, gentle compression, no colour', p: { low: 0.5, mid: 0.5, high: 1, space: 0.2, size: 0.4, glue: 0.25, width: 1.15 } },
   pop: { desc: 'pop, synth-pop, city pop, funk, disco: bright, polished, loud', p: { low: 1.5, mid: -0.5, high: 3, space: 0.1, size: 0.35, glue: 0.55, width: 1.2, loud: 2 } },
   techno: { desc: 'techno, minimal, industrial, acid: punchy low end, tight, driven', p: { low: 3, mid: -1.5, high: 1, drive: 0.25, space: 0.08, size: 0.3, glue: 0.65, width: 1.05, loud: 2.5 } },
   house: { desc: 'house, deep house, tech house, nu-disco: warm low end, smooth top, pumping glue', p: { low: 2.5, mid: -1, high: 1.5, drive: 0.12, space: 0.1, size: 0.35, glue: 0.6, width: 1.15, loud: 2 } },

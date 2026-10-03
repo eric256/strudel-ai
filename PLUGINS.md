@@ -104,7 +104,7 @@ For colours that follow the user's theme:
 | | |
 | --- | --- |
 | `api.addTheme(id, { name, editor, scheme, colors })` | A theme in ⚙ Settings → 🎨 Theme, available while the plugin is on. `colors` uses the same tokens as a theme file; missing ones come from Dark. |
-| `api.addBands([{ name, use, master, instruments }])` | Bands. `instruments` takes lines like `bass: gm_acoustic_bass — round upright bass`. |
+| `api.addBands([{ name, use, master, instruments, feel }])` | Bands. `instruments` takes lines like `bass: gm_acoustic_bass — round upright bass`. `feel` (optional, 0–1) is how loosely the band plays: humanized dynamics and timing on every part. Without it, the master style decides. |
 | `api.addForms([{ name, use, sections }])` | Song forms. `sections` looks like `intro 4, verse 8, chorus 8`. |
 | `api.addStations([{ name, theme }])` | Stations. |
 | `api.addPromptHint(mode, text)` | Extra instructions added to the AI's system prompt. `mode` is `'code'` (chat edits), `'sheet'` (song sheets), `'library'` (song parts), `'songs'` (inventing songs) or `'*'` (all of them). |
