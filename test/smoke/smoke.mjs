@@ -311,6 +311,9 @@ try {
     await ev(() => { const w = document.getElementById('hydraWhere'); w.value = 'panel'; w.onchange(); const h = document.getElementById('hydraMode'); h.value = 'kaleido'; h.onchange(); });
     await p.waitForFunction(() => document.getElementById('hydra-canvas')?.parentElement?.id === 'hydraStage' && strudelAI.ws.isOpen('hydra'), null, { timeout: 15000 });
     expect(await ev(() => document.getElementById('hydra-canvas').getBoundingClientRect().height > 50), 'the Hydra canvas has no size in its panel');
+    // the presets' inputs are numbers (Strudel's own H() handed Hydra the pattern's text, so it drew nothing)
+    const hv = await ev(() => ({ h: globalThis.H('<4 5 6>')(), l: globalThis.L() }));
+    expect([4, 5, 6].includes(hv.h) && hv.l >= 0 && hv.l <= 1, `H() / L(): ${JSON.stringify(hv)}`);
     await ev(() => { const w = document.getElementById('hydraWhere'); w.value = 'code'; w.onchange(); });
     expect(await ev(() => document.getElementById('hydra-canvas').parentElement.classList.contains('ws-center') && document.body.classList.contains('hydra-behind')), 'Hydra did not move behind the code');
     await ev(() => { const w = document.getElementById('hydraWhere'); w.value = 'panel'; w.onchange(); const h = document.getElementById('hydraMode'); h.value = 'off'; h.onchange(); });

@@ -94,6 +94,19 @@ function applyChannel(base, ramp = 0.015) {
 }
 const applyAllChannels = () => { for (const base of Object.keys(mixer.orbits)) applyChannel(base); };
 
+/** How loud the music is right now, 0…1 (smoothed): 🌀 Hydra's L() makes visuals move with the music. */
+let levelBuf = null, levelSmooth = 0;
+export function musicLevel() {
+  const an = masterAnalyser();
+  if (!an) return 0;
+  if (!levelBuf || levelBuf.length !== an.fftSize) levelBuf = new Float32Array(an.fftSize);
+  an.getFloatTimeDomainData(levelBuf);
+  let sum = 0;
+  for (const v of levelBuf) sum += v * v;
+  const rms = Math.min(1, Math.sqrt(sum / levelBuf.length) * 2);
+  levelSmooth += (rms - levelSmooth) * (rms > levelSmooth ? 0.5 : 0.08); // fast up, slow down
+  return levelSmooth;
+}
 /** The master meter: an analyser on the main output. */
 function masterAnalyser() {
   const ctrl = sdController();

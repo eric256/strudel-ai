@@ -167,6 +167,7 @@ Encoding happens in the browser while you record (lamejs, 192 kbps stereo), so n
 - It's a panel: dock, tab or float it like any other (see [Panels and layout](#panels-and-layout)).
 - **🌀 Hydra** (its own panel, or **🌀 Hydra ↗** in the visualizer bar): live video-synth visuals ([Hydra](https://hydra.ojack.xyz)) fed by Strudel's own visuals (`initHydra({ feedStrudel: 1 })`, so `s0` is Strudel's canvas).
   - **visual:** kaleidoscope, tunnel, waves, cells, feedback, or your own code (**✎ code**).
+    - In your own code, **`L()`** is how loud the music is (0…1). **`H("<4 5 6>")`** turns a Strudel pattern into a value that changes with the music, e.g. `osc(20, 0.1, 1).kaleid(H("<4 6>")).modulateScale(osc(2), () => L()).out()`. `s0` is Strudel's own drawing.
   - **show:** **in this panel**, which can float, pop out or stay 📌 on top like any panel, or **behind the code**, where the code area turns see-through and the code gets a shadow.
   - **mix** sets how strongly it shows behind the code. Hydra is served by this server, and your choices are remembered.
 

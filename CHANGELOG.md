@@ -2,6 +2,13 @@
 
 The version is in `package.json`. Bump it when you release. Open pages also notice *any* redeploy through the build id, which is a hash of the app files, even if the version wasn't bumped.
 
+## 1.44.1
+- **🌀 Hydra draws again.** Strudel's `H("<4 5 6>")` gave Hydra the pattern's text instead of a number, so every frame turned into NaN and the visuals were blank (the debug log showed "function does not return a number" on every frame).
+  - Hydra now gets its own `H()`, which reads the pattern as mini-notation at the playing cycle and always returns a number.
+  - **The presets move with the music:** a new `L()` returns how loud the mix is (0…1). Kaleidoscope, tunnel, waves, cells and feedback breathe with the volume. They no longer lean on `s0`, Strudel's own drawing, which is mostly empty now that the inline visuals are gone.
+  - The ✎ code help names `L()` and `H()`.
+- **Smoke test:** `H()` and `L()` return numbers.
+
 ## 1.44.0
 - **New presets:**
   - **Stations:** 📻 *Blue Note Club* (small-combo jazz), *Tokyo Fusion* (80s Japanese jazz fusion and city pop) and *Pop Radio*.
