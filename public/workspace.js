@@ -223,7 +223,8 @@ export function createWorkspace({ dv, root, center, panels, saved, preset = DEFA
     right.forEach((id, k) => add(id, k ? { referencePanel: right[0], direction: 'within' } : { referencePanel: EDITOR, direction: 'right' }, k ? { inactive: true } : { initialWidth: 430 }));
     if (pr.now !== false) addFixed(NOW, { position: right.length ? { referencePanel: right[0], direction: 'below' } : { referencePanel: EDITOR, direction: 'right' }, initialHeight: 320 });
     const bottom = (pr.bottom || []).filter((id) => P.has(id));
-    bottom.forEach((id, k) => add(id, k ? { referencePanel: bottom[0], direction: 'within' } : { referencePanel: EDITOR, direction: 'below' }, k ? { inactive: true } : { initialHeight: 260 }));
+    const h = pr.bottomHeight ? Math.round(root.getBoundingClientRect().height * pr.bottomHeight) : 260;
+    bottom.forEach((id, k) => add(id, k ? { referencePanel: bottom[0], direction: 'within' } : { referencePanel: EDITOR, direction: 'below' }, k ? { inactive: true } : { initialHeight: h }));
   }
   /** Is 🎶 Now playing part of this layout (a mode can leave it out)? */
   let needNow = preset.now !== false;

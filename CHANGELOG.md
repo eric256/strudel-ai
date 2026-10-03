@@ -2,6 +2,18 @@
 
 The version is in `package.json`. Bump it when you release. Open pages also notice *any* redeploy through the build id, which is a hash of the app files, even if the version wasn't bumped.
 
+## 1.43.0
+- **A new song editor (✎ Edit song)** replaces the text boxes. You edit a draft and **✓ apply** it; if the song is playing, the section playing now changes from the next bar.
+  - **Sections timeline:** each section is sized by its bars. Click one to edit its name, bars, chords, key change and tempo. Move it (← → or drag), duplicate it, delete it or add one, and while the song plays, **⏭ go** there or **🔁 loop** it while you work.
+  - **Arrangement grid** (parts × sections): click a cell to cycle off → main → the part's variants; right-click it for comes in / drops out / alternates.
+  - **Chord progressions:** rename, edit, add and delete them.
+  - **Parts:** name, role, sound and variants, plus each variant's code in its own box. **✨ ask the AI** about a part, and **＋ part** adds one with starter code for its role.
+  - **↺ revert** throws your changes away.
+- **🎼 Studio** puts the song editor in the big space under the code, tabbed with the Mixer and Master. A Studio layout saved by 1.42 is reset to this once.
+- **Edits follow the song:** a song played again is a copy, and editing either one now updates them all, including the one playing.
+- `lib/library.js`: splits the parts code into one block per part and variant, joins it back, renames parts and writes starter code. It has unit tests.
+- **Smoke test:** the song editor changes the master, section bars and an arrangement cell, adds a section and a part, and applies it live.
+
 ## 1.42.0
 - **Three modes**, picked in the header:
   - **📻 Radio:** stations and the playlist write songs for you, and you play along on the pads, mixer and master.

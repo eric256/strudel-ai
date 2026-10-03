@@ -3,7 +3,7 @@ import { signed } from '../lib/util.js';
 import { nothing, render } from '../html.js';
 import { T, onTemplatesChange } from '../templates/index.js';
 import { addToMySongs, download, favListRows, favOf, favorites, isMine, loadSongIntoSet, myListRows, mySongs, playSong, slug, songFromJSON, songToJSON, toggleFavorite } from './song-library.js';
-import { openSongEditor, renderSongEditor, saveSongEditor, songEdit } from './song-editor.js';
+import { openSongEditor, renderSongEditor, songEdit } from './song-editor.js';
 import { loadPads, padsState, setPadsFollow } from './pads.js';
 import { mp3, songMp3 } from './mp3.js';
 import { MASTER_STYLES } from '../master.js';
@@ -249,7 +249,6 @@ export function songAction(act, sg, btn, view) {
   else if (act === 'queue') addToPlaylist(sg, { at: 'end' });
   else if (act === 'edit') openSongEditor(sg);
   else if (act === 'retry') retrySong(sg);
-  else if (act === 'edit-save') saveSongEditor($('editForm').querySelector('.sv-edit'), songEdit.sg || sg);
   else if (act === 'edit-cancel') { ws.close('edit'); songEdit.sg = null; songsChanged(); renderSongs(); }
   else if (act === 'save') addToMySongs(sg);
   else if (act === 'fav') toggleFavorite(sg);
