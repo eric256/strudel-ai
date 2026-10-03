@@ -26,6 +26,10 @@ Pick one in the header. Switching stops all music. Each mode has its own panel l
 | **🎼 Studio** | Working on one song with the AI | the song (its sections, chords and parts) | Chat · Songs, Now playing; the ✎ song editor · Mixer · Master below the code |
 | **⌨ Jam** | Live-coding: you and the AI write one piece of code in the editor, with no songs | the code in the editor (or the pads) | Chat, Keys · Pads · Visualizer below |
 
+- **🎼 Studio's chat always works on a song, never on the code by itself:**
+  - **The song it works on:** the one open in ✎ Edit song, even while another one plays.
+  - **With no song open:** your message describes a new song. It's written, starts playing, and opens in ✎ Edit song. From then on the chat changes that song.
+  - **While that song is still being written:** the chat asks you to wait instead of editing the code.
 - **⌨ Jam** keeps its own code, saved as you type, so it's still there when you come back.
 - **⬆ Promotion, from one mode to the next:**
   - **⌨ Jam → 🎼 song:** **🎼 Make it a song** (in Jam's code bar) grows the jam into a whole song. The AI keeps its tempo, key, sounds and patterns; the jam's groove becomes the main section, and the other sections grow from it (a thinner intro, verses, a breakdown) with a melody and hook added. It switches to 🎼 Studio, plays the song and opens it in ✎ Edit song.

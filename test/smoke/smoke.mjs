@@ -446,6 +446,30 @@ try {
     expect(st.mode === 'radio' && st.targets.includes('new') && st.open.includes('station'), `Radio: ${JSON.stringify(st)}`);
   });
 
+  await step('🎼 Studio: a song described in the chat is written and opened in ✎ Edit song; chat edits change it (even when it has finished)', async () => {
+    await ev(() => strudelAI.setMode('studio'));
+    await ev(() => { document.querySelector('#editForm .se-head button.link:last-child')?.click(); });
+    await ev(() => { const s = document.getElementById('chatTarget'); s.value = 'song'; s.dispatchEvent(new Event('change')); });
+    // no song open: the message describes a new one (not a code change)
+    const codeReqs = log.filter((x) => x.kind === 'code').length;
+    await ev(() => { document.getElementById('input').value = 'a celtic jig with a fiddle'; document.getElementById('chat-form').requestSubmit(); });
+    await p.waitForFunction(() => document.querySelectorAll('#editForm .se-sec').length >= 2 && !!strudelAI.activeSong(), null, { timeout: 40000 });
+    expect(log.filter((x) => x.kind === 'code').length === codeReqs, 'Studio sent the message as a code change');
+    const target = await ev(() => document.getElementById('chatTarget').value);
+    expect(target === 'song', `the chat target after a new song: ${target}`);
+    // the song plays to its end (the playlist finishes): a chat edit still adds its sections — to the sheet, the
+    // arrangement and the editor (all its sections had been played, so none were re-arranged before)
+    await ev(() => { const secs = document.querySelectorAll('#editForm .se-sec'); secs[secs.length - 1].click(); });
+    await ev(() => [...document.querySelectorAll('#editForm .se-selrow button')].find((b) => /go/.test(b.textContent)).click());
+    await p.waitForFunction(() => !strudelAI.queue.running, null, { timeout: 90000 });
+    const before = await ev(() => { const sg = strudelAI.activeSong(); return { secs: sg.sheet.sections.length, blocks: sg.blocks.filter((b) => !b.fillStep && !b.gap).length, ed: document.querySelectorAll('#editForm .se-sec').length }; });
+    await ev(() => { document.getElementById('input').value = 'ADDVERSES build out a couple more verses'; document.getElementById('chat-form').requestSubmit(); });
+    await p.waitForFunction((n) => strudelAI.activeSong()?.sheet.sections.length === n + 2, before.secs, { timeout: 20000 });
+    await p.waitForTimeout(300);
+    const after = await ev(() => { const sg = strudelAI.activeSong(); return { secs: sg.sheet.sections.length, blocks: sg.blocks.filter((b) => !b.fillStep && !b.gap).length, ed: document.querySelectorAll('#editForm .se-sec').length }; });
+    expect(after.blocks === before.blocks + 2 && after.ed === before.ed + 2, `the new verses aren't everywhere: ${JSON.stringify({ before, after })}`);
+  });
+
   await step('⬆ promotion: a jam becomes a song (opened in 🎼 Studio); the song becomes a 🎸 band and a 📻 station', async () => {
     await ev(() => strudelAI.setMode('jam'));
     await ev(() => document.querySelector('strudel-editor').editor.setCode('setcpm(124/4)\nkick: s("bd*4")\nhats: s("hh*8").gain(0.4)\nbass: note("a1 ~ a1 c2").s("sawtooth")'));

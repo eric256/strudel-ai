@@ -21,7 +21,7 @@ import { master, masterChain, setup as setup_master_panel } from './features/mas
 import { keysState, noteOn, noteOff, setup as setup_keys } from './features/keys.js';
 import { padsState, loadPads, pads, padIsOn, savePads, padOnce, setPad, renderPads, setup as setup_pads } from './features/pads.js';
 import { playSong, mySongs, favorites, download, songToJSON, songFromJSON, loadFavorites, setup as setup_song_library } from './features/song-library.js';
-import { rawSheet, songEdit, setup as setup_song_editor } from './features/song-editor.js';
+import { rawSheet, songEdit, editWhenWritten, setup as setup_song_editor } from './features/song-editor.js';
 import { songPads } from './features/song-pads.js';
 import { mp3TakeEnd, mp3, songMp3, setup as setup_mp3 } from './features/mp3.js';
 import { downloadDebugLog, debugContext } from './features/debug.js';
@@ -1375,15 +1375,20 @@ export function createSongFromChat(text) {
   if (!song) return;
   if (!/[|–—:]\s/.test(text)) { song.title = 'New song'; song.autoTitle = true; } // the AI names it with the song sheet
   song.from = 'chat';
+  const studio = currentMode() === 'studio';
   const playingNow = queue.running && queue.songs[queue.current];
-  addToPlaylist(song, { at: 'next' });
-  addMsg('info', playingNow
-    ? `✨ “${song.title}” — writing it now; it plays after “${playingNow.title}” (⏭ to skip there)`
-    : `✨ “${song.title}” — writing it now; it starts as soon as its first section is ready`);
+  // 🎼 Studio: the new song is the one you work on — it plays now and opens in ✎ Edit song, and the chat changes it
+  addToPlaylist(song, { at: studio ? 'now' : 'next' });
+  addMsg('info', studio
+    ? `✨ “${song.title}” — writing it now; it plays and opens in ✎ Edit song as soon as its first section is ready, and the chat then changes this song`
+    : playingNow
+      ? `✨ “${song.title}” — writing it now; it plays after “${playingNow.title}” (⏭ to skip there)`
+      : `✨ “${song.title}” — writing it now; it starts as soon as its first section is ready`);
+  if (studio) editWhenWritten(song);
   // back to working on the (new) song
-  $('chatTarget').value = 'auto';
-  save({ chatTarget: 'auto' });
-  renderChatTarget();
+  const target = studio ? 'song' : 'auto';
+  $('chatTarget').value = target;
+  $('chatTarget').dispatchEvent(new Event('change'));
   songsChanged();
   showPanel('song');
 }
@@ -1667,9 +1672,12 @@ for (const b of [$('logDownload'), ...document.querySelectorAll('.log-dl')]) {
 // --- chat ↔ song / pads: the context the chat needs, and applying its replies
 /** The song chat should work on: the one playing (if written from a sheet), else the one open in the Songs tab. */
 export function activeSong() {
+  const editing = songEdit.sg?.sheet && songEdit.sg.library ? songEdit.sg : null;
+  // 🎼 Studio works on the song on the bench (open in ✎ Edit song), even while another plays
+  if (editing && currentMode() === 'studio') return editing;
   const playing = queue.running ? queue.songs[queue.current] : null;
   if (playing?.sheet && playing.library) return playing;
-  if (songEdit.sg?.sheet && songEdit.sg.library) return songEdit.sg;
+  if (editing) return editing;
   const viewed = viewedSong('set');
   return viewed?.sheet && viewed.library ? viewed : null;
 }
@@ -1700,6 +1708,8 @@ export function chatContext(text) {
  */
 export function chatTarget() {
   const v = $('chatTarget').value;
+  // 🎼 Studio never edits the code on its own: the chat works on the song, waits for one being written, or writes one
+  if (currentMode() === 'studio' && (v === 'song' || v === 'auto')) return songEdit.pending ? 'wait' : activeSong() ? 'song' : 'new';
   if (v === 'song') return activeSong() ? 'song' : 'auto';
   if (v === 'auto' && songSectionInEditor()) return 'song';
   return v;
@@ -1726,7 +1736,11 @@ function renderChatTarget() {
   const opt = $('chatTarget').querySelector('option[value="song"]');
   const label = sg ? `🎵 whole song: ${sg.title.slice(0, 28)}` : '🎵 whole song (none open)';
   if (opt.textContent !== label) opt.textContent = label;
-  const auto = $('chatTarget').value === 'auto' && songSectionInEditor();
+  const auto = $('chatTarget').value === 'auto' && (songSectionInEditor() || (currentMode() === 'studio' && !!sg));
+  if (currentMode() === 'studio' && (!sg || songEdit.pending) && ['song', 'auto'].includes($('chatTarget').value)) {
+    $('input').placeholder = songEdit.pending ? `“${songEdit.pending.title}” is being written — the chat works on it once it opens in ✎ Edit song` : 'No song open — describe one and it\'s written and opened here (or open one in 🎵 Songs → ✎ Edit)';
+    return;
+  }
   $('chatTarget').querySelector('option[value="auto"]').textContent = auto ? 'auto → whole song' : 'auto';
   if ($('chatTarget').value === 'new') { $('input').placeholder = 'Describe a new song: style, tempo, key, mood, instruments… (or “Title | description”)'; return; }
   $('input').placeholder = { song: sg ? `Change the whole song “${sg.title}”… (sections, chords, parts)` : 'No song is open — open one in 🎵 Songs (Enter to send)', pads: 'Program or press the pads… (Enter to send)', code: 'Change the code in the editor… (Enter to send, Shift+Enter for newline)' }[auto ? 'song' : $('chatTarget').value]

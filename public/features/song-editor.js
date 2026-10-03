@@ -59,6 +59,12 @@ export async function applySongEdit(sg, raw, partsCode = null) {
     rearrangeSong(x);
   }
   if ([sg, ...linkedSongs(sg)].some(isMine)) saveMySongs();
+  // the song editor shows the new version (a chat edit replaces edits there that weren't applied)
+  if (draft && [sg, ...linkedSongs(sg)].includes(draft.sg)) {
+    const lost = draft.dirty;
+    openDraft(draft.sg, { sel: draft.sel, open: draft.open, msg: `🎵 updated${lost ? ' — your changes that weren\'t applied were replaced' : ''}` });
+    renderSongEditor();
+  }
   songsChanged();
   const tempos = sheet.sections.map((x) => `${x.name} ${x.bpm || sheet.bpm}${x.shift ? ` key ${signed(x.shift)}` : ''}`).join(' · ');
   clog('ok', `🎵 “${sg.title}” updated: ${sheet.sections.length} sections, ${sheet.sections.reduce((a, x) => a + x.bars, 0)} bars — ${tempos} bpm`);
@@ -90,15 +96,18 @@ export async function refreshPlayingSection(sg) {
 function rearrangeSong(sg) {
   const fresh = arrangeSong(sg);
   fresh.forEach((st) => Object.assign(st, { song: sg }));
-  const inEngine = sg.blocks?.some((b) => engine.steps.includes(b));
-  if (!inEngine) {
+  // only the song playing now keeps the sections it has played; a song that finished (or hasn't started) is rebuilt whole
+  const current = queue.running && queue.songs[queue.current] === sg;
+  const isStarted = (b) => ['playing', 'done', 'armed'].includes(b.status);
+  const waiting = (sg.blocks || []).filter((b) => !isStarted(b) && engine.steps.includes(b));
+  if (!current && !waiting.length) {
     sg.blocks = fresh;
   } else {
-    const started = sg.blocks.filter((b) => ['playing', 'done', 'armed'].includes(b.status) && engine.steps.includes(b));
+    const started = current ? sg.blocks.filter((b) => isStarted(b) && engine.steps.includes(b)) : [];
     const lastStarted = started[started.length - 1];
     const fromSec = lastStarted ? sg.sheet.sections.findIndex((x) => x.name === lastStarted.section?.name) + 1 || started.filter((b) => !b.fillStep).length : 0;
     const tail = fresh.filter((st) => sg.sheet.sections.indexOf(st.section) >= fromSec);
-    const pending = sg.blocks.filter((b) => !started.includes(b));
+    const pending = current ? sg.blocks.filter((b) => !started.includes(b)) : waiting;
     const at = pending.length ? engine.steps.indexOf(pending[0]) : engine.steps.indexOf(lastStarted) + 1;
     engine.steps = engine.steps.filter((b) => !pending.includes(b));
     engine.steps.splice(at, 0, ...tail);
@@ -113,9 +122,28 @@ function rearrangeSong(sg) {
 }
 
 // ✎ Edit song: a panel with the song's sections / chords / parts as text lines and its parts code
-export const songEdit = { sg: null };
+export const songEdit = { sg: null, pending: null };
+/**
+ * Open a song in the editor as soon as it's written (its sheet, parts and first sections): a new song in 🎼 Studio, a
+ * promoted jam. Until then it's the pending song (the chat waits for it instead of changing the code).
+ */
+export function editWhenWritten(song) {
+  songEdit.pending = song;
+  const wait = setInterval(() => {
+    if (songEdit.pending !== song) { clearInterval(wait); return; } // another song took its place
+    if (song.sheet && song.library && song.blocks?.length) {
+      clearInterval(wait);
+      songEdit.pending = null;
+      openSongEditor(queue.songs.find((x) => x === song || x.copyOf === song) || song);
+    } else if (song.status === 'failed' || !queue.songs.some((x) => x === song || x.copyOf === song)) {
+      clearInterval(wait);
+      songEdit.pending = null;
+    }
+  }, 500);
+}
 export function openSongEditor(sg) {
   songEdit.sg = sg;
+  if (songEdit.pending && songEdit.pending !== sg && sg.copyOf !== songEdit.pending) songEdit.pending = null; // you opened another song
   $('editForm').__sg = null; // render the editor for this song
   ws.open('edit');
   ws.api?.getPanel('edit')?.api.setTitle?.(`✎ ${sg.title}`);
