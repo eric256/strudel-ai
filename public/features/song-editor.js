@@ -7,7 +7,7 @@ import { patternLines } from '../lib/labels.js';
 import { wrapCode } from '../format.js';
 import { isMine, saveMySongs } from './song-library.js';
 import { signed } from '../lib/util.js';
-import { arrangeSong, carryLiveState, sectionCode } from '../lib/arrange.js';
+import { arrangeSong, carryLiveState, sectionAfterEdit, sectionCode } from '../lib/arrange.js';
 import { loadPads, padsState } from './pads.js';
 import { STYLE_NAMES } from '../master.js';
 import { $, atSectionStart, clog, engine, evaluateCode, fadeCycles, getCode, isPlaying, jumpTo, nextBoundary, queue, setHold, state, ws } from '../app.js';
@@ -79,16 +79,22 @@ export function linkedSongs(sg) {
  * After a song edit: switch the section that's playing to its new version on the next bar (keeping faders,
  * mute / solo and its place in the phrase). Returns true when it did.
  */
-export async function refreshPlayingSection(sg) {
-  if (!queue.running || queue.songs[queue.current] !== sg || state.pending || engine.paused || !isPlaying()) return false;
+export async function refreshPlayingSection(song) {
+  // the copy of the song that's playing (a song played again plays a copy)
+  const sg = [song, ...linkedSongs(song)].find((x) => queue.songs[queue.current] === x);
+  if (!sg || !queue.running || state.pending || engine.paused || !isPlaying()) return false;
   const st = engine.steps.find((x) => x.status === 'playing' && x.song === sg);
-  const sec = st?.section && sg.sheet.sections.find((x) => x.name === st.section.name);
+  if (!st?.section) return false;
+  const k = sectionAfterEdit(sg.sheet.sections, st.section.name, st.secIndex ?? -1, st.secNth ?? -1);
+  const sec = sg.sheet.sections[k];
   if (!sec) return false;
   const code = atSectionStart(carryLiveState(getCode(), sectionCode(sg, sec, { fill: st.fillStep || false })), st.startedAt ?? 0);
   const err = await evaluateCode(code, { at: nextBoundary(1), fade: fadeCycles(sg), label: `“${sg.title}” ${st.prompt} (edited)` });
   if (err) { clog('warn', `the edited ${st.prompt} didn't play (${err.message}) — it changes from the next section`); return false; }
   st.code = code;
   st.section = sec;
+  st.secIndex = k;
+  st.secNth = sg.sheet.sections.slice(0, k).filter((x) => x.name === sec.name).length;
   return true;
 }
 
@@ -105,7 +111,8 @@ function rearrangeSong(sg) {
   } else {
     const started = current ? sg.blocks.filter((b) => isStarted(b) && engine.steps.includes(b)) : [];
     const lastStarted = started[started.length - 1];
-    const fromSec = lastStarted ? sg.sheet.sections.findIndex((x) => x.name === lastStarted.section?.name) + 1 || started.filter((b) => !b.fillStep).length : 0;
+    // go on from the section after the one playing (found by its place in the song, not just its name: A, B, A …)
+    const fromSec = lastStarted ? sectionAfterEdit(sg.sheet.sections, lastStarted.section?.name, lastStarted.secIndex ?? started.filter((b) => !b.fillStep).length - 1, lastStarted.secNth ?? -1) + 1 : 0;
     const tail = fresh.filter((st) => sg.sheet.sections.indexOf(st.section) >= fromSec);
     const pending = current ? sg.blocks.filter((b) => !started.includes(b)) : waiting;
     const at = pending.length ? engine.steps.indexOf(pending[0]) : engine.steps.indexOf(lastStarted) + 1;

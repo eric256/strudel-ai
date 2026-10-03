@@ -51,11 +51,12 @@ export function startMockAI(port) {
       else if (sys.startsWith('You write the PART LIBRARY')) { kind = 'library'; content = library(last); }
       else if (sys.startsWith('You are the music director')) { kind = 'songs'; content = 'Night Drive | synthwave with a driving bass\nRain Loop | slow lo-fi with soft keys\nSky Steps | bright house with piano chords'; }
       // a whole-song chat edit asking for ADDVERSES: the active song's sheet with two more verses before its last section
+      // (repeats of the verse, with its name — songs repeat names: A, B, A)
       else if (/TARGET: THE WHOLE SONG/.test(last) && /ADDVERSES/.test(last)) {
         kind = 'song';
         const sh = JSON.parse(last.match(/sheet JSON[^\n]*\n(\{.*\})\n/)[1]);
         const verse = sh.sections[1] || sh.sections[0];
-        sh.sections.splice(sh.sections.length - 1, 0, { ...verse, name: 'verse 3' }, { ...verse, name: 'verse 4' });
+        sh.sections.splice(sh.sections.length - 1, 0, { ...verse }, { ...verse });
         content = `I added two more verses.\n\`\`\`song\n${JSON.stringify(sh)}\n\`\`\``;
       }
       else { kind = 'code'; content = 'Here you go.\n```javascript\nsetcpm(120/4)\ndrums: s("bd*4").bank("RolandTR909")\nlead: note("c4 e4 g4").s("square").gain(0.3)\n```'; }
