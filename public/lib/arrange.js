@@ -36,15 +36,20 @@ export function sectionCode(song, sec, { fill = false } = {}) {
   return lines.join('\n') + '\n';
 }
 
-/** Engine steps for a sheet song: one per section, plus a one-bar fill before choruses / drops. */
+/** Bars of silence after a song that stops hard (ending "cut"), before the next song. */
+export const GAP_BARS = 1;
+/**
+ * Engine steps for a sheet song: one per section, plus a one-bar fill that joins two different sections (into a chorus,
+ * out of a verse, into the bridge …), and a bar of silence after a hard ending.
+ */
 export function arrangeSong(song) {
   const sh = song.sheet;
   const fp = fillPart(sh);
   const steps = [];
   sh.sections.forEach((sec, j) => {
     const next = sh.sections[j + 1];
-    const wantFill = fp && next && ['chorus', 'drop'].includes(next.type) && sec.bars >= 4 &&
-      sec.play.some((x) => x.part === fp.id) && next.type !== sec.type;
+    const wantFill = fp && next && sec.bars >= 4 && next.type !== sec.type && next.type !== 'outro' &&
+      sec.play.some((x) => x.part === fp.id);
     const prevFill = steps[steps.length - 1]?.fillStep;
     steps.push({
       bars: wantFill ? sec.bars - 1 : sec.bars, prompt: sec.name, section: sec, code: sectionCode(song, sec),
@@ -56,6 +61,11 @@ export function arrangeSong(song) {
       steps.push({ bars: 1, prompt: `${sec.name} · fill`, section: sec, fillStep: true, code: sectionCode(song, sec, { fill: true }), status: 'ready', error: null, fade: 0 });
     }
   });
+  if (sh.ending === 'cut') {
+    const last = sh.sections[sh.sections.length - 1];
+    steps.push({ bars: GAP_BARS, prompt: '· silence', section: last, gap: true, status: 'ready', error: null, fade: 0,
+      code: `${tempoLine(sh.bpm, sh.meter)}\n// ── a moment of silence before the next song ──\nsilence\n` });
+  }
   return steps;
 }
 

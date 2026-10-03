@@ -2,6 +2,22 @@
 
 The version is in `package.json`. Bump it when you release. Open pages also notice *any* redeploy through the build id, which is a hash of the app files, even if the version wasn't bumped.
 
+## 1.44.0
+- **New presets:**
+  - **Stations:** 📻 *Blue Note Club* (small-combo jazz), *Tokyo Fusion* (80s Japanese jazz fusion and city pop) and *Pop Radio*.
+  - **Bands:** fusion band (slap bass, FM electric piano, soprano-sax lead, synth brass), big band, jazz trio and pop studio.
+  - **Song forms:** jazz head & solos, fusion and pop anthem.
+- **Song forms are guides, not templates:** the AI keeps a form's shape but varies its section lengths (2, 4, 8, 12 or 16 bars) and may add, drop or repeat a section, so two techno tracks no longer both go 8 · 8 · 8 · 8. The app no longer rewrites the bar counts; it only caps sections at 16 bars and choruses at 4.
+- **Dynamics:**
+  - **Section volume:** intros and breakdowns softer, the last chorus loudest; the output follows it smoothly.
+  - **Solo sections:** one part takes the lead with its *solo* variant, brought forward while the others step back.
+  - **Endings:** a song fades out over its last section (most songs), or stops hard with a bar of silence before the next song.
+  - **Key and tempo changes** are now encouraged where the genre does them: a lifted last chorus, jazz and fusion key changes, live-band tempo pushes.
+- **More fills:** a one-bar drum fill now joins any two different kinds of section (into a chorus, back to a verse, into the bridge or the solo), not just choruses and drops.
+- **More varied song titles:** the AI is given the titles already used and steered away from clichés (neon, midnight, echo, dreams …) towards places, times, names, phrases and fitting foreign words.
+- **Song editor:** each section's volume and solo part, and the song's ending (fade out or stop with silence).
+- **Tests:** unit tests for section volume, solos, endings and the new fills. A new smoke step checks that a solo brings its part forward and that a hard ending leaves a bar of silence.
+
 ## 1.43.0
 - **A new song editor (✎ Edit song)** replaces the text boxes. You edit a draft and **✓ apply** it; if the song is playing, the section playing now changes from the next bar.
   - **Sections timeline:** each section is sized by its bars. Click one to edit its name, bars, chords, key change and tempo. Move it (← → or drag), duplicate it, delete it or add one, and while the song plays, **⏭ go** there or **🔁 loop** it while you work.

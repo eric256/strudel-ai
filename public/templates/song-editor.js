@@ -5,7 +5,8 @@ import { html, nothing, repeat } from '../html.js';
 /**
  * v: { title, bpm, meter, meters, scale, master, masters, dirty, msg, bad, playing, canJump,
  *      sections: [{ i, name, bars, chords, selected }], totalBars,
- *      sel: { i, name, bars, chords, shift, bpm } | null, chordNames: [..],
+ *      sel: { i, name, bars, chords, shift, bpm, level (%), solo } | null, chordNames: [..], partNames: [..],
+ *      ending: 'fade' | 'cut' (how the song ends: its last section fades out, or it stops with a bar of silence after),
  *      grid: { parts: [{ name, color }], rows: [[{ state: 'off' | 'main' | 'variant', label, enter, title }]] } (rows[part][section]),
  *      chords: [{ name, chords, used }],
  *      parts: [{ i, name, role, sound, variants, color, open, defs: [{ id, code }] }], roles: [..] }
@@ -23,6 +24,8 @@ export function songEditor(v, act) {
       <label>meter <select @change=${(e) => act.field('meter', e.target.value)}>${v.meters.map((m) => html`<option ?selected=${m === v.meter}>${m}</option>`)}</select></label>
       <label>scale <input class="se-scale" .value=${v.scale} @change=${(e) => act.field('scale', e.target.value)} /></label>
       <label title="The master style: the mastering on the whole song (tweak it live in 🎛 Master)">master <select @change=${(e) => act.field('master', e.target.value)}>${v.masters.map((n) => html`<option ?selected=${n === v.master}>${n}</option>`)}</select></label>
+      <label title="How the song ends: the last section fades out, or it stops on the last bar with a moment of silence before the next song">ending <select @change=${(e) => act.field('ending', e.target.value)}>
+        <option value="fade" ?selected=${v.ending !== 'cut'}>fade out</option><option value="cut" ?selected=${v.ending === 'cut'}>stop + silence</option></select></label>
       <span class="spacer"></span>
       ${v.playing ? nothing : html`<button title="Play this song" @click=${act.play}>▶ play</button>`}
       <button class="se-apply${v.dirty ? ' dirty' : ''}" ?disabled=${!v.dirty} title="Check the changes and switch the song over (from its next section, if it's playing)" @click=${act.apply}>✓ apply</button>
@@ -37,7 +40,7 @@ export function songEditor(v, act) {
           title="${s.name} · ${s.bars} bars · chords ${s.chords}" @click=${() => act.selectSection(s.i)}
           @dragstart=${(e) => { e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', String(s.i)); act.dragSection(s.i); }}
           @dragover=${(e) => e.preventDefault()} @drop=${(e) => { e.preventDefault(); act.dropSection(s.i); }}>
-          <b>${s.name}</b><span>${s.bars}</span><small>${s.chords}</small></div>`)}
+          <b>${s.solo ? '★ ' : ''}${s.name}</b><span>${s.bars}${s.level !== 1 ? html` · ${Math.round(s.level * 100)}%` : nothing}</span><small>${s.chords}</small></div>`)}
       <button class="se-add" title="Add a section at the end" @click=${act.addSection}>＋</button>
     </div>
 
@@ -47,6 +50,9 @@ export function songEditor(v, act) {
       <label>chords <select @change=${(e) => act.sectionField(v.sel.i, 'chords', e.target.value)}>${v.chordNames.map((n) => html`<option ?selected=${n === v.sel.chords}>${n}</option>`)}</select></label>
       <label title="Move this section's key, in semitones">key ${num(v.sel.shift, 'shift', { min: -12, max: 12, placeholder: '0', on: 'sectionField', args: [v.sel.i] })}</label>
       <label title="This section's own tempo (empty: the song's)">bpm ${num(v.sel.bpm, 'bpm', { min: 40, max: 220, placeholder: String(v.bpm), on: 'sectionField', args: [v.sel.i] })}</label>
+      <label title="This section's volume, % of the mix: softer intros and breakdowns, a bigger last chorus">volume ${num(v.sel.level, 'level', { min: 30, max: 130, on: 'sectionField', args: [v.sel.i] })}%</label>
+      <label title="A solo: this part takes the lead (it steps forward) while the others step back">solo <select @change=${(e) => act.sectionField(v.sel.i, 'solo', e.target.value)}>
+        <option value="" ?selected=${!v.sel.solo}>—</option>${v.partNames.map((n) => html`<option ?selected=${n === v.sel.solo}>${n}</option>`)}</select></label>
       <span class="spacer"></span>
       <button title="Move it earlier" @click=${() => act.moveSection(v.sel.i, -1)}>←</button>
       <button title="Move it later" @click=${() => act.moveSection(v.sel.i, 1)}>→</button>

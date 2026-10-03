@@ -203,7 +203,7 @@ Encoding happens in the browser while you record (lamejs, 192 kbps stereo), so n
 
 ### 🎼 Song forms
 A form lists a song's sections with their lengths, e.g. `intro 4, verse 8, pre-chorus 4, chorus 8, …, outro 4`.
-- **Built-in forms:** pop, verse-chorus, edm, house, techno, trance, drum & bass, hip hop, lo-fi, jazz AABA, dub, chiptune, build & release, ambient and short. They use 4- and 8-bar sections, about 32–64 bars per song.
+- **Built-in forms:** pop, pop anthem, verse-chorus, edm, house, techno, trance, drum & bass, hip hop, lo-fi, jazz AABA, jazz head & solos, fusion, dub, chiptune, build & release, ambient and short, about 32–64 bars per song.
 - **Long forms, about 4 minutes:** **long ballad** (80 bars: sparse verses, fuller choruses, a stripped breakdown, the biggest choruses last) and **ambient journey** (80 bars: intro, drift, A, A′, swell, B, B′, still, return, outro). For these the AI is told that every section must change something: an alternate line, a part coming in or out, a layer added or dropped. Ambient parts are slow-moving textures.
 - **🎼 edit forms** (in the Songs and Station tabs) opens the editor:
   - Change a form's name, what it's *used for* (genres and moods, which is how *auto* picks it) and its sections.
@@ -211,7 +211,11 @@ A form lists a song's sections with their lengths, e.g. `intro 4, verse 8, pre-c
   - **restore built-in forms** brings the originals back and keeps your own.
   - Forms are saved in the browser.
 - **form** (in each tab): *auto* lets the AI pick the form that fits each song's genre, or you choose one form for every song.
-- **The form decides section lengths.** If the AI returns the form's sections, their bar counts are replaced with the form's. If it returns a different number of sections, each one is capped at the form's longest section, or at 16 bars when no form matches.
+- **A form is a guide, not a template.** The song keeps the form's shape (how it opens, builds, peaks and ends). The AI varies the details from song to song:
+  - section lengths: a 2-bar riser, a 12-bar groove, a 16-bar peak;
+  - an added, dropped or repeated section.
+
+  Sections are capped at 16 bars, and choruses at 4.
 
 ### 🎸 Bands and the sound guide
 A band is a line-up of instruments (`role: sound — what it plays`) plus a master style.
@@ -284,7 +288,14 @@ Every finished song has a toolbar:
 
 **Following along:** in a song view, the playing section fills up as it plays and shows `bar 3/8 · next in 0:06`, so you know when the next section starts. It adds `then ↑ 108 bpm` when the next section changes tempo. Section lines mark tempo changes (`♩ ↑ 108 bpm`) and key moves (`key +2`, `key home`).
 
-**Key and tempo can move:** where the genre does it, a section may lift the key (e.g. a pop or gospel last chorus +1 or +2 semitones) or push the tempo a little (up to ±8%). Chords and melodies move with the key and drums never do. Dance genres like techno and house keep one key and tempo. The song view marks those sections (`key +2`, `108 bpm`), and the song editor takes them as an optional last column: `chorus | 4 | chorus | drums, bass | key +2, 108 bpm`.
+**Dynamics:**
+- **Volume:** each section has its own (quieter intros and breakdowns, a bigger last chorus). The output follows it smoothly as the sections change.
+- **Solo sections:** one part takes the lead and plays its *solo* variant. The mixer brings it forward and softens the others.
+- **Fills:** a drum fill joins two sections whenever the next one is a different kind (verse → chorus, chorus → verse, into the bridge, the solo, the drop …).
+- **Endings:** a song either **fades out** over its last section, or **stops hard** with a bar of silence before the next song.
+- **In the song editor:** a section's **volume** and **solo**, and the song's **ending**.
+
+**Key and tempo can move:** where the genre does it, a section may lift the key (a pop or gospel last chorus +1 or +2 semitones, a jazz or Japanese-fusion key change for the last theme) or move the tempo a little (up to ±8%). Chords and melodies move with the key and drums never do. Dance genres like techno and house keep one key and tempo. The song view marks those sections (`key +2`, `108 bpm`), and the song editor takes them as an optional last column: `chorus | 4 | chorus | drums, bass | key +2, 108 bpm`.
 
 **Song pads** are made from the song itself, with no AI:
 - **one pad per song part** (drums, bass, keys, hook …), then its extra variants (half-time drums, fills). A part pad is lit while the playing section has that part. Pressing it mutes or unmutes the section's own line (the mute carries into the next sections). If the section doesn't have the part, pressing it plays the part on top. Part pads carry their code, so they work even when another song is playing;

@@ -29,7 +29,8 @@ export function rawSheet(sh) {
     bpm: sh.bpm, meter: normMeter(sh.meter), key: sh.key, scale: sh.scale, hook: sh.hook,
     chords: Object.fromEntries(Object.entries(sh.chords).map(([k, v]) => [k, v.replace(/^<|>$/g, '')])),
     parts: sh.parts.map((p) => ({ name: p.id, role: p.role, sound: p.sound, variants: p.variants, desc: p.desc })),
-    sections: sh.sections.map((x) => ({ name: x.name, bars: x.bars, chords: x.chords, play: x.play.map((y) => (y.variant === 'main' ? y.part : `${y.part}.${y.variant}`) + (y.enter ? `@${y.enter}` : '')), ...(x.shift ? { shift: x.shift } : {}), ...(x.bpm ? { bpm: x.bpm } : {}) })),
+    sections: sh.sections.map((x) => ({ name: x.name, bars: x.bars, chords: x.chords, play: x.play.map((y) => (y.variant === 'main' ? y.part : `${y.part}.${y.variant}`) + (y.enter ? `@${y.enter}` : '')), ...(x.shift ? { shift: x.shift } : {}), ...(x.bpm ? { bpm: x.bpm } : {}), ...(x.level ? { level: x.level } : {}), ...(x.solo ? { solo: x.solo } : {}) })),
+    ending: sh.ending || 'fade',
   };
 }
 /**
@@ -160,6 +161,8 @@ const edit = {
     else if (k === 'bars') sec.bars = Math.max(1, Math.min(64, Math.round(Number(v) || sec.bars)));
     else if (k === 'shift') { const n = Math.round(Number(v) || 0); if (n) sec.shift = n; else delete sec.shift; }
     else if (k === 'bpm') { const n = Math.round(Number(v) || 0); if (n) sec.bpm = n; else delete sec.bpm; }
+    else if (k === 'level') { const n = Math.round(Number(v) || 100) / 100; if (Math.abs(n - 1) > 0.01) sec.level = Math.max(0.3, Math.min(1.3, n)); else delete sec.level; }
+    else if (k === 'solo') { if (v) { sec.solo = v; if (!sec.play.some((str) => parsePlay(str).part === v)) sec.play.push(v); } else delete sec.solo; }
     else sec[k] = v;
     changed();
   },
@@ -332,16 +335,18 @@ export function renderSongEditor() {
   render(T.songEditor({
     title: draft.title, bpm: r.bpm, meter: r.meter, meters: METERS, scale: r.scale, master: r.master, masters: STYLE_NAMES,
     dirty: draft.dirty, msg: draft.msg, bad: draft.bad, playing, canJump: playing && !draft.dirty,
-    sections: r.sections.map((x, i) => ({ i, name: x.name, bars: x.bars, chords: x.chords, selected: i === draft.sel })),
+    sections: r.sections.map((x, i) => ({ i, name: x.name, bars: x.bars, chords: x.chords, selected: i === draft.sel, solo: x.solo || '', level: x.level || 1 })),
     totalBars: r.sections.reduce((a, x) => a + x.bars, 0),
-    sel: r.sections[draft.sel] ? { i: draft.sel, name: r.sections[draft.sel].name, bars: r.sections[draft.sel].bars, chords: r.sections[draft.sel].chords, shift: r.sections[draft.sel].shift || '', bpm: r.sections[draft.sel].bpm || '' } : null,
+    sel: r.sections[draft.sel] ? { i: draft.sel, name: r.sections[draft.sel].name, bars: r.sections[draft.sel].bars, chords: r.sections[draft.sel].chords, shift: r.sections[draft.sel].shift || '', bpm: r.sections[draft.sel].bpm || '',
+      level: Math.round((r.sections[draft.sel].level || 1) * 100), solo: r.sections[draft.sel].solo || '' } : null,
+    ending: r.ending || 'fade', partNames: parts,
     chordNames: Object.keys(r.chords),
     grid: {
       parts: parts.map((name) => ({ name, color: vizColor(name) })),
       rows: parts.map((name) => r.sections.map((sec) => {
         const x = sec.play.map(parsePlay).find((y) => y.part === name);
         if (!x) return { state: 'off', label: '', enter: '', title: `${name} doesn't play in ${sec.name} — click to add it` };
-        return { state: x.variant === 'main' ? 'main' : 'variant', label: x.variant === 'main' ? '●' : x.variant, enter: x.enter,
+        return { state: x.variant === 'main' ? 'main' : 'variant', label: sec.solo === name ? `★ ${x.variant === 'main' ? '' : x.variant}`.trim() : x.variant === 'main' ? '●' : x.variant, enter: x.enter,
           title: `${name}${x.variant === 'main' ? '' : `.${x.variant}`} in ${sec.name}${x.enter ? ` (${ENTER_TITLE[x.enter]})` : ''} — click: next variant / off · right-click: how it enters` };
       })),
     },

@@ -8,7 +8,7 @@ import { setScales, fixScaleString } from '../public/lib/scales.js';
 import { DEFAULT_FORMS, parseFormSections, formBars, findIn, formsForRequest } from '../public/lib/forms.js';
 import { DEFAULT_BANDS, parseInstruments, enforceBand, bandsForRequest } from '../public/lib/bands.js';
 import { normalizeSheet, libraryIds, fillPart, isFnPart, miniStrings } from '../public/lib/sheet.js';
-import { sectionCode, arrangeSong, carryLiveState, LIB_START, SEC_START } from '../public/lib/arrange.js';
+import { GAP_BARS, sectionCode, arrangeSong, carryLiveState, LIB_START, SEC_START } from '../public/lib/arrange.js';
 import { parseJSONLoose, closest, esc } from '../public/lib/util.js';
 import { normStyle, styleParams, diffParams } from '../public/master.js';
 
@@ -70,7 +70,7 @@ test('forms: sections parse, lists are searched by name', () => {
   assert.deepEqual(parseFormSections('intro 4, verse 8\nchorus: 4 bars'), [{ name: 'intro', bars: 4 }, { name: 'verse', bars: 8 }, { name: 'chorus', bars: 4 }]);
   assert.equal(formBars({ sections: 'intro 4, A 8, outro 4' }), 16);
   assert.equal(findIn(DEFAULT_FORMS, ' POP ').name, 'pop');
-  assert.match(formsForRequest(DEFAULT_FORMS, 'lo-fi'), /use exactly this one \(set "form": "lo-fi"\)/);
+  assert.match(formsForRequest(DEFAULT_FORMS, 'lo-fi'), /build the song on this one \(set "form": "lo-fi"\); it's a guide/);
   assert.match(formsForRequest(DEFAULT_FORMS, 'auto'), /pick the one that fits/);
 });
 
@@ -112,7 +112,7 @@ test('normalizeSheet repairs and bounds what the AI writes', () => {
   assert.equal(sh.chords.chorus, '<F^7 G Am Am>');
   assert.doesNotMatch(sh.hook, /script/);
   assert.deepEqual(sh.parts.map((p) => p.id), ['drums', 'bass', 'lead']);
-  assert.deepEqual(sh.sections.map((x) => x.bars), [4, 8, 4, 8, 4], 'the "short" form decides the bars; choruses are 4 at most');
+  assert.deepEqual(sh.sections.map((x) => x.bars), [16, 8, 4, 8, 4], 'the form is a guide: lengths stay (up to 16 bars); choruses are 4 at most');
   assert.deepEqual(sh.sections[0].play, [{ part: 'bass', variant: 'main' }, { part: 'lead', variant: 'main', enter: 'in' }]);
   assert.equal(sh.sections[1].shift, 3);
   assert.equal(sh.sections[1].bpm, 216);
@@ -163,7 +163,7 @@ test('arranging: section code, key shifts, tempo, fills', () => {
   assert.match(code, /^drums: drums_main\.postgain/m, 'drums are never transposed');
   assert.match(code, /^bass: bass_alt1\(sectionChords\)\.postgain/m);
   const intro = sectionCode(song, song.sheet.sections[0]);
-  assert.match(intro, /^lead: lead_main\.mask\("<0 0 1 1>"\)/m);
+  assert.match(intro, /^lead: lead_main\.mask\("<(0 ){8}(1 ){7}1>"\)/m, 'comes in halfway through the 16-bar intro');
   const steps = arrangeSong(song);
   const fill = steps.find((s) => s.fillStep);
   assert.ok(fill && fill.bars === 1, 'a one-bar fill before the chorus');
@@ -208,4 +208,39 @@ test('events: listeners, wildcard, unsubscribe, a failing listener does not stop
   once(); once(); once();
   await new Promise((r) => setTimeout(r, 40));
   assert.equal(n, 1);
+});
+
+test('dynamics: section level, a solo section, the ending', () => {
+  const raw = structuredClone(RAW);
+  raw.ending = 'cut';
+  raw.sections[0].level = 0.6;
+  raw.sections[2].level = 5;
+  raw.sections[3] = { name: 'solo', bars: 8, chords: 'verse', play: ['drums', 'bass'], solo: 'lead.solo' };
+  raw.parts[2].variants = ['main', 'solo'];
+  const sh = normalizeSheet(raw, 'auto', { ...ctx, enforceForm: false });
+  assert.equal(sh.sections[0].level, 0.6);
+  assert.equal(sh.sections[2].level, 1.3, 'the level is bounded');
+  assert.equal(sh.sections[3].solo, 'lead');
+  assert.deepEqual(sh.sections[3].play.find((x) => x.part === 'lead'), { part: 'lead', variant: 'solo' }, 'the soloist joins the section, on its solo variant');
+  assert.equal(sh.ending, 'cut');
+  assert.equal(normalizeSheet(structuredClone(RAW), 'auto', ctx).ending, 'fade', 'songs fade out unless they stop hard');
+});
+
+test('arranging: a fill joins every change of section type; a hard ending leaves a bar of silence', () => {
+  const raw = structuredClone(RAW);
+  raw.sections = [
+    { name: 'intro', bars: 4, chords: 'verse', play: ['drums', 'bass'] },
+    { name: 'verse', bars: 8, chords: 'verse', play: ['drums', 'bass'] },
+    { name: 'verse 2', bars: 8, chords: 'verse', play: ['drums', 'bass'] },
+    { name: 'bridge', bars: 8, chords: 'chorus', play: ['drums', 'lead'] },
+    { name: 'chorus', bars: 4, chords: 'chorus', play: ['drums', 'bass', 'lead'] },
+    { name: 'outro', bars: 4, chords: 'verse', play: ['drums', 'bass'] },
+  ];
+  raw.ending = 'cut';
+  const song = { title: 'T', sheet: normalizeSheet(raw, 'auto', { ...ctx, enforceForm: false }), library: LIB };
+  const steps = arrangeSong(song);
+  const fillsAfter = steps.filter((s) => s.fillStep).map((s) => s.prompt);
+  assert.deepEqual(fillsAfter, ['intro · fill', 'verse 2 · fill', 'bridge · fill'], 'into a new kind of section (not verse → verse, not into the outro)');
+  const last = steps[steps.length - 1];
+  assert.ok(last.gap && last.bars === GAP_BARS && /silence/.test(last.code), 'a bar of silence after a hard ending');
 });

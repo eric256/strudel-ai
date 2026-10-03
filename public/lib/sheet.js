@@ -3,7 +3,10 @@
 import { ident } from './util.js';
 import { fixScaleString } from './scales.js';
 import { normProgression, normMeter, sectionType, ENTER_MODES, MAX_KEY_SHIFT, MAX_TEMPO_DRIFT, MAX_CHORUS_BARS } from './music.js';
-import { parseFormSections, findIn } from './forms.js';
+
+/** The longest section the AI may write (your own edits may be longer). */
+const MAX_SECTION_BARS = 16;
+import { findIn } from './forms.js';
 import { enforceBand } from './bands.js';
 import { normStyle, styleParams, diffParams } from '../master.js';
 
@@ -62,17 +65,21 @@ export function normalizeSheet(raw, choice = 'auto', { enforceForm = true, band:
       const b2 = Math.max(bpm - lim, Math.min(bpm + lim, sbpm));
       if (b2 !== bpm) out.bpm = b2;
     }
+    // dynamics: the section's volume (1 = as mixed; softer intros and breakdowns, a bigger last chorus)
+    const level = parseFloat(sec.level ?? sec.volume ?? sec.dynamics);
+    if (Number.isFinite(level) && Math.abs(level - 1) > 0.01) out.level = Math.round(Math.max(0.3, Math.min(1.3, level)) * 100) / 100;
+    // a solo: one part takes the lead (it plays, louder) while the others step back
+    const soloId = sec.solo ? ident(String(sec.solo).split(/[.@]/)[0]) : null;
+    if (soloId && parts.some((p) => p.id === soloId)) {
+      out.solo = soloId;
+      if (!out.play.some((x) => x.part === soloId)) out.play.push({ part: soloId, variant: parts.find((p) => p.id === soloId).variants.includes('solo') ? 'solo' : 'main' });
+    }
     sections.push(out);
   }
   if (sections.length < 2) throw new Error('fewer than 2 sections');
-  // the form decides the section lengths: take its bar counts when the sections line up, otherwise cap them
+  // the form is a guide: the song keeps its shape, but sections may come and go and vary in length (up to 16 bars)
   const form = enforceForm ? (choice !== 'auto' && findIn(forms, choice)) || findIn(forms, raw.form) : null;
-  const fsecs = form ? parseFormSections(form.sections) : [];
-  if (fsecs.length === sections.length) sections.forEach((sec, j) => { sec.bars = fsecs[j].bars; });
-  else if (enforceForm) {
-    const cap = fsecs.length ? Math.max(...fsecs.map((x) => x.bars)) : 16;
-    for (const sec of sections) sec.bars = Math.min(sec.bars, cap);
-  }
+  if (enforceForm) for (const sec of sections) sec.bars = Math.min(sec.bars, MAX_SECTION_BARS);
   if (!enforceForm) for (const sec of sections) sec.bars = Math.max(1, Math.min(32, sec.bars));
   // choruses (and hooks) the AI writes are short and punchy: never longer than 4 bars (your own edits may be longer)
   if (enforceForm) for (const sec of sections) if (sec.type === 'chorus') sec.bars = Math.min(sec.bars, MAX_CHORUS_BARS);
@@ -81,8 +88,10 @@ export function normalizeSheet(raw, choice = 'auto', { enforceForm = true, band:
   if (band && enforceForm) enforceBand(parts, band);
   const masterStyle = normStyle(raw.master || raw.masterStyle) || normStyle(band?.master) || normStyle(form?.name || raw.form) || 'clean';
   const tweaks = raw.masterParams && typeof raw.masterParams === 'object' ? diffParams(styleParams(masterStyle, raw.masterParams), masterStyle) : {};
+  // the ending: the last section fades out, or stops hard with a moment of silence before the next song
+  const ending = /cut|stop|hard/i.test(String(raw.ending || '')) ? 'cut' : 'fade';
   return { form: form?.name || String(raw.form || ''), ...(band ? { band: band.name } : {}), master: masterStyle, ...(Object.keys(tweaks).length ? { masterParams: tweaks } : {}),
-    bpm, meter, key: String(raw.key || scale.replace(':', ' ')), scale, chords, hook, parts, sections };
+    bpm, meter, key: String(raw.key || scale.replace(':', ' ')), scale, chords, hook, parts, sections, ending };
 }
 
 /** The part that gets the one-bar fill before choruses / drops (drums with a "fill" variant). */

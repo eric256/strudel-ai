@@ -10,7 +10,7 @@ import { parseLabel, patternLines } from '../lib/labels.js';
 import { vizColor } from './visualizer.js';
 import { onceAFrame } from '../lib/events.js';
 import { audioCtx } from './hum-ui.js';
-import { $, docks, getCode, isPlaying, load, player, queue, save, scheduler, setupDock, ws } from '../app.js';
+import { $, cps, docks, getCode, isPlaying, load, player, queue, save, scheduler, setSectionLevel, setupDock, ws } from '../app.js';
 import { nowSong } from './song-lists.js';
 import { currentMode } from './modes.js';
 import { render } from '../html.js';
@@ -73,15 +73,24 @@ function channelNodes(base) {
   return orbit.__ch;
 }
 const anySolo = () => Object.values(mixer.ch).some((c) => c.solo);
+/** A solo section: its lead part steps forward, the others step back (on top of the faders). */
+const SOLO_LEAD = 1.15, SOLO_OTHERS = 0.45;
+const sectionGain = (base) => (!mixer.lead ? 1 : base === mixer.lead ? SOLO_LEAD : SOLO_OTHERS);
+/** The section playing now has a solo (its part), or not (null): every channel moves smoothly. */
+export function setSectionLead(part) {
+  if ((part || null) === (mixer.lead || null)) return;
+  mixer.lead = part || null;
+  for (const base of Object.keys(mixer.orbits)) applyChannel(base, 0.25);
+}
 const audible = (base) => { const c = chOf(base); return !c.mute && (!anySolo() || c.solo); };
-function applyChannel(base) {
+function applyChannel(base, ramp = 0.015) {
   const nodes = channelNodes(base);
   if (!nodes) return;
   const c = chOf(base);
   const t = nodes.gain.context.currentTime;
   for (const [b] of MX_BANDS) nodes[b].gain.setTargetAtTime(Number(c[b]) || 0, t, 0.02);
   nodes.pan.pan.setTargetAtTime(Number(c.pan) || 0, t, 0.02);
-  nodes.gain.gain.setTargetAtTime(audible(base) ? Number(c.vol) : 0, t, 0.015);
+  nodes.gain.gain.setTargetAtTime(audible(base) ? Number(c.vol) * sectionGain(base) : 0, t, ramp);
 }
 const applyAllChannels = () => { for (const base of Object.keys(mixer.orbits)) applyChannel(base); };
 
@@ -232,6 +241,19 @@ function setChannel(base, k, v) {
 
 /** Start-up: the statements that ran here when this was part of app.js (called from app.js at the same point). */
 export function setup() {
+  // a song's dynamics as its sections play: each section's volume, a solo's lead part forward, and the ending —
+  // the last section fades out (or, for a hard ending, a bar of silence follows it)
+  player.on('section', ({ step }) => {
+    const sec = step.section, sh = step.song?.sheet;
+    setSectionLead(!step.gap && sec?.solo || null);
+    if (step.gap) return;
+    const last = sh && sec === sh.sections[sh.sections.length - 1] && !step.fillStep;
+    if (last && sh.ending !== 'cut') setSectionLevel(sec.level ?? 1, { fadeOut: step.bars / Math.max(0.05, cps()) });
+    else setSectionLevel(sec?.level ?? 1);
+  });
+  const reset = () => { setSectionLead(null); setSectionLevel(1); };
+  player.on('transport', ({ state }) => { if (state === 'stopped') reset(); });
+  player.on('mode', reset);
   { // settings from before (EQ only) carry over
     const st = load();
     for (const [base, e] of Object.entries(st.mixerEq || {})) mixer.ch[base] = { ...MX_DEFAULT, ...e };

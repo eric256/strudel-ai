@@ -14,6 +14,7 @@ import { wrapCode } from '../format.js';
 import { arrangeSong, sectionCode } from '../lib/arrange.js';
 import { songPads } from './song-pads.js';
 import { songsChanged, updateSetButtons, setNowSong } from './song-lists.js';
+import { sessionSongs } from './playlist.js';
 import { mp3SongStep, mp3TakeEnd } from './mp3.js';
 import { loadPads, padsState } from './pads.js';
 import { $, addMsg, appendSteps, clog, dropUpcomingSteps, dryRun, engine, jumpTo, logPlayed, parseSongs, player, queue, startSetlist, stopSetlist, warnUser } from '../app.js';
@@ -53,11 +54,14 @@ async function sheetSounds() {
   const guide = soundGuide(avail);
   return guide.length ? `${catalog}\n\nSOUND GUIDE — what the most useful sounds are good for (role · character · genres); pick sounds that fit the genre and each other:\n${guide.join('\n')}` : catalog;
 }
+/** The titles of the other songs this session (so a new one gets a title of its own). */
+const usedTitles = (song) => [...new Set([...sessionSongs, ...queue.songs].filter((x) => x !== song && !x.autoTitle).map((x) => x.title))].slice(-30);
 async function writeSongSheet(song, signal) {
   const choice = formChoice(song), bandPick = bandChoice(song);
   const prev = queue.songs[queue.songs.indexOf(song) - 1]?.sheet;
   let msg = (song.autoTitle ? `SONG (no title yet — give it one in "title"): ${song.desc}\n` : `SONG: "${song.title}" — ${song.desc}\n`) +
     (prev ? `The previous song was ${prev.bpm} bpm, ${normMeter(prev.meter)}, in ${prev.key}; this one should flow from it (a related key or a nearby tempo is nice).\n` : '') +
+    (song.autoTitle && usedTitles(song).length ? `Titles already used — don't reuse them or their words: ${usedTitles(song).join(' · ')}\n` : '') +
     `\n${formsForRequest(choice)}\n\n${bandsForRequest(bandPick)}\n\nMASTER STYLES — set "master" to the one that fits (the band's, unless the description asks for another):\n${stylesForPrompt()}\n\nWrite the song sheet JSON.`;
   const sounds = await sheetSounds();
   let lastErr;
