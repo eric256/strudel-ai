@@ -181,6 +181,9 @@ export function setup() {
     $('input').value = '';
     addMsg('user', text);
     if ($('chatTarget').value === 'new') { createSongFromChat(text); return; }
+    // 🎼 Studio without a song: the message describes one (it's written and opened in the editor)
+    if (chatTarget() === 'new') { addMsg('info', '🎼 no song is open — writing a new one from that'); createSongFromChat(text); return; }
+    if (chatTarget() === 'wait') { addMsg('info', '🎼 the song is still being written — ask again once it opens in ✎ Edit song'); $('input').value = text; return; }
     setBusy(true);
     state.abort = new AbortController();
     try {

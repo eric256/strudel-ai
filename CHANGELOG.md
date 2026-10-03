@@ -2,6 +2,20 @@
 
 The version is in `package.json`. Bump it when you release. Open pages also notice *any* redeploy through the build id, which is a hash of the app files, even if the version wasn't bumped.
 
+## 1.49.0
+- **🎼 Studio works on a song, not the code.**
+  - **The problem:** it was easy to be in Studio and have the chat act like ⌨ Jam, changing the editor's code.
+  - **Which song the chat changes:** the one open in ✎ Edit song, even while another one plays.
+  - **A new song** (✨ new song, or any message while no song is open) plays now and opens in ✎ Edit song once it's written. The chat then targets that song.
+  - **While it's being written,** the chat asks you to wait instead of changing the code.
+- **Fix: chat edits to a song that had finished didn't change its arrangement.**
+  - **Symptom:** "build out a couple more verses" updated the sheet ("7 sections"), but the song still played its old 5. Once a song has played to the end, all its sections count as already played, so the new ones were dropped.
+  - **Fix:** only the song playing now keeps the sections it has played. Any other song is re-arranged whole.
+  - **The ✎ Edit song panel** now also shows a chat edit straight away.
+- **Smoke test:**
+  - in Studio, a message with no song open writes a song and opens it in the editor;
+  - after the song plays to its end, a chat edit adds two verses to the sheet, the arrangement and the editor.
+
 ## 1.48.0
 - **More natural instruments, and acoustic songs:**
   - **🎙 Real recordings in the sound guide.** Strudel already loads sampled acoustic instruments; the AI wasn't told about them, so it used the General MIDI soundfonts.

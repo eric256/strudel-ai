@@ -5,7 +5,7 @@
 //   🎵 song → 🎸 band: the song's line-up (its parts' sounds and roles, its master sound) saved as a band.
 //   🎵 song → 📻 station: a station that writes music like the song — its genre and description, played by that band.
 // ---------------------------------------------------------------------------
-import { $, addMsg, getCode, queue, save } from '../app.js';
+import { $, addMsg, getCode, save } from '../app.js';
 import { patternLines } from '../lib/labels.js';
 import { BAND_ROLES } from '../lib/bands.js';
 import { GENRES, detectGenre, genresOf } from '../lib/genres.js';
@@ -14,7 +14,7 @@ import { addToPlaylist } from './playlist.js';
 import { addBand, bands } from './bands.js';
 import { addStation, currentStation } from './stations.js';
 import { startStation } from './song-writer.js';
-import { openSongEditor } from './song-editor.js';
+import { editWhenWritten } from './song-editor.js';
 import { currentMode, setMode } from './modes.js';
 import { songsChanged } from './song-lists.js';
 
@@ -41,11 +41,7 @@ export function promoteJam() {
   };
   addToPlaylist(song, { at: 'now' });
   addMsg('info', '🎼 writing a song from your jam — it plays (and opens in ✎ Edit song) as soon as its first section is ready');
-  // open it in the song editor once it's written
-  const wait = setInterval(() => {
-    if (song.sheet && song.library && song.blocks?.length) { clearInterval(wait); openSongEditor(queue.songs.find((x) => x === song || x.copyOf === song) || song); }
-    else if (song.status === 'failed') clearInterval(wait);
-  }, 500);
+  editWhenWritten(song); // open it in the song editor once it's written
   return song;
 }
 
