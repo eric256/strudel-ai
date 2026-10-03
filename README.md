@@ -209,9 +209,15 @@ Encoding happens in the browser while you record (lamejs, 192 kbps stereo), so n
    - **Repairs:** if a section fails when it's about to play, the parts are fixed with the error and the song's remaining sections are re-arranged. The old music keeps playing meanwhile.
    - **If it fails:** the sheet and the parts each get 3 tries. If they still fail, the song is started over once from a fresh sheet. If that fails too, the song is marked ✗: the set or station moves on, and **↻ Try again** in the song's row writes it from scratch and plays it next. Songs are no longer written block by block. Songs saved in that older format still load, play and repair themselves.
 
+### 🎚 Genres
+**Genres tie songs, forms and bands together.** There are 19: house, techno, trance, EDM, drum & bass, synthwave, lo-fi, hip hop, pop, rock, jazz, fusion, funk & disco, ambient, cinematic, dub & reggae, chiptune, downtempo and latin (`public/lib/genres.js`).
+- **Each genre has the words that name it** in a description: "uplifting", "supersaw" and "psytrance" mean trance; "city pop" and "slap bass" mean fusion.
+- **Every form and band lists its genres**, and every genre has at least two forms and two bands.
+- **Picking:** a song's description is matched to its genre first, then one of that genre's forms and one of its bands are picked at random. Your own forms and bands take part through their **Genres** field (or their *use for* text).
+
 ### 🎼 Song forms
 A form lists a song's sections with their lengths, e.g. `intro 4, verse 8, pre-chorus 4, chorus 8, …, outro 4`.
-- **Built-in forms:** pop, pop anthem, verse-chorus, edm, house, techno, trance, drum & bass, hip hop, lo-fi, jazz AABA, jazz head & solos, fusion, dub, chiptune, build & release, ambient and short, about 32–64 bars per song.
+- **Built-in forms:** 42 of them, at least two per genre (e.g. trance: trance, trance anthem, psy journey, edm), about 32–80 bars per song.
 - **Long forms, about 4 minutes:** **long ballad** (80 bars: sparse verses, fuller choruses, a stripped breakdown, the biggest choruses last) and **ambient journey** (80 bars: intro, drift, A, A′, swell, B, B′, still, return, outro). For these the AI is told that every section must change something: an alternate line, a part coming in or out, a layer added or dropped. Ambient parts are slow-moving textures.
 - **🎼 edit forms** (in the Songs and Station tabs) opens the editor:
   - Change a form's name, what it's *used for* (genres and moods, which is how *auto* picks it) and its sections.
@@ -227,7 +233,7 @@ A form lists a song's sections with their lengths, e.g. `intro 4, verse 8, pre-c
 
 ### 🎸 Bands and the sound guide
 A band is a line-up of instruments (`role: sound — what it plays`) plus a master style.
-- **Built-in bands:** lo-fi trio, house crew, techno rig, synthwave, jazz combo, hip hop producer, drum & bass unit, pop band, rock band, ambient ensemble, cinematic orchestra, dub sound system and chip band.
+- **Built-in bands:** 39 of them, at least two per genre (e.g. trance: trance rig, psy rig; latin: bossa trio, latin jazz group, lounge duo). Each has its genres, meters, keys, its own sound, and core and optional (`+`) instruments.
 - **band** (in the Songs and Station tabs): *auto* lists every band in the song-sheet request and the AI picks the one that fits the genre (or none, and chooses its own sounds). Pick a band and every new song is written for it.
 - **The band's instruments win:** each part of the sheet takes the band's sound for its role (a band with two pads hands them out in turn). Parts whose role the band doesn't have keep the AI's sound.
 - **🎸 edit bands** opens ⚙ Settings → 🎸 Bands: change a band's name, genres, master style and instruments, add your own, delete any, or restore the built-ins. Sounds that aren't loaded are marked in red.

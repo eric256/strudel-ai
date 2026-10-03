@@ -48,6 +48,7 @@ export function renderFormsEditor() {
   const f = songForms[formIdx] || { name: '', use: '', sections: '' };
   $('formName').value = f.name;
   $('formUse').value = f.use;
+  $('formGenres').value = f.genres || '';
   $('formSections').value = f.sections;
   $('formMeters').value = f.meters || '';
   $('formKeys').value = f.keys || '';
@@ -69,14 +70,16 @@ export function setup() {
   for (const f of songForms) {
     const d = DEFAULT_FORMS.find((x) => x.name === f.name);
     if (d && f.meters === undefined) Object.assign(f, { meters: d.meters, keys: d.keys });
+    if (d && f.genres === undefined) f.genres = d.genres;
   }
   save({ songForms });
-  for (const id of ['formName', 'formUse', 'formSections', 'formMeters', 'formKeys']) {
+  for (const id of ['formName', 'formGenres', 'formUse', 'formSections', 'formMeters', 'formKeys']) {
     $(id).oninput = () => {
       const f = songForms[formIdx];
       if (!f) return;
       f.name = $('formName').value.trim();
       f.use = $('formUse').value.trim();
+      f.genres = $('formGenres').value.trim();
       f.sections = $('formSections').value;
       f.meters = $('formMeters').value.trim();
       f.keys = $('formKeys').value.trim();

@@ -28,7 +28,7 @@ export function rawSheet(sh) {
     form: sh.form, ...(sh.band ? { band: sh.band } : {}), master: sh.master || 'clean', ...(sh.masterParams ? { masterParams: sh.masterParams } : {}),
     bpm: sh.bpm, meter: normMeter(sh.meter), key: sh.key, scale: sh.scale, hook: sh.hook, ...(sh.melody ? { melody: sh.melody } : {}),
     chords: Object.fromEntries(Object.entries(sh.chords).map(([k, v]) => [k, v.replace(/^<|>$/g, '')])),
-    parts: sh.parts.map((p) => ({ name: p.id, role: p.role, sound: p.sound, variants: p.variants, desc: p.desc })),
+    parts: sh.parts.map((p) => ({ name: p.id, role: p.role, sound: p.sound, variants: p.variants, desc: p.desc, ...(p.tune ? { tune: p.tune } : {}) })),
     sections: sh.sections.map((x) => ({ name: x.name, bars: x.bars, chords: x.chords, play: x.play.map((y) => (y.variant === 'main' ? y.part : `${y.part}.${y.variant}`) + (y.enter ? `@${y.enter}` : '')), ...(x.shift ? { shift: x.shift } : {}), ...(x.bpm ? { bpm: x.bpm } : {}), ...(x.level ? { level: x.level } : {}), ...(x.solo ? { solo: x.solo } : {}) })),
     ending: sh.ending || 'fade',
   };
@@ -151,6 +151,14 @@ const edit = {
     else if (k === 'bpm') draft.raw.bpm = Number(v) || draft.raw.bpm;
     else if (k === 'scale') { draft.raw.scale = v.trim() || draft.raw.scale; draft.raw.key = draft.raw.scale.replace(':', ' '); }
     else if (k === 'master') { draft.raw.master = v; delete draft.raw.masterParams; } // a new style starts from its own settings
+    else if (k === 'hook' || k === 'melody') {
+      // the part that plays the tune has it in its code: change it there too
+      const old = draft.raw[k], now = v.trim();
+      if (!now || now === old) return;
+      draft.raw[k] = now;
+      const p = draft.raw.parts.find((x) => x.tune === k);
+      if (p && old) for (const d of defsOf(p.name)) d.code = d.code.split(`"${old}"`).join(`"${now}"`);
+    }
     else draft.raw[k] = v;
     changed();
   },
@@ -333,7 +341,7 @@ export function renderSongEditor() {
   const playing = queue.running && [sg, ...linkedSongs(sg)].includes(queue.songs[queue.current]);
   const parts = r.parts.map((p) => p.name);
   render(T.songEditor({
-    title: draft.title, bpm: r.bpm, meter: r.meter, meters: METERS, scale: r.scale, master: r.master, masters: STYLE_NAMES,
+    title: draft.title, bpm: r.bpm, meter: r.meter, meters: METERS, scale: r.scale, master: r.master, masters: STYLE_NAMES, melody: r.melody || '', hook: r.hook || '',
     dirty: draft.dirty, msg: draft.msg, bad: draft.bad, playing, canJump: playing && !draft.dirty,
     sections: r.sections.map((x, i) => ({ i, name: x.name, bars: x.bars, chords: x.chords, selected: i === draft.sel, solo: x.solo || '', level: x.level || 1 })),
     totalBars: r.sections.reduce((a, x) => a + x.bars, 0),

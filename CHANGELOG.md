@@ -2,6 +2,20 @@
 
 The version is in `package.json`. Bump it when you release. Open pages also notice *any* redeploy through the build id, which is a hash of the app files, even if the version wasn't bumped.
 
+## 1.46.0
+- **Genres rebuilt so everything fits together.** Trance songs kept getting the drum & bass band: no band was meant for trance, and a loose word match ("rolling … **bass**") won.
+  - **19 genres** (`lib/genres.js`), each with the words that name it in a description (trance: trance, uplifting, psytrance, supersaw, euphoric …).
+  - **Every form and band lists its genres** (a new **Genres** field in their editors), and every genre has at least two forms and two bands.
+  - **Planning finds the description's genre first**, then picks one of that genre's forms and bands. Loose matching on the *use for* text is only the fallback.
+  - **New forms:** trance anthem, psy journey, synthwave night, funk groove, disco, rock song, cinematic suite, dub riddim, chip quest, downtempo, bossa, latin jam and hip hop cypher.
+  - **New bands:** trance rig, psy rig, festival stack, future bass kit, indie band, city pop band, funk band, disco orchestra, drone choir, film strings, roots reggae band, game boy, trip hop collective, lounge duo, bossa trio and latin jazz group.
+  - Saved built-ins get their genres; your own forms and bands are matched by their *use for* text until you give them genres.
+- **The melody is always heard, and it belongs with the hook:**
+  - The AI writes the hook from a fragment of the melody (its rhythm cell or most memorable notes), and ends the melody on a note that leads into the hook.
+  - The app makes sure one part plays the hook and one plays the melody (♪ in Now playing). If no part does, a *theme* part on the band's melody instrument joins the verses. Those parts are told to play their tune exactly.
+  - 🎶 Now playing shows the melody next to the hook. The ✎ song editor edits both, and the parts' code follows.
+- **Tests:** every genre has two forms and two bands; descriptions find their genre (trance → trance forms and bands); hook and melody parts are assigned, including adding a theme part (41 unit tests).
+
 ## 1.45.0
 - **Song creation follows a plan.** Before the AI writes a song, the app decides:
   - **Form and band:** your picks, or ones that fit the description's genre. The app chooses at random among the close matches, so songs of one genre vary; nothing that only mentions the genre in passing is picked.

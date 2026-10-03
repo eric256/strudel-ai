@@ -3,7 +3,7 @@
 import { html, nothing, repeat } from '../html.js';
 
 /**
- * v: { title, bpm, meter, meters, scale, master, masters, dirty, msg, bad, playing, canJump,
+ * v: { title, bpm, meter, meters, scale, master, masters, melody, hook, dirty, msg, bad, playing, canJump,
  *      sections: [{ i, name, bars, chords, selected }], totalBars,
  *      sel: { i, name, bars, chords, shift, bpm, level (%), solo } | null, chordNames: [..], partNames: [..],
  *      ending: 'fade' | 'cut' (how the song ends: its last section fades out, or it stops with a bar of silence after),
@@ -31,6 +31,10 @@ export function songEditor(v, act) {
       <button class="se-apply${v.dirty ? ' dirty' : ''}" ?disabled=${!v.dirty} title="Check the changes and switch the song over (from its next section, if it's playing)" @click=${act.apply}>✓ apply</button>
       <button class="link" ?disabled=${!v.dirty} title="Throw away the changes" @click=${act.revert}>↺ revert</button>
       <button class="link" title="Close the editor" @click=${act.close}>close</button>
+    </div>
+    <div class="se-tunes">
+      <label title="The main melody, in scale degrees (0 = the key's root): the verses' tune">melody <input class="se-tune" .value=${v.melody} placeholder="<[0 ~ 2 4] [5 4 2 ~]>" @change=${(e) => act.field('melody', e.target.value)} /></label>
+      <label title="The hook, in scale degrees: the choruses' catchy figure">hook <input class="se-tune" .value=${v.hook} @change=${(e) => act.field('hook', e.target.value)} /></label>
     </div>
     <div class="se-msg small${v.bad ? ' bad' : ''}">${v.msg || (v.dirty ? '● changed — ✓ apply to hear it' : '')}</div>
 

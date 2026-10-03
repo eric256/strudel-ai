@@ -8,7 +8,8 @@ import { setScales, fixScaleString } from '../public/lib/scales.js';
 import { DEFAULT_FORMS, parseFormSections, formBars, findIn, formsForRequest } from '../public/lib/forms.js';
 import { DEFAULT_BANDS, parseInstruments, enforceBand, bandsForRequest, parseTweaks } from '../public/lib/bands.js';
 import { planSong, planForRequest, genreScore, describedKey, describedMeter } from '../public/lib/plan.js';
-import { normalizeSheet, libraryIds, fillPart, isFnPart, miniStrings } from '../public/lib/sheet.js';
+import { normalizeSheet, libraryIds, fillPart, isFnPart, miniStrings, assignTunes } from '../public/lib/sheet.js';
+import { GENRES, detectGenre, genresOf } from '../public/lib/genres.js';
 import { GAP_BARS, sectionCode, arrangeSong, carryLiveState, LIB_START, SEC_START } from '../public/lib/arrange.js';
 import { parseJSONLoose, closest, esc } from '../public/lib/util.js';
 import { normStyle, styleParams, diffParams } from '../public/master.js';
@@ -285,4 +286,41 @@ test('every built-in form and band has meters and keys that are real', () => {
     for (const m of (x.meters || '').split(', ').filter(Boolean)) assert.equal(normMeter(m), m, `${x.name}: meter ${m}`);
     for (const k of (x.keys || '').split(', ').filter(Boolean)) assert.match(k, /^[A-G][#b]? (major|minor|dorian|phrygian|lydian|mixolydian)$/, `${x.name}: key ${k}`);
   }
+});
+
+test('genres: every genre has at least two forms and two bands; descriptions find their genre', () => {
+  for (const g of Object.keys(GENRES)) {
+    assert.ok(DEFAULT_FORMS.filter((x) => genresOf(x).includes(g)).length >= 2, `${g}: forms`);
+    assert.ok(DEFAULT_BANDS.filter((x) => genresOf(x).includes(g)).length >= 2, `${g}: bands`);
+  }
+  assert.equal(detectGenre('uplifting trance: rolling offbeat bass, supersaw leads, euphoric minor keys'), 'trance');
+  assert.equal(detectGenre('liquid drum & bass: fast breakbeats, deep reese bass'), 'dnb');
+  assert.equal(detectGenre('Japanese jazz fusion and city pop instrumentals'), 'fusion');
+  assert.equal(detectGenre('late-night lo-fi hip hop with jazzy Rhodes chords'), 'lofi');
+  assert.equal(detectGenre('cosmic nu-disco with funky guitars'), 'funk');
+  for (let k = 0; k < 20; k++) {
+    const p = planSong('uplifting trance: rolling offbeat bass, supersaw leads', { forms: DEFAULT_FORMS, bands: DEFAULT_BANDS });
+    assert.equal(p.genre, 'trance');
+    assert.ok(genresOf(p.band).includes('trance') && genresOf(p.form).includes('trance'), `${p.form.name} / ${p.band.name}`);
+  }
+});
+
+test('tunes: the hook and the main melody each get a part that plays them', () => {
+  const sec = (name, type, play) => ({ name, type, bars: 8, chords: 'a', play: play.map((part) => ({ part, variant: 'main' })) });
+  // named parts
+  let parts = [{ id: 'drums', role: 'drums' }, { id: 'hook', role: 'melody', desc: '' }, { id: 'theme', role: 'melody', desc: '' }];
+  assignTunes(parts, [sec('verse', 'verse', ['drums', 'theme']), sec('chorus', 'chorus', ['drums', 'hook'])], { melody: '0 2 4' });
+  assert.deepEqual(parts.map((p) => p.tune || ''), ['', 'hook', 'melody']);
+  // unnamed: the melody parts heard most in the choruses / verses
+  parts = [{ id: 'sax', role: 'melody', desc: '' }, { id: 'flute', role: 'melody', desc: '' }];
+  assignTunes(parts, [sec('verse', 'verse', ['flute']), sec('chorus', 'chorus', ['sax'])], { melody: '0 2 4' });
+  assert.deepEqual(parts.map((p) => p.tune), ['hook', 'melody']);
+  // nobody to carry the melody: a theme part joins the verses, on the band's melody instrument
+  parts = [{ id: 'drums', role: 'drums' }, { id: 'hook', role: 'melody', desc: '', sound: 'square' }];
+  const secs = [sec('verse', 'verse', ['drums']), sec('chorus', 'chorus', ['drums', 'hook'])];
+  assignTunes(parts, secs, { melody: '0 2 4', band: { instruments: 'melody: gm_flute — the tune' } });
+  const theme = parts.find((p) => p.tune === 'melody');
+  assert.equal(theme.id, 'theme');
+  assert.equal(theme.sound, 'gm_flute');
+  assert.ok(secs[0].play.some((x) => x.part === 'theme') && !secs[1].play.some((x) => x.part === 'theme'), 'the theme plays in the verses');
 });

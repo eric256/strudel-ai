@@ -7,7 +7,7 @@ import { normProgression, normMeter, sectionType, ENTER_MODES, MAX_KEY_SHIFT, MA
 /** The longest section the AI may write (your own edits may be longer). */
 const MAX_SECTION_BARS = 16;
 import { findIn } from './forms.js';
-import { enforceBand, parseTweaks } from './bands.js';
+import { enforceBand, parseInstruments, parseTweaks } from './bands.js';
 import { normStyle, styleParams, diffParams } from '../master.js';
 
 export function normalizeSheet(raw, choice = 'auto', { enforceForm = true, band: bandPick = null, forms = [], bands = [] } = {}) {
@@ -33,7 +33,8 @@ export function normalizeSheet(raw, choice = 'auto', { enforceForm = true, band:
     const id = ident(p.name || p.role);
     if (parts.some((q) => q.id === id)) continue;
     const variants = [...new Set(['main', ...(Array.isArray(p.variants) ? p.variants : []).map(ident)])];
-    parts.push({ id, role: String(p.role || '').toLowerCase(), sound: String(p.sound || ''), desc: String(p.desc || p.description || ''), variants });
+    const tune = ['melody', 'hook'].includes(p.tune) ? p.tune : null;
+    parts.push({ id, role: String(p.role || '').toLowerCase(), sound: String(p.sound || ''), desc: String(p.desc || p.description || ''), variants, ...(tune ? { tune } : {}) });
   }
   if (parts.length < 2) throw new Error('fewer than 2 parts');
   parts.splice(10);
@@ -93,10 +94,35 @@ export function normalizeSheet(raw, choice = 'auto', { enforceForm = true, band:
   // the song's own tweaks of its master style: what the sheet says, else the band's (its "sound")
   const own = raw.masterParams && typeof raw.masterParams === 'object' ? raw.masterParams : band && normStyle(band.master) === masterStyle ? parseTweaks(band.tweaks) : null;
   const tweaks = own ? diffParams(styleParams(masterStyle, own), masterStyle) : {};
+  assignTunes(parts, sections, { melody, band });
   // the ending: the last section fades out, or stops hard with a moment of silence before the next song
   const ending = /cut|stop|hard/i.test(String(raw.ending || '')) ? 'cut' : 'fade';
   return { form: form?.name || String(raw.form || ''), ...(band ? { band: band.name } : {}), master: masterStyle, ...(Object.keys(tweaks).length ? { masterParams: tweaks } : {}),
     bpm, meter, key: String(raw.key || scale.replace(':', ' ')), scale, chords, hook, ...(melody ? { melody } : {}), parts, sections, ending };
+}
+
+/**
+ * Which parts play the song's tunes (part.tune): the hook — a part named hook, else the melody part heard most in the
+ * choruses — and the main melody — a part named theme / melody / lead / tune, else the melody part heard most in the
+ * verses, else a new "theme" part (the band's melody instrument) added to the verses. So the melody is always heard.
+ */
+export function assignTunes(parts, sections, { melody = '', band = null } = {}) {
+  const melodic = parts.filter((p) => /melody|lead/.test(p.role));
+  const heardIn = (p, types) => sections.filter((x) => types.includes(x.type) && x.play.some((y) => y.part === p.id)).length;
+  const most = (list, types) => list.slice().sort((a, b) => heardIn(b, types) - heardIn(a, types))[0];
+  let hook = parts.find((p) => p.tune === 'hook') || melodic.find((p) => /hook/.test(p.id + ' ' + p.desc));
+  if (!hook && melodic.length) hook = most(melodic, ['chorus', 'drop']);
+  if (hook) hook.tune = 'hook';
+  if (!melody) return;
+  let tune = parts.find((p) => p.tune === 'melody') || melodic.find((p) => p !== hook && /melody|theme|tune|lead/.test(p.id + ' ' + p.desc));
+  if (!tune) tune = most(melodic.filter((p) => p !== hook && heardIn(p, ['verse', 'intro', 'bridge', 'solo']) > 0), ['verse']);
+  if (!tune && parts.length < 10) {
+    const sound = parseInstruments(band?.instruments).find((i) => /melody|lead/.test(i.role))?.sound || hook?.sound || 'triangle';
+    tune = { id: parts.some((p) => p.id === 'theme') ? 'theme2' : 'theme', role: 'melody', sound, desc: 'plays the main melody', variants: ['main'] };
+    parts.push(tune);
+    for (const x of sections) if (x.type === 'verse' && !x.play.some((y) => y.part === tune.id)) x.play.push({ part: tune.id, variant: 'main' });
+  }
+  if (tune) tune.tune = 'melody';
 }
 
 /** A fill variant: "fill", "fill2", "fill3" … (a part may have several, of different character). */

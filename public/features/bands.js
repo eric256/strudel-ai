@@ -41,6 +41,7 @@ export function renderBandsEditor() {
   const b = bands[bandIdx] || { name: '', use: '', master: 'clean', instruments: '' };
   $('bandName').value = b.name;
   $('bandUse').value = b.use;
+  $('bandGenres').value = b.genres || '';
   $('bandMaster').value = normStyle(b.master) || 'clean';
   $('bandInstruments').value = b.instruments;
   $('bandMeters').value = b.meters || '';
@@ -73,14 +74,16 @@ export function setup() {
   for (const b of bands) {
     const d = DEFAULT_BANDS.find((x) => x.name === b.name);
     if (d && b.meters === undefined) Object.assign(b, { meters: d.meters, keys: d.keys, tweaks: d.tweaks || '' });
+    if (d && b.genres === undefined) b.genres = d.genres;
   }
   save({ bands });
-  for (const id of ['bandName', 'bandUse', 'bandInstruments', 'bandMaster', 'bandMeters', 'bandKeys', 'bandTweaks']) {
+  for (const id of ['bandName', 'bandGenres', 'bandUse', 'bandInstruments', 'bandMaster', 'bandMeters', 'bandKeys', 'bandTweaks']) {
     $(id)[id === 'bandMaster' ? 'onchange' : 'oninput'] = () => {
       const b = bands[bandIdx];
       if (!b) return;
       b.name = $('bandName').value.trim();
       b.use = $('bandUse').value.trim();
+      b.genres = $('bandGenres').value.trim();
       b.master = $('bandMaster').value;
       b.instruments = $('bandInstruments').value;
       b.meters = $('bandMeters').value.trim();
