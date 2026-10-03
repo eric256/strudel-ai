@@ -17,6 +17,7 @@ import { onceAFrame } from '../lib/events.js';
 import { jumpToSong, retrySong } from './song-writer.js';
 import { addToPlaylist, renderPlaylist, sessionSongs } from './playlist.js';
 import { currentStation } from './stations.js';
+import { bandFromSong, stationFromSong } from './promote.js';
 import { $, STATUS_ICON, addMsg, cps, engine, fmtTime, isPlaying, jumpTo, nowCycle, player, queue, setHold, showPanel, ws } from '../app.js';
 // ---------------------------------------------------------------------------
 // 🎵 Song lists and song views: the Songs and Station panels, 🎶 Now playing and the section progress bars.
@@ -52,7 +53,7 @@ export function toolbarView(sg, live) {
   return {
     state: complete ? 'written' : sg.status === 'failed' && !sg.phase ? 'failed' : 'writing', error: sg.error || '',
     canPlay: !isCurrent, canEdit: !!(sg.sheet && sg.library), editing: songEdit.sg === sg, fav: !!favOf(sg), mine: isMine(sg),
-    hasPads: !!sg.pads, padsFollow: padsState.follow,
+    hasPads: !!sg.pads, padsFollow: padsState.follow, canPromote: !!(sg.sheet && sg.library),
     mp3: sg.take ? { kind: 'take', time: fmtTime(sg.take.secs), mb: (sg.take.size / 1e6).toFixed(1) }
       : mp3.seg?.sg === sg ? { kind: 'recording' }
       : { kind: mp3.want.has(sg) ? 'next' : 'record', running: queue.running },
@@ -259,6 +260,8 @@ export function songAction(act, sg, btn, view) {
   else if (act === 'mp3') songMp3(sg);
   else if (act === 'json') download(`${slug(sg.title)}.strudel-song.json`, JSON.stringify(songToJSON(sg), null, 1));
   else if (act === 'link') shareSong(sg);
+  else if (act === 'band') bandFromSong(sg);
+  else if (act === 'station') stationFromSong(sg);
   songsChanged();
 }
 

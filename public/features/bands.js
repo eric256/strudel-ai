@@ -29,6 +29,8 @@ function renderBandSelects() {
   }
 }
 function saveBands() { save({ bands }); renderBandSelects(); }
+/** Add a band (⬆ promotion: a song's line-up) and save it. */
+export function addBand(band) { bands.push(band); saveBands(); return band; }
 /** Add a 🧩 plugin's bands to yours, once (bands you delete stay deleted). key: what remembers which were added. */
 export function mergeBands(items, key) {
   bands = addNewDefaults(bands, items.map((b) => ({ name: String(b.name), use: String(b.use || ''), master: normStyle(b.master) || 'clean', instruments: String(b.instruments || '') })), key, []);

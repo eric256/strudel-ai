@@ -32,6 +32,14 @@ export function renderStations() {
   $('stationThemeView').textContent = stations[stationIdx]?.theme || 'No theme yet — ✎ edit stations to write one.';
 }
 function saveStations() { save({ stations, stationIdx }); }
+/** Add a station (⬆ promotion: music like a song), pick it and save it. */
+export function addStation(st) {
+  stations.push({ name: st.name, theme: st.theme });
+  stationIdx = stations.length - 1;
+  saveStations();
+  renderStations();
+  return stations[stationIdx];
+}
 /** Add a 🧩 plugin's stations to yours, once (stations you delete stay deleted). */
 export function mergeStations(items, key) {
   stations = addNewDefaults(stations, items.map((st) => ({ name: String(st.name), theme: String(st.theme || '') })), key, []);

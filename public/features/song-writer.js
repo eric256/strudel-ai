@@ -65,6 +65,10 @@ async function writeSongSheet(song, signal) {
   const prev = queue.songs[queue.songs.indexOf(song) - 1]?.sheet;
   let msg = (song.autoTitle ? `SONG (no title yet — give it one in "title"): ${song.desc}\n` : `SONG: "${song.title}" — ${song.desc}\n`) +
     (prev ? `The previous song was ${prev.bpm} bpm, ${normMeter(prev.meter)}, in ${prev.key}; this one should flow from it (a related key or a nearby tempo is nice).\n` : '') +
+    (song.seed?.code ? `\nJAM — build this song from the live-coded jam below. Keep its tempo, meter, key, sounds and the character of its
+patterns: the jam's groove is the song's main section (the chorus / drop / groove), and the other sections grow out of
+it (a thinner intro, verses with fewer parts, a breakdown, a bigger last section). Its labelled parts become the song's
+parts (same names, roles that fit), and add a melody and a hook that suit it:\n\`\`\`javascript\n${song.seed.code.slice(0, 6000)}\n\`\`\`\n` : '') +
     (song.autoTitle && usedTitles(song).length ? `Titles already used — don't reuse them or their words: ${usedTitles(song).join(' · ')}\n` : '') +
     `\n${formsForRequest(choice)}\n\n${bandsForRequest(bandPick)}\n\n${planForRequest(plan)}\n\nMASTER STYLES — set "master" to the one that fits (the band's, unless the description asks for another):\n${stylesForPrompt()}\n\nWrite the song sheet JSON.`;
   const sounds = await sheetSounds();
@@ -133,6 +137,7 @@ async function writeSongLibrary(song, signal, { fix = null, prev = null } = {}) 
   });
   const base =
     `SONG: "${song.title}" — ${song.desc}\n` +
+    (song.seed?.code ? `\nTHE JAM THIS SONG GREW FROM — reuse its patterns: the parts that came from it play what the jam played (as their main variant), in the song's structure:\n\`\`\`javascript\n${song.seed.code.slice(0, 6000)}\n\`\`\`\n\n` : '') +
     `Tempo line: ${tempoLine(sh.bpm, sh.meter)}   Key / scale: ${sh.key} → .scale("${sh.scale}")\n` +
     `Meter: ${normMeter(sh.meter)} — one cycle is ONE BAR of ${meterSteps(sh.meter)} ${/\/8$/.test(normMeter(sh.meter)) ? 'eighth notes' : 'beats'}: ` +
     `write every rhythm with ${meterSteps(sh.meter)} (or ${meterSteps(sh.meter) * 2}) steps per bar${normMeter(sh.meter) === '4/4' ? '' : ' — NOT 4 or 8'}.\n` +

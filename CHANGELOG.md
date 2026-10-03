@@ -2,6 +2,15 @@
 
 The version is in `package.json`. Bump it when you release. Open pages also notice *any* redeploy through the build id, which is a hash of the app files, even if the version wasn't bumped.
 
+## 1.47.0
+- **⬆ Promotion between the modes:**
+  - **⌨ Jam → 🎼 song: 🎼 Make it a song** (Jam's code bar) writes a whole song from the jam:
+    - **What the AI gets:** the jam's code as the seed. It keeps the tempo, key, sounds and patterns, makes the groove the main section and grows the other sections from it. It also adds a melody and a hook.
+    - **What you see:** it switches to 🎼 Studio, plays the song and opens it in the song editor.
+  - **🎵 song → 🎸 Band:** a new button on written songs saves the song's line-up as a band: roles, sounds, master style and its own sound, genre and meter.
+  - **🎵 song → 📻 Station:** creates that band and a station whose theme describes the song: genre, mood, tempo, key area and sounds. It sets the station's band and form, and puts it on air in 📻 Radio to write music like it.
+- **Smoke test:** a jam becomes a song (its code goes into the sheet request), and the song becomes a band and a station on air.
+
 ## 1.46.0
 - **Genres rebuilt so everything fits together.** Trance songs kept getting the drum & bass band: no band was meant for trance, and a loose word match ("rolling … **bass**") won.
   - **19 genres** (`lib/genres.js`), each with the words that name it in a description (trance: trance, uplifting, psytrance, supersaw, euphoric …).
