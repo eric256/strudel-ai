@@ -153,7 +153,11 @@ Output ONLY song lines, one per line, exactly:
 
 Rules:
 - No intro text, no numbering, no markdown, no blank lines between songs.
-- Title: 2–5 evocative words, unique (never reuse a title from the "already played" list).
+- Title: unique and VARIED (never reuse a title, or its key word, from the "already played" list). Mix the shapes from song
+  to song: a single word ("Monsoon"), a place ("Route 9 Diner"), a time ("4:12 AM"), a name ("Marisol"), a phrase
+  ("Don't Wait Up"), an object ("Brass Compass"), a question, a foreign word that fits the style (Japanese for Japanese
+  fusion, Portuguese for bossa nova). Avoid worn-out words: neon, midnight, echo(es), dreams, drift, horizon, velvet,
+  pulse, glow, nocturne, eclipse, cascade, odyssey, journey, starlight, reverie.
 - Description (25–45 words): genre/style, tempo in bpm, key and scale (e.g. "A minor", "D dorian"), mood,
   3–5 main instruments/sounds, and the energy shape of the song (e.g. "slow build to a peak, then a soft outro").
 - Stay within the theme but vary tempo, key, groove and instrumentation from song to song.
@@ -162,7 +166,7 @@ Rules:
 - Make the order flow: neighbouring songs should be in related keys or close tempos, with an overall energy arc.
 
 Example:
-Neon Rain | synthwave, 104 bpm, A minor, pulsing sawtooth bass, gated pads, bright arpeggio, TR-808 drums; starts sparse, builds to a big chorus, fades out on pads
+Tangerine Overpass | synthwave, 104 bpm, A minor, pulsing sawtooth bass, gated pads, bright arpeggio, TR-808 drums; starts sparse, builds to a big chorus, fades out on pads
 Glass Harbor | lo-fi house, 118 bpm, C dorian, warm Rhodes chords, soft kick, shuffled hats, deep sub; steady groove with a filtered breakdown in the middle`;
 
 
@@ -176,8 +180,9 @@ Reply with the SONG SHEET as ONE JSON object and nothing else: no markdown fence
 
 Example:
 {
-  "title": "Neon Rain",
+  "title": "Tangerine Overpass",
   "form": "pop",
+  "ending": "fade",
   "band": "synthwave",
   "master": "synthwave",
   "bpm": 104,
@@ -192,28 +197,35 @@ Example:
     { "name": "keys", "role": "chords", "sound": "gm_epiano1", "variants": ["main", "alt1"], "desc": "main: offbeat chord stabs; alt1: a broken-chord figure across the bar" },
     { "name": "pad", "role": "pad", "sound": "gm_pad_warm", "variants": ["main"], "desc": "long soft chords" },
     { "name": "hook", "role": "melody", "sound": "gm_lead_2_sawtooth", "variants": ["main", "harmony"], "desc": "plays the hook, bright and short; harmony: the hook a third above" },
-    { "name": "counter", "role": "counter", "sound": "gm_flute", "variants": ["main", "alt1"], "desc": "a counter-melody that answers the hook in its gaps; alt1: slow held notes for the verses" },
+    { "name": "counter", "role": "counter", "sound": "gm_flute", "variants": ["main", "alt1", "solo"], "desc": "a counter-melody that answers the hook in its gaps; alt1: slow held notes for the verses; solo: an improvised-sounding lead line for the solo" },
     { "name": "riff", "role": "melody", "sound": "gm_electric_guitar_muted", "variants": ["main"], "desc": "a short syncopated two-bar riff that comes and goes" }
   ],
   "sections": [
-    { "name": "intro", "bars": 4, "chords": "verse", "play": ["pad", "drums.half", "riff@in"] },
+    { "name": "intro", "bars": 4, "chords": "verse", "play": ["pad", "drums.half", "riff@in"], "level": 0.7 },
     { "name": "verse 1", "bars": 8, "chords": "verse", "play": ["pad", "drums", "bass", "counter.alt1@in"] },
     { "name": "pre-chorus", "bars": 4, "chords": "bridge", "play": ["pad", "drums", "bass", "keys.alt1"] },
     { "name": "chorus", "bars": 4, "chords": "chorus", "play": ["drums", "bass", "keys", "hook", "counter"] },
     { "name": "verse 2", "bars": 8, "chords": "verse", "play": ["drums", "bass.alt1", "keys.alt1", "riff@alt"] },
     { "name": "pre-chorus", "bars": 4, "chords": "bridge", "play": ["pad", "drums", "bass", "keys.alt1"] },
     { "name": "chorus", "bars": 4, "chords": "chorus", "play": ["drums", "bass", "keys", "hook", "counter"] },
-    { "name": "bridge", "bars": 8, "chords": "bridge", "play": ["pad", "keys.alt1", "drums.half", "counter.alt1"] },
-    { "name": "chorus", "bars": 4, "chords": "chorus", "play": ["drums", "bass", "keys", "hook", "hook.harmony", "counter"], "shift": 2, "bpm": 106 },
-    { "name": "outro", "bars": 4, "chords": "verse", "play": ["pad", "hook@out", "riff"], "shift": 2 }
+    { "name": "solo", "bars": 8, "chords": "bridge", "play": ["pad", "keys.alt1", "drums.half", "bass", "counter.solo"], "solo": "counter" },
+    { "name": "chorus", "bars": 4, "chords": "chorus", "play": ["drums", "bass", "keys", "hook", "hook.harmony", "counter"], "shift": 2, "bpm": 106, "level": 1.15 },
+    { "name": "outro", "bars": 4, "chords": "verse", "play": ["pad", "hook@out", "riff"], "shift": 2, "level": 0.8 }
   ]
 }
 
 Rules:
-- TITLE: a short, evocative song title (1–4 words) that fits the description — not the genre name.
-- FORM: the request lists the SONG FORMS you may use (or names the one to use). Pick the one that fits the genre, set
-  "form" to its name, and copy its sections IN ORDER with EXACTLY its bar counts (you may number repeats: "verse 1",
-  "verse 2"). Short sections keep the song moving: never make a section longer than the form says.
+- TITLE: a short title (1–4 words) that fits the description — not the genre name, and not like the titles the request
+  says were already used. Vary the shape: a single word, a place, a time, a name, a phrase, an object, a foreign word that
+  fits the style. Avoid worn-out words: neon, midnight, echo, dreams, drift, horizon, velvet, pulse, glow, eclipse, odyssey.
+- FORM: the request lists the SONG FORMS you may use (or names the one to use). Pick the one that fits the genre and set
+  "form" to its name. A form is a GUIDE, not a template: keep its overall shape (how it opens, builds, peaks and ends),
+  but make THIS song its own — two songs in the same form should not have the same sections and lengths:
+  * vary section lengths: 2 or 4 bars for a riser, a turnaround or a stop; 8 for most; 12 or 16 for a long groove,
+    a peak or a solo. Not every section 8 bars — a techno track might go 16 · 8 · 4 · 16 · 2 · 12 · 8;
+  * add, drop, repeat or merge a section where the song wants it: a second breakdown, an extra pre-chorus, a short
+    interlude, a double chorus at the end, no bridge;
+  * number repeats ("verse 1", "verse 2"). Sections are at most 16 bars.
 - CHORUSES (and hooks) are short and punchy: 4 bars at most.
 - REPETITION makes it a song: every repeat of a section (each chorus, each A, both drops) uses the SAME "chords" key and
   mostly the same parts. A later repeat may swap one part for its alt variant (verse 2: bass.alt1) and the last chorus
@@ -256,13 +268,23 @@ Rules:
 - PARTS: 5–9 parts, one sound each, from the AVAILABLE SOUNDS list (for drums: a drum-machine bank name).
   name: one lowercase word. role: drums, perc, bass, chords, pad, arp, melody, counter or fx.
   "variants" lists main plus what the sections use (drums: main, half, fill; keys: main, alt1; hook: main, harmony). Give drums a "fill" variant when the
-  song has choruses, drops or builds: the app plays it in the last bar before them.
-- KEY AND TEMPO MAY MOVE, only where the genre does it. A section may add "shift" (semitones up or down from the song's
+  song has more than one kind of section (almost always): the app plays it in the last bar of a section whenever the next
+  section is a different kind (verse → chorus, chorus → verse, into the bridge, the solo, the drop …), so it joins them.
+- KEY AND TEMPO MOVE where the genre does it — use them. A section may add "shift" (semitones up or down from the song's
   key, -3…+3: the app moves the chords and melodies, never the drums) and/or "bpm" (its own tempo, within ±8% of the
-  song's). Fitting: a pop / rock / gospel / ballad / anthem last chorus lifted +1 or +2; a folk, funk or live-band
-  song pushing the tempo up 2–4 bpm in its last sections; a trance or progressive build creeping up a few bpm.
-  Not fitting: techno, house, drum & bass, lo-fi and most dance music keep one key and one tempo (DJs mix them).
-  Most songs change nothing; at most one key change and one tempo move per song, and once moved, later sections keep it.
+  song's). Fitting, and welcome: a pop / rock / gospel / ballad / anthem last chorus lifted +1 or +2; jazz and fusion
+  moving the key for the bridge or the last theme (Japanese fusion's lift of the last theme by a step is a trademark);
+  a folk, funk, jazz or live-band song pushing the tempo up 2–4 bpm in its last sections; a ballad slowing for its outro;
+  a trance or progressive build creeping up a few bpm. Not fitting: techno, house, drum & bass, lo-fi and most dance
+  music keep one key and one tempo (DJs mix them). Once moved, later sections keep the new key / tempo.
+- DYNAMICS: every section may set "level", its volume (1 = full mix): intros, breakdowns and quiet verses 0.6–0.85,
+  choruses and drops 1–1.15, the last chorus the loudest. Songs should breathe: no song keeps one level throughout.
+- SOLOS: where the genre has them (jazz, fusion, funk, rock, blues, soul), add a "solo" section with "solo": "<part>" —
+  that part takes the lead (the app brings it forward and softens the others) and plays its "solo" variant (list it in
+  its "variants"): an improvised-sounding line with runs, held notes and space. The other parts play sparser variants
+  (drums.half, keys.alt1) under it. Jazz forms trade solos between two parts in neighbouring solo sections.
+- ENDING: "ending" is how the song ends: "fade" (the last section fades out — most songs) or "cut" (it stops on the
+  last bar, and the app leaves a moment of silence before the next song — punchy pop, rock, funk, fusion, big band).
 - "play": the parts heard in a section; "part" means its main variant, "part.variant" another one; add "@in", "@out" or
   "@alt" to bring a part in or out within the section.
 - SMOOTH FLOW: between neighbouring sections change at most 1–2 parts, except going into a chorus / drop or a breakdown.
@@ -292,6 +314,9 @@ Exactly ONE fenced code block with language "javascript", nothing after it:
 - DRUMS and percussion are plain patterns (not functions), all their sounds in one stack(...):
     const drums_main = stack(s("bd*4"), s("~ cp ~ cp"), s("hh*8").velocity("0.5 1")).bank("RolandTR909").gain(slider(0.9, 0, 1.2))
   A "fill" variant is ONE bar that leads into the next section (snare roll, toms, faster hats).
+  A "solo" variant is the part's improvised-sounding solo over the section's chords: runs, held notes, space and
+  call-and-response with itself, in the part's sound and a wider range — a melodic part plays it in scale degrees
+  (n("…").scale(…)), a harmonic part as a function of prog.
   A "half" variant is a half-time or sparser version of main. All variants of a part use the same sounds.
 - ALTERNATE variants (alt1, alt2) are NEW lines, not copies with one change: a different rhythm, contour or figure on the
   same sound and register, written to fit the same chords and to sit with the hook (e.g. bass_main plays roots in eighths,

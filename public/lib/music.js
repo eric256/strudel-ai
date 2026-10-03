@@ -29,6 +29,7 @@ export function normProgression(p) {
 export function sectionType(name) {
   const n = String(name).toLowerCase();
   if (/pre-?chorus/.test(n)) return 'prechorus';
+  if (/solo|improv|trading/.test(n)) return 'solo';
   if (/chorus|hook/.test(n)) return 'chorus';
   if (/drop/.test(n)) return 'drop';
   if (/break/.test(n)) return 'breakdown';

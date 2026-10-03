@@ -1486,8 +1486,26 @@ function masterGainNode() {
 export function applyMasterGain(ramp = 0.03) {
   const g = masterGainNode();
   if (!g) return;
-  const v = Number($('masterGain').value) * (hum.ducked ? 0.3 : 1);
-  try { g.setTargetAtTime(v, audioCtx().currentTime, ramp); } catch { g.value = v; }
+  const v = Number($('masterGain').value) * (hum.ducked ? 0.3 : 1) * sectionLevel.value;
+  try { g.cancelScheduledValues(audioCtx().currentTime); g.setTargetAtTime(v, audioCtx().currentTime, ramp); } catch { g.value = v; }
+}
+/** The playing section's volume (a song's dynamics: softer intros, a bigger last chorus), on top of the master volume. */
+const sectionLevel = { value: 1 };
+/**
+ * Set the section's volume: a smooth move to `level`, or (fadeOut: seconds) a fade to silence over that long — the
+ * last section of a song that fades out.
+ */
+export function setSectionLevel(level = 1, { fadeOut = 0 } = {}) {
+  const g = masterGainNode();
+  sectionLevel.value = level;
+  if (!g) return;
+  const t = audioCtx().currentTime, base = Number($('masterGain').value) * (hum.ducked ? 0.3 : 1);
+  try {
+    g.cancelScheduledValues(t);
+    g.setValueAtTime(g.value, t);
+    if (fadeOut > 0) g.linearRampToValueAtTime(0.0001, t + fadeOut);
+    else g.setTargetAtTime(base * level, t, 0.35);
+  } catch { g.value = base * level; }
 }
 $('masterGain').value = saved.masterGain ?? 1;
 const showMaster = () => { $('masterVal').textContent = Math.round($('masterGain').value * 100) + '%'; };

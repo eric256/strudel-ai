@@ -11,6 +11,9 @@ export const DEFAULT_FORMS = [
   { name: 'hip hop', use: 'hip hop, trap, boom bap, r&b', sections: 'intro 4, verse 8, hook 4, verse 8, hook 4, bridge 4, hook 4, outro 4' },
   { name: 'lo-fi', use: 'lo-fi, chillhop, jazz-hop, downtempo, chill', sections: 'intro 4, A 8, A 8, B 8, A 8, outro 4' },
   { name: 'jazz AABA', use: 'jazz, neo-soul, bossa nova, swing, lounge', sections: 'intro 4, A 8, A 8, B 8, A 8, solo 8, A 8, outro 4' },
+  { name: 'jazz head & solos', use: 'jazz, bebop, hard bop, swing, big band, jazz trio — the theme, solos, the theme again', sections: 'intro 4, head 8, head 8, solo 8, solo 8, solo 8, head 8, outro 4' },
+  { name: 'fusion', use: 'Japanese fusion, jazz-funk, city pop instrumentals, smooth jazz, prog fusion', sections: 'intro 4, theme 8, verse 8, chorus 4, theme 8, solo 8, break 4, chorus 4, theme 8, outro 4' },
+  { name: 'pop anthem', use: 'modern pop, dance-pop, synth-pop, power pop — big choruses', sections: 'intro 4, verse 8, pre-chorus 4, chorus 4, post-chorus 4, verse 8, pre-chorus 4, chorus 4, bridge 8, chorus 4, chorus 4, outro 4' },
   { name: 'dub', use: 'dub, reggae, dub techno, ska', sections: 'intro 8, riddim 8, dub 8, riddim 8, dub 8, outro 8' },
   { name: 'chiptune', use: 'chiptune, video game, 8-bit, arcade', sections: 'intro 4, A 8, B 8, A 8, C 8, A 8, outro 4' },
   { name: 'build & release', use: 'post-rock, cinematic builds, epic, anthems', sections: 'intro 4, build 8, build 8, peak 8, release 8, outro 4' },
@@ -50,6 +53,6 @@ export const findIn = (list, name) => list.find((f) => f.name.toLowerCase() === 
 export function formsForRequest(forms, choice) {
   const line = (f) => `- "${f.name}"${f.use ? ` (for ${f.use})` : ''}: ${parseFormSections(f.sections).map((x) => `${x.name} ${x.bars}`).join(', ')}`;
   const fixed = choice && choice !== 'auto' ? findIn(forms, choice) : null;
-  if (fixed) return `SONG FORM — use exactly this one (set "form": "${fixed.name}"):\n${line(fixed)}`;
-  return `SONG FORMS — pick the one that fits this song's genre, and set "form" to its name:\n${forms.map(line).join('\n')}`;
+  if (fixed) return `SONG FORM — build the song on this one (set "form": "${fixed.name}"); it's a guide, not a template — keep its shape, vary the details:\n${line(fixed)}`;
+  return `SONG FORMS — pick the one that fits this song's genre, set "form" to its name, and use it as a guide (keep its shape, vary the details):\n${forms.map(line).join('\n')}`;
 }

@@ -18,6 +18,9 @@ const DEFAULT_STATIONS = [
   { name: 'Trance Horizons', theme: 'uplifting trance: rolling offbeat bass, supersaw leads, big breakdowns and builds, 136–140 bpm, euphoric minor keys' },
   { name: 'Arcade Chiptune', theme: 'retro video-game chiptune: square and triangle leads, fast arpeggios, punchy 8-bit drums, 120–150 bpm, catchy hooks' },
   { name: 'Space Disco', theme: 'cosmic nu-disco: four-on-the-floor, octave basslines, funky guitars and strings, sparkling synths, 110–122 bpm' },
+  { name: 'Blue Note Club', theme: 'small-combo jazz: swing, hard bop and modal tunes, walking bass, ride cymbal, piano comping, sax and trumpet heads with solos, 110–220 bpm swing (and a few ballads around 70), ii-V-I harmony, key changes between choruses' },
+  { name: 'Tokyo Fusion', theme: 'Japanese jazz fusion and city pop instrumentals in the style of the 80s: slap bass, bright FM electric piano, tight funky drums, soaring lyricon / sax or synth leads, brass hits, complex major-7th and 9th chords, 110–140 bpm, solos and a key lift for the last theme, upbeat and sunny' },
+  { name: 'Pop Radio', theme: 'modern pop and synth-pop hits: punchy drums, big sing-along hooks, piano and synth chords, 96–124 bpm, verse / pre-chorus / chorus with a lifted last chorus, bright and catchy' },
   { name: 'Dub Station', theme: 'deep dub and dub techno: skanking chords with long echoes, heavy sub bass, one-drop and steppers rhythms, 70–85 bpm (or 120 dub techno)' },
 ];
 export const currentStation = () => ({ name: stations[stationIdx]?.name || '', theme: stations[stationIdx]?.theme || '' });

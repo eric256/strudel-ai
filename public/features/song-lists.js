@@ -109,9 +109,9 @@ function songViewModel(sg, live, note = '') {
       key: sg.blocks ? st : `${sg.title}:${j}`, j, status: st.status, queued, fill: !!st.fillStep,
       icon: queued ? '⏭' : STATUS_ICON[st.status] || '', bars: st.bars,
       name: sec ? st.prompt : shortPrompt(st.prompt, j), fullName: sec ? '' : st.prompt,
-      chords: sec && !st.fillStep ? sec.chords : '', moves,
+      chords: sec && !st.fillStep && !st.gap ? sec.chords : '', moves,
       moveTitle: j === 0 ? 'The song’s tempo' : `Changes here: ${prevBpm && bpm !== prevBpm ? `tempo ${prevBpm} → ${bpm} bpm ` : ''}${shifts[j] !== shifts[j - 1] ? `key ${signed(shifts[j - 1])} → ${signed(shifts[j])} semitones` : ''}`,
-      parts: sectionParts(st, sh), i, error: st.error || '',
+      parts: st.gap ? [] : sectionParts(st, sh), i, error: st.error || '',
       jumpTitle: `Switch to this section${j < 9 && isCurrent ? ` (Alt+${j + 1})` : ''}`,
       code: st.code ? st.code.slice(codeFrom) : '',
     };
