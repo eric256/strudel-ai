@@ -16,6 +16,19 @@ Works with:
 
 Switch between them, pick a model and set the temperature in **⚙ Settings → AI**.
 
+## Three modes
+
+Pick one in the header. Switching stops all music. Each mode has its own panel layout (arrange it and it's remembered), its own chat targets and its own code.
+
+| Mode | For | Chat works on | Layout |
+| --- | --- | --- | --- |
+| **📻 Radio** | Stations and the playlist write songs for you; play along on the pads, mixer and master, with visuals | the whole song, the code, the pads, or ✨ a new song | Chat · Songs · Station · Playlist, Now playing |
+| **🎼 Studio** | Working on one song with the AI | the song (its sections, chords and parts) | Chat · Edit song · Songs, Now playing, Mixer · Master below |
+| **⌨ Jam** | Live-coding: you and the AI write one piece of code in the editor, with no songs | the code in the editor (or the pads) | Chat, Keys · Pads · Visualizer below |
+
+- **⌨ Jam** keeps its own code, saved as you type, so it's still there when you come back.
+- **The mixer in Jam** has a channel for each part in the code, and a channel goes away when you delete its part. In Radio and Studio it has a channel for every part of the song, even ones not playing in the current section.
+
 ## Quick start
 
 ```bash

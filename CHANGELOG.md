@@ -2,6 +2,24 @@
 
 The version is in `package.json`. Bump it when you release. Open pages also notice *any* redeploy through the build id, which is a hash of the app files, even if the version wasn't bumped.
 
+## 1.42.0
+- **Three modes**, picked in the header:
+  - **📻 Radio:** stations and the playlist write songs for you, and you play along on the pads, mixer and master.
+  - **🎼 Studio:** work on one song with the AI.
+  - **⌨ Jam:** live-code one piece of code with the AI, with no songs.
+- **What changes with the mode:**
+  - **Music:** switching stops all of it.
+  - **Layout:** each mode has its own, saved separately. Your current layout becomes Radio's.
+  - **Chat targets:** each mode offers its own, and remembers which one you picked. Jam only has *code in the editor* and *pads*.
+  - **Code:** Jam keeps its own, saved as you type.
+- **Mixer in Jam:** only the parts in the code get a channel, and deleting a part removes its channel. Radio and Studio keep a channel for every part of the song.
+- Coming next:
+  - Studio's song bench, where the song loops while you work on it;
+  - **🎼 Open in Studio** on any song;
+  - a new song editor;
+  - promoting a jam to a song, and a song to a band or station.
+- **Smoke test:** switch Radio → Jam → Studio → Radio and check the music stops; check each mode's layout, chat targets and code, and the Jam mixer (29 steps).
+
 ## 1.41.0
 - **⬇ MP3 from the 📃 Playlist:** a song's recording is ready the moment it has played to its end, which is when the next song starts and 🎶 Now playing has already moved on.
   - Songs that played (and the one playing) now keep their buttons in the Playlist: **⬇ MP3** (highlighted once the recording is ready), ☆ favorite, 📁 save, ⬇ JSON and 🔗 link (📋 copy once it exists).

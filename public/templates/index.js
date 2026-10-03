@@ -20,10 +20,11 @@ import * as editors from './editors.js';
 import * as themes from './themes.js';
 import * as plugins from './plugins.js';
 import * as layout from './layout.js';
+import * as modes from './modes.js';
 
 /** The built-in templates by name (each name is unique across the files). */
 const BUILTIN = {};
-for (const mod of [playlist, songs, songEditor, mixer, master, pads, keys, editors, themes, plugins, layout]) {
+for (const mod of [playlist, songs, songEditor, mixer, master, pads, keys, editors, themes, plugins, layout, modes]) {
   for (const [name, fn] of Object.entries(mod)) {
     if (typeof fn !== 'function') continue;
     if (name in BUILTIN) throw new Error(`template "${name}" is defined twice`);

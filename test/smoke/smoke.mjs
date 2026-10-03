@@ -375,6 +375,36 @@ try {
     for (const want of ['== SUMMARY:', 'smoke: a test warning', '== APP ==', '== SONG SHEET ==', '== CODE IN THE EDITOR ==', '== FULL LOG', '“Smoke Signal”']) expect(text.includes(want), `missing ${want}`);
   });
 
+  await step('modes: 📻 Radio → ⌨ Jam → 🎼 Studio → 📻 Radio; switching stops the music, each mode has its layout, chat targets and code', async () => {
+    // something playing in Radio
+    await ev(() => { const sg = strudelAI.mySongs[0]; if (sg) strudelAI.playSong(sg); });
+    await p.waitForFunction(() => document.querySelector('strudel-editor').editor.repl.scheduler.started, null, { timeout: 20000 });
+    const state = () => ev(() => ({
+      mode: strudelAI.currentMode(), playing: !!document.querySelector('strudel-editor').editor.repl.scheduler.started, running: strudelAI.queue.running,
+      open: strudelAI.ws.panels().filter((x) => x.open).map((x) => x.id), target: document.getElementById('chatTarget').value,
+      targets: [...document.getElementById('chatTarget').options].filter((o) => !o.hidden).map((o) => o.value), code: document.querySelector('strudel-editor').editor.code,
+    }));
+    await ev(() => document.querySelector('#modeSwitch [data-mode="jam"]').click());
+    let st = await state();
+    expect(st.mode === 'jam' && !st.playing && !st.running, `Jam: the music didn't stop ${JSON.stringify(st)}`);
+    expect(st.target === 'code' && !st.targets.includes('song') && !st.targets.includes('new'), `Jam chat targets: ${st.targets}`);
+    expect(!st.open.includes('song') && st.open.includes('chat'), `Jam layout: ${st.open}`);
+    expect(/⌨ Jam|setcpm/.test(st.code), 'Jam did not load its code');
+    // the mixer in Jam: only the parts in the code
+    await ev(() => document.querySelector('strudel-editor').editor.setCode('setcpm(120/4)\nkick: s("bd*4")\nhats: s("hh*8").gain(0.4)'));
+    await ev(() => strudelAI.ws.open('mixer'));
+    await p.waitForFunction(() => strudelAI.mixerChannels().map((c) => c.base).join() === 'kick,hats', null, { timeout: 3000 });
+    // Jam keeps its code across a switch
+    await ev(() => document.querySelector('#modeSwitch [data-mode="studio"]').click());
+    st = await state();
+    expect(st.mode === 'studio' && st.target === 'song' && st.open.includes('edit') && st.open.includes('song'), `Studio: ${JSON.stringify(st)}`);
+    await ev(() => document.querySelector('#modeSwitch [data-mode="jam"]').click());
+    expect(/kick: s\("bd\*4"\)/.test((await state()).code), 'Jam lost its code');
+    await ev(() => document.querySelector('#modeSwitch [data-mode="radio"]').click());
+    st = await state();
+    expect(st.mode === 'radio' && st.targets.includes('new') && st.open.includes('station'), `Radio: ${JSON.stringify(st)}`);
+  });
+
   await step('no page errors', async () => expect(!errors.length, errors.join(' | ')));
 } finally {
   await browser.close();

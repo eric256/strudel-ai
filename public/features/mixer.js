@@ -12,6 +12,7 @@ import { onceAFrame } from '../lib/events.js';
 import { audioCtx } from './hum-ui.js';
 import { $, docks, getCode, isPlaying, load, player, queue, save, scheduler, setupDock, ws } from '../app.js';
 import { nowSong } from './song-lists.js';
+import { currentMode } from './modes.js';
 import { render } from '../html.js';
 import { T, onTemplatesChange } from '../templates/index.js';
 import { themeColor } from '../theme.js';
@@ -93,11 +94,14 @@ function masterAnalyser() {
   return out.__an;
 }
 
-/** The channels: the song's parts (all of them, in the sheet's order) and every other labelled part in the code. */
+/**
+ * The channels: the song's parts (all of them, in the sheet's order) and every other labelled part in the code.
+ * ⌨ Jam has no song: just the parts in the code, so a part you delete loses its channel.
+ */
 export function mixerChannels() {
   const code = getCode();
   const rows = patternLines(code);
-  const sg = queue.running ? queue.songs[queue.current] : nowSong;
+  const sg = currentMode() === 'jam' ? null : queue.running ? queue.songs[queue.current] : nowSong;
   const out = [];
   const add = (base, extra = {}) => { if (base && base !== '$' && !out.some((x) => x.base === base)) out.push({ base, ...extra }); };
   for (const p of sg?.sheet?.parts || []) add(p.id, { role: p.role, sound: p.sound, song: true });
@@ -243,7 +247,7 @@ export function setup() {
   });
   {
     const soon = onceAFrame(() => { mixer.key = ''; renderMixerPanel(); });
-    for (const e of ['section', 'song']) player.on(e, soon);
+    for (const e of ['section', 'song', 'mode']) player.on(e, soon);
     onTemplatesChange(soon);
     setInterval(renderMixerPanel, 1000);
   }
