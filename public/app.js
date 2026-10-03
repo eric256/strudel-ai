@@ -37,6 +37,7 @@ import { setup as setup_stations } from './features/stations.js';
 import { addToPlaylist, sessionSongs, setup as setup_playlist } from './features/playlist.js';
 import { setup as setup_themes } from './features/themes.js';
 import { pluginsState, setup as setup_plugins } from './features/plugins.js';
+import { MODES, currentMode, setMode, setup as setup_modes } from './features/modes.js';
 import { html, nothing, render, renderOptions } from './html.js';
 import { T } from './templates/index.js';
 // Strudel AI — browser app
@@ -804,7 +805,14 @@ const PANELS = [
 ];
 export let ws;
 try {
-  ws = createWorkspace({ dv: await loadDockview(), root: $('workspace'), center: document.querySelector('#workspace .ws-center'), panels: PANELS, saved: saved.panelLayout || null, onSave: (layout) => save({ panelLayout: layout }) });
+  // each mode (📻 Radio · 🎼 Studio · ⌨ Jam) has its own layout (features/modes.js); layouts saved before modes are Radio's
+  const mode = currentMode();
+  document.body.dataset.mode = mode;
+  ws = createWorkspace({
+    dv: await loadDockview(), root: $('workspace'), center: document.querySelector('#workspace .ws-center'), panels: PANELS,
+    saved: saved.panelLayouts?.[mode] || (mode === 'radio' ? saved.panelLayout : null) || null, preset: MODES[mode].preset,
+    onSave: (layout) => save({ panelLayouts: { ...(load().panelLayouts || {}), [currentMode()]: layout } }),
+  });
 } catch (e) {
   const msg = document.createElement('div');
   msg.className = 'fatal';
@@ -826,7 +834,7 @@ try {
   window.addEventListener('scroll', () => { if (window.scrollX || window.scrollY) window.scrollTo(0, 0); });
 }
 // layouts saved before the 📃 Playlist existed: add it once, as a tab beside Chat / Songs / Station
-if (!ws.isOpen('playlist') && !saved.playlistAdded) ws.open('playlist', { activate: false });
+if (currentMode() === 'radio' && !ws.isOpen('playlist') && !saved.playlistAdded) ws.open('playlist', { activate: false });
 save({ playlistAdded: true });
 /** Bring a panel to the front (opening it if it's closed). */
 export const showPanel = (id) => ws.open(id);
@@ -1728,6 +1736,7 @@ export function applyPadsReply(block) {
 
 setup_mp3(); // features/mp3.js
 // (features/debug.js)
-window.strudelAI = { player, plugins: pluginsState, sessionSongs, addToPlaylist, debugReport: () => debugReport(debugContext()), ws, mixer, mixerChannels, master, masterChain, getBands: () => bands, normalizeSheet, playSong, songMp3, loadPads, songPads, transposeProgression, sectionCode, getForms: () => songForms, getFavorites: () => favorites, loadFavorites, getPads: () => pads, mySongs, activeSong, songFromJSON, songToJSON, mp3, session, pads, padsState, keysState, noteOn, noteOff, setPad, docks, rec, replay, startReplay, recordingForShare, viz, checkScales, checkSounds, prepareCode, evaluateCode, dryRun, hum, transcribe, ensureSliders, engine, queue, setlist: engine, setl: queue };
+window.strudelAI = { player, setMode, currentMode, plugins: pluginsState, sessionSongs, addToPlaylist, debugReport: () => debugReport(debugContext()), ws, mixer, mixerChannels, master, masterChain, getBands: () => bands, normalizeSheet, playSong, songMp3, loadPads, songPads, transposeProgression, sectionCode, getForms: () => songForms, getFavorites: () => favorites, loadFavorites, getPads: () => pads, mySongs, activeSong, songFromJSON, songToJSON, mp3, session, pads, padsState, keysState, noteOn, noteOff, setPad, docks, rec, replay, startReplay, recordingForShare, viz, checkScales, checkSounds, prepareCode, evaluateCode, dryRun, hum, transcribe, ensureSliders, engine, queue, setlist: engine, setl: queue };
+setup_modes(); // features/modes.js
 // 🧩 plugins last: everything they can add to is ready (features/plugins.js)
 setup_plugins();

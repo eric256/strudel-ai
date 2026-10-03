@@ -4,14 +4,15 @@
 // windows, maximise, or pop out into their own browser window (right-click a tab).
 // The code editor is a panel too. Strudel's editor element must never move in the DOM (re-inserting it creates a
 // second editor), so its panel holds an empty slot and the real editor is laid over it.
-// Two panels are FIXED — they can't be closed: the code editor and 🎶 Now playing (it holds the transport, keeps a
+// Two panels are fixed — they can't be closed: the code editor and 🎶 Now playing (in the modes that use it: it holds the transport, keeps a
 // group of its own, and never shrinks below its transport bar).
 // ---------------------------------------------------------------------------
 
 const EDITOR = 'editor';
 const NOW = 'song';
-const FIXED = new Set([EDITOR, NOW]);
 const NOW_MIN_HEIGHT = 52; // the transport bar
+/** The layout when nothing is saved: chat, songs, station and playlist on the right, Now playing below them. */
+export const DEFAULT_PRESET = { right: ['chat', 'songs', 'station', 'playlist'], bottom: [], now: true };
 
 /** Load dockview's browser build (it includes its own CSS). */
 export function loadDockview() {
@@ -31,9 +32,10 @@ export function loadDockview() {
  * @param {HTMLElement} o.center   the element holding the code editor; it stays put and is laid over the "editor" panel
  * @param {Array} o.panels         [{ id, title, icon, el, area }]
  * @param {object|null} o.saved    a saved dockview layout (toJSON), or null
+ * @param {object} o.preset        the layout to build when there's no saved one: { right: [ids], bottom: [ids], now: bool }
  * @param {Function} o.onSave      called with the layout after every change
  */
-export function createWorkspace({ dv, root, center, panels, saved, onSave }) {
+export function createWorkspace({ dv, root, center, panels, saved, preset = DEFAULT_PRESET, onSave }) {
   const P = new Map(panels.map((p) => [p.id, { onVisible: null, onOpen: null, ...p }]));
   const slot = document.createElement('div');
   slot.className = 'dv-editor-slot';
@@ -209,19 +211,25 @@ export function createWorkspace({ dv, root, center, panels, saved, onSave }) {
     if (!panel) panel = api.addPanel({ id, component: id, title: title(p), position: position(id), inactive: !activate });
     else if (activate) panel.api.setActive();
   }
-  const closePanel = (id) => { if (!FIXED.has(id)) panelOf(id)?.api.close(); };
+  const isFixed = (id) => id === EDITOR || (id === NOW && needNow);
+  const closePanel = (id) => { if (!isFixed(id)) panelOf(id)?.api.close(); };
 
-  function buildDefault() {
+  /** Build a layout: the editor, the `right` panels tabbed beside it, Now playing below them, the `bottom` ones under the editor. */
+  function buildPreset(pr = preset) {
     api.clear();
     addFixed(EDITOR, {});
-    api.addPanel({ id: 'chat', component: 'chat', title: title(P.get('chat')), position: { referencePanel: EDITOR, direction: 'right' }, initialWidth: 430 });
-    api.addPanel({ id: 'songs', component: 'songs', title: title(P.get('songs')), position: { referencePanel: 'chat', direction: 'within' }, inactive: true });
-    api.addPanel({ id: 'station', component: 'station', title: title(P.get('station')), position: { referencePanel: 'chat', direction: 'within' }, inactive: true });
-    api.addPanel({ id: 'playlist', component: 'playlist', title: title(P.get('playlist')), position: { referencePanel: 'chat', direction: 'within' }, inactive: true });
-    addFixed(NOW, { position: { referencePanel: 'chat', direction: 'below' }, initialHeight: 320 });
+    const add = (id, position, extra = {}) => { if (P.has(id) && !panelOf(id)) api.addPanel({ id, component: id, title: title(P.get(id)), position, ...extra }); };
+    const right = (pr.right || []).filter((id) => P.has(id));
+    right.forEach((id, k) => add(id, k ? { referencePanel: right[0], direction: 'within' } : { referencePanel: EDITOR, direction: 'right' }, k ? { inactive: true } : { initialWidth: 430 }));
+    if (pr.now !== false) addFixed(NOW, { position: right.length ? { referencePanel: right[0], direction: 'below' } : { referencePanel: EDITOR, direction: 'right' }, initialHeight: 320 });
+    const bottom = (pr.bottom || []).filter((id) => P.has(id));
+    bottom.forEach((id, k) => add(id, k ? { referencePanel: bottom[0], direction: 'within' } : { referencePanel: EDITOR, direction: 'below' }, k ? { inactive: true } : { initialHeight: 260 }));
   }
+  /** Is 🎶 Now playing part of this layout (a mode can leave it out)? */
+  let needNow = preset.now !== false;
   /** 🎶 Now playing: always there, alone in its group (so its transport is never hidden behind another tab), never shorter than the transport. */
   function ensureNow() {
+    if (!needNow) return;
     let panel = panelOf(NOW);
     if (panel && panel.group.panels.length > 1) {
       // tabbed with others (an older saved layout): give it its own group below them
@@ -235,9 +243,9 @@ export function createWorkspace({ dv, root, center, panels, saved, onSave }) {
     try { panelOf(NOW).group.api.setConstraints({ minimumHeight: NOW_MIN_HEIGHT + 35 }); } catch {}
   }
 
-  let loaded = false;
+  let loaded = false, switching = false;
   if (saved) { try { api.fromJSON(saved); loaded = !!panelOf(EDITOR); } catch (e) { console.warn('dockview layout could not be restored:', e); } }
-  if (!loaded) buildDefault();
+  if (!loaded) buildPreset();
   ensureNow();
 
   // nothing gets tabbed into Now playing's group, and Now playing doesn't get tabbed into another
@@ -252,7 +260,7 @@ export function createWorkspace({ dv, root, center, panels, saved, onSave }) {
   // the fixed panels can't go away: put them back if they're closed
   api.onDidRemovePanel((panel) => {
     if (panel.id === EDITOR) setTimeout(() => { if (!panelOf(EDITOR)) addFixed(EDITOR, { position: { direction: 'left' } }); });
-    if (panel.id === NOW) setTimeout(ensureNow);
+    if (panel.id === NOW && !switching) setTimeout(ensureNow);
     if (pinned.id === panel.id) pinned.win?.close(); // closing a pinned panel brings it home first
     const p = P.get(panel.id);
     if (p?.el && p.el.parentNode !== store) store.appendChild(p.el); // keep the panel's DOM (and its state) for next time
@@ -295,14 +303,27 @@ export function createWorkspace({ dv, root, center, panels, saved, onSave }) {
       if (onVisible) { p.onVisible = onVisible; onVisible(visible.has(id)); }
       if (onOpen) { p.onOpen = onOpen; onOpen(open.has(id)); }
     },
-    reset() { buildDefault(); ensureNow(); sync(); },
+    reset() { buildPreset(); ensureNow(); sync(); },
+    /** Switch to another layout (a mode's): its saved one, else its preset. */
+    setLayout(savedLayout, pr) {
+      switching = true;
+      try {
+        preset = pr || DEFAULT_PRESET;
+        needNow = preset.now !== false;
+        let ok = false;
+        if (savedLayout) { try { api.fromJSON(savedLayout); ok = !!panelOf(EDITOR); } catch (e) { console.warn('dockview layout could not be restored:', e); } }
+        if (!ok) buildPreset();
+        ensureNow();
+      } finally { switching = false; }
+      sync();
+    },
     float: floatPanel,
     dock: dockPanel,
     popout: popoutPanel,
     pinOnTop,
     pinnedId: () => pinned.id,
     layout: () => api.toJSON(),
-    panels: () => [...P.values()].filter((p) => p.id !== EDITOR).map((p) => ({ id: p.id, title: p.title, icon: p.icon, open: !!panelOf(p.id), fixed: FIXED.has(p.id) })),
+    panels: () => [...P.values()].filter((p) => p.id !== EDITOR).map((p) => ({ id: p.id, title: p.title, icon: p.icon, open: !!panelOf(p.id), fixed: isFixed(p.id) })),
     /**
      * Add a panel after start-up (🧩 plugins): { id, title, icon, area }. Returns its element. A panel with this id
      * restored from the saved layout keeps its place and gets the element now.
@@ -321,7 +342,7 @@ export function createWorkspace({ dv, root, center, panels, saved, onSave }) {
     },
     /** Remove a panel added with addPanel (closing it if it's open). */
     removePanel(id) {
-      if (FIXED.has(id) || !P.has(id)) return;
+      if (isFixed(id) || !P.has(id)) return;
       panelOf(id)?.api.close();
       P.get(id).el.remove();
       P.delete(id);

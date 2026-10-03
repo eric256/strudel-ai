@@ -752,3 +752,9 @@ body.hydra-behind .code-bar { background: color-mix(in srgb, var(--panel-2) 80%,
 .pip-body { margin: 0; height: 100vh; display: flex; flex-direction: column; overflow: hidden; background: var(--panel); color: var(--text); }
 .pip-body > .panel, .pip-body > .dock { flex: 1; height: 100% !important; min-height: 0; display: flex; flex-direction: column; }
 .pip-holder { padding: 16px; text-align: center; }
+
+/* 📻 Radio · 🎼 Studio · ⌨ Jam */
+.mode-switch { display: flex; gap: 2px; padding: 2px; border: 1px solid var(--border); border-radius: 8px; background: var(--sunken); }
+.mode-btn { border: none; background: none; color: var(--muted); padding: 4px 10px; border-radius: 6px; font-size: 13px; white-space: nowrap; }
+.mode-btn:hover { color: var(--text); background: var(--raised); }
+.mode-btn.on { color: var(--on-accent); background: var(--accent); }
