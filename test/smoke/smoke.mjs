@@ -443,6 +443,30 @@ try {
     expect(st.mode === 'radio' && st.targets.includes('new') && st.open.includes('station'), `Radio: ${JSON.stringify(st)}`);
   });
 
+  await step('⬆ promotion: a jam becomes a song (opened in 🎼 Studio); the song becomes a 🎸 band and a 📻 station', async () => {
+    await ev(() => strudelAI.setMode('jam'));
+    await ev(() => document.querySelector('strudel-editor').editor.setCode('setcpm(124/4)\nkick: s("bd*4")\nhats: s("hh*8").gain(0.4)\nbass: note("a1 ~ a1 c2").s("sawtooth")'));
+    expect(await ev(() => getComputedStyle(document.getElementById('jamPromote')).display !== 'none'), 'no 🎼 Make it a song button in Jam');
+    const sheetsBefore = log.filter((x) => x.kind === 'sheet').length;
+    await ev(() => document.getElementById('jamPromote').click());
+    expect(await ev(() => strudelAI.currentMode() === 'studio'), 'did not switch to Studio');
+    await p.waitForFunction(() => document.querySelectorAll('#editForm .se-sec').length >= 2, null, { timeout: 40000 });
+    const req = log.filter((x) => x.kind === 'sheet')[sheetsBefore];
+    expect(req && /JAM — build this song from the live-coded jam/.test(req.last) && /kick: s\("bd\*4"\)/.test(req.last), 'the sheet request lacks the jam');
+    // the song → a band, then a station like it
+    await p.waitForFunction(() => document.querySelector('#nowSongView [data-act="band"]'), null, { timeout: 20000 });
+    const before = await ev(() => strudelAI.getBands().length);
+    await ev(() => document.querySelector('#nowSongView [data-act="band"]').click());
+    const band = await ev(() => strudelAI.getBands()[strudelAI.getBands().length - 1]);
+    expect((await ev(() => strudelAI.getBands().length)) === before + 1 && / band$/.test(band.name) && band.instruments.split('\n').length >= 2, `the band: ${JSON.stringify(band)}`);
+    await ev(() => document.querySelector('#nowSongView [data-act="station"]').click());
+    await p.waitForFunction(() => strudelAI.queue.station && / Radio$/.test(strudelAI.queue.station.name), null, { timeout: 5000 });
+    const st = await ev(() => ({ mode: strudelAI.currentMode(), band: document.getElementById('stationBand').value, theme: strudelAI.queue.station.theme }));
+    expect(st.mode === 'radio' && / band/.test(st.band) && /music like/.test(st.theme), `the station: ${JSON.stringify(st)}`);
+    await ev(() => document.getElementById('stationStop').click());
+    await ev(() => document.getElementById('stop').click());
+  });
+
   await step('no page errors', async () => expect(!errors.length, errors.join(' | ')));
 } finally {
   await browser.close();

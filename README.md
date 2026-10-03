@@ -27,6 +27,10 @@ Pick one in the header. Switching stops all music. Each mode has its own panel l
 | **⌨ Jam** | Live-coding: you and the AI write one piece of code in the editor, with no songs | the code in the editor (or the pads) | Chat, Keys · Pads · Visualizer below |
 
 - **⌨ Jam** keeps its own code, saved as you type, so it's still there when you come back.
+- **⬆ Promotion, from one mode to the next:**
+  - **⌨ Jam → 🎼 song:** **🎼 Make it a song** (in Jam's code bar) grows the jam into a whole song. The AI keeps its tempo, key, sounds and patterns; the jam's groove becomes the main section, and the other sections grow from it (a thinner intro, verses, a breakdown) with a melody and hook added. It switches to 🎼 Studio, plays the song and opens it in ✎ Edit song.
+  - **🎵 song → 🎸 band:** **🎸 Band** (in a song's buttons) saves the song's line-up as a band: each part's role and sound, its master style and own sound, its genre and meter. Use it for new songs, or edit it in ⚙ Settings → 🎸 Bands.
+  - **🎵 song → 📻 station:** **📻 Station** makes that band, plus a station whose theme describes the song: its genre, mood, tempo, key area and sounds. It picks the band and form for the station's songs and puts it on air in 📻 Radio, so it writes music like the song.
 - **The mixer in Jam** has a channel for each part in the code, and a channel goes away when you delete its part. In Radio and Studio it has a channel for every part of the song, even ones not playing in the current section.
 
 ## Quick start
