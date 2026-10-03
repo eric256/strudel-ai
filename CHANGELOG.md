@@ -2,6 +2,22 @@
 
 The version is in `package.json`. Bump it when you release. Open pages also notice *any* redeploy through the build id, which is a hash of the app files, even if the version wasn't bumped.
 
+## 1.41.0
+- **⬇ MP3 from the 📃 Playlist:** a song's recording is ready the moment it has played to its end, which is when the next song starts and 🎶 Now playing has already moved on.
+  - Songs that played (and the one playing) now keep their buttons in the Playlist: **⬇ MP3** (highlighted once the recording is ready), ☆ favorite, 📁 save, ⬇ JSON and 🔗 link (📋 copy once it exists).
+  - A song queued again also gives its recording to its entry in 🎵 Songs.
+- **🌀 Hydra works again**, in its own panel. Its canvas used to sit behind the whole page, where the panels covered it.
+  - **show:** **in this panel** (float it, pop it out or pin it on top), or **behind the code** (the code area turns see-through).
+  - **🌀 Hydra ↗** in the visualizer bar opens it.
+- **Floating panels:** every panel header has buttons that act on the panel showing in that group:
+  - **⧉** float it over the layout, and **⇲** dock it back;
+  - **↗** open it in its own browser window;
+  - **📌** always on top: a small Picture-in-Picture window that stays above other windows (Chrome and Edge);
+  - **⛶** maximise.
+- **⚙ Settings is a large window** with the tabs down the left and a page that scrolls. Drag its corner to resize it; the size is remembered. On narrow screens the tabs go back on top.
+- **Inline part visuals removed:** the punchcard, piano roll, spiral and other visuals under each part of a song's sections are gone, along with their setting. Older saved and shared songs drop them when they play.
+- **Smoke test:** Hydra in its panel and behind the code; float and dock a panel; the Playlist's buttons for played songs (28 steps).
+
 ## 1.40.0
 - **HTML templates in their own folder:** every panel's HTML is now in `public/templates/`, separate from the code. There is one file per panel: playlist, songs and Now playing, ✎ Edit song, mixer, master, pads, keys, the settings editors, themes, plugins and ▦ Panels.
   - **How they work:** each template is a function that gets plain data and actions and returns the markup. The comment above it lists what it gets.

@@ -30,7 +30,7 @@ import { pretty, preloadSoundfonts, prepareCode, soundRegistry, checkScales, che
 import { setup as setup_chat } from './features/chat.js';
 import { songForms, setup as setup_forms } from './features/forms.js';
 import { bands, normalizeSheet, setup as setup_bands } from './features/bands.js';
-import { partVisuals } from './features/part-visuals.js';
+import { stripPartVisuals } from './features/part-visuals.js';
 import { stopSet, repairSong, startPlaylist, jumpToSong } from './features/song-writer.js';
 import { songsChanged, nowSong, viewedSong, setup as setup_song_lists } from './features/song-lists.js';
 import { setup as setup_stations } from './features/stations.js';
@@ -230,13 +230,6 @@ function setAutocomplete(on) {
   return true;
 }
 if (saved.autoComplete !== undefined) $('autoComplete').checked = saved.autoComplete;
-if (saved.partVisuals !== undefined) $('partVisuals').checked = saved.partVisuals;
-$('partVisuals').onchange = async () => {
-  save({ partVisuals: $('partVisuals').checked });
-  // the song section playing now gets (or loses) its visuals on the next bar
-  const code = getCode();
-  if (isPlaying() && code.includes(SEC_START) && !state.pending) await evaluateCode(wrapCode(partVisuals(code)), { at: nextBoundary(1), label: 'part visuals', undo: false });
-};
 $('autoComplete').onchange = () => { save({ autoComplete: $('autoComplete').checked }); setAutocomplete($('autoComplete').checked); };
 (function waitForEditor(n = 0) {
   if (setAutocomplete($('autoComplete').checked) || n > 100) return;
@@ -802,6 +795,7 @@ const PANELS = [
   { id: 'song', title: 'Now playing', icon: '🎶', el: $('songPanel'), area: 'right' },
   { id: 'edit', title: 'Edit song', icon: '✎', el: $('editPanel'), area: 'right' },
   { id: 'viz', title: 'Visualizer', icon: '📊', el: $('viz-dock'), area: 'bottom' },
+  { id: 'hydra', title: 'Hydra', icon: '🌀', el: $('hydra-dock'), area: 'bottom' },
   { id: 'keys', title: 'Keys', icon: '🎹', el: $('keys-dock'), area: 'bottom' },
   { id: 'pads', title: 'Pads', icon: '🔲', el: $('pads-dock'), area: 'bottom' },
   { id: 'mixer', title: 'Mixer', icon: '🎚', el: $('mixer-dock'), area: 'bottom' },
@@ -1546,7 +1540,7 @@ setup_bands(); // features/bands.js
 /** Every part of a section is anchored to the bar the section starts on (set when it's armed), so phrases and chord progressions start on their first bar. */
 const SECTION_START_RE = /^const sectionStart = -?[\d.]+.*$/m;
 // (the finished section is wrapped to about 150 characters a line: see format.js)
-export const atSectionStart = (code, bar) => wrapCode(partVisuals(SECTION_START_RE.test(code) ? code.replace(SECTION_START_RE, `const sectionStart = ${Math.round(bar)} // the bar this section started on`) : code));
+export const atSectionStart = (code, bar) => wrapCode(stripPartVisuals(SECTION_START_RE.test(code) ? code.replace(SECTION_START_RE, `const sectionStart = ${Math.round(bar)} // the bar this section started on`) : code));
 
 // (features/part-visuals.js)
 // (features/song-writer.js)

@@ -1,8 +1,9 @@
-// 🌀 Hydra: live video-synth visuals behind the code (Strudel's initHydra({ feedStrudel: 1 }) — s0 is Strudel's
-// own visuals). Presets or your own Hydra code; the code area turns see-through while it runs.
+// 🌀 Hydra: live video-synth visuals (Strudel's initHydra({ feedStrudel: 1 }) — s0 is Strudel's own visuals).
+// Presets or your own Hydra code. They show in the 🌀 Hydra panel, or behind the code (the code area turns
+// see-through). Strudel makes the canvas full-window behind the page; we move it into the place you picked.
 // (split out of app.js: start-up code runs in setup(), called from app.js)
 import { drawViz, viz } from './visualizer.js';
-import { $, clog, load, mirror, save, setupDock } from '../app.js';
+import { $, clog, load, mirror, save, setupDock, showPanel, ws } from '../app.js';
 let hydraState;
 const HYDRA_PRESETS = {
   kaleido: 'src(s0).kaleid(H("<4 5 6>"))\n  .diff(osc(1, 0.5, 5))\n  .modulateScale(osc(2, -0.25, 1))\n  .out()',
@@ -21,8 +22,7 @@ async function runHydra(mode = hydraState.mode) {
     await globalThis.initHydra({ feedStrudel: 1, src: '/vendor/hydra/hydra-synth.js' });
     new Function(hydraCodeFor(mode))(); // Hydra's functions (osc, src, s0, o0 …) and Strudel's H() are globals
     hydraState.on = true;
-    document.body.classList.add('hydra-on');
-    applyHydraMix();
+    placeHydra();
     $('hydraMsg').textContent = '▶ running';
   } catch (e) {
     $('hydraMsg').textContent = `⚠ ${e.message}`;
@@ -34,19 +34,37 @@ function stopHydra() {
   document.getElementById('hydra-canvas')?.remove();
   try { globalThis.getDrawContext?.().canvas.style.removeProperty('display'); } catch {} // feedStrudel hid Strudel's own canvas
   hydraState.on = false;
-  document.body.classList.remove('hydra-on');
+  placeHydra();
+}
+/** Put the canvas where it shows: in the 🌀 Hydra panel's stage, or behind the code (under the editor). */
+function placeHydra() {
+  const c = document.getElementById('hydra-canvas');
+  const behind = hydraState.on && hydraState.where === 'code';
+  document.body.classList.toggle('hydra-on', hydraState.on);
+  document.body.classList.toggle('hydra-behind', behind);
+  $('hydraEmpty').hidden = hydraState.on && !behind;
+  $('hydraEmpty').textContent = behind ? '🌀 showing behind the code (switch “show” to see it here)'
+    : 'Pick a visual above. It runs on Strudel’s own visuals (s0), so it moves with the music.';
+  if (c) {
+    const host = behind ? document.querySelector('#workspace .ws-center') : $('hydraStage');
+    if (c.parentElement !== host) host.prepend(c);
+  }
+  applyHydraMix();
 }
 function applyHydraMix() {
   const c = document.getElementById('hydra-canvas');
-  if (c) c.style.opacity = $('hydraMix').value;
+  if (c) c.style.opacity = hydraState.where === 'code' ? $('hydraMix').value : 1;
 }
 
 /** Start-up: the statements that ran here when this was part of app.js (called from app.js at the same point). */
 export function setup() {
-  hydraState = { on: false, mode: load().hydraMode || 'off', custom: load().hydraCustom || HYDRA_PRESETS.kaleido };
+  hydraState = { on: false, mode: load().hydraMode || 'off', where: load().hydraWhere || 'panel', custom: load().hydraCustom || HYDRA_PRESETS.kaleido };
   $('hydraMode').value = hydraState.mode;
+  $('hydraWhere').value = hydraState.where;
+  $('hydraWhere').onchange = () => { hydraState.where = $('hydraWhere').value; save({ hydraWhere: hydraState.where }); placeHydra(); };
+  $('hydraOpen').onclick = () => showPanel('hydra');
   $('hydraMix').value = load().hydraMix ?? 0.6;
-  $('hydraMode').onchange = () => { save({ hydraMode: $('hydraMode').value }); if ($('hydraMode').value !== 'custom' && $('hydraMode').value !== 'off') $('hydraCode').value = hydraCodeFor($('hydraMode').value); runHydra($('hydraMode').value); };
+  $('hydraMode').onchange = () => { save({ hydraMode: $('hydraMode').value }); if ($('hydraMode').value !== 'custom' && $('hydraMode').value !== 'off') $('hydraCode').value = hydraCodeFor($('hydraMode').value); runHydra($('hydraMode').value); if (hydraState.where === 'panel' && $('hydraMode').value !== 'off') ws.open('hydra'); };
   $('hydraMix').oninput = () => { applyHydraMix(); save({ hydraMix: Number($('hydraMix').value) }); };
   $('hydraEdit').onclick = () => {
     $('hydraEditor').hidden = !$('hydraEditor').hidden;

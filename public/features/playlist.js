@@ -5,7 +5,7 @@
 // ---------------------------------------------------------------------------
 import { render } from '../html.js';
 import { T, onTemplatesChange } from '../templates/index.js';
-import { songMeta, songsChanged } from './song-lists.js';
+import { songAction, songMeta, songsChanged, toolbarView } from './song-lists.js';
 import { jumpToSong, retrySong, startPlaylist, stopStation } from './song-writer.js';
 import { $, addMsg, dropQueuedSongs, engine, isPlaying, player, queue, save, saved, showPanel } from '../app.js';
 import { onceAFrame } from '../lib/events.js';
@@ -104,6 +104,8 @@ function rowView(sg, k, kind, section) {
     song: sg, k, kind, status: sg.status, icon: kind === 'now' ? (isPlaying() ? '▶' : '⏸') : ICON[sg.status] || '·',
     title: sg.title, source: source(sg), meta: meta || sg.desc || '', error: sg.error || '', failed: sg.status === 'failed',
     first: k - 1 <= queue.current, last: k + 1 >= queue.songs.length,
+    // a song that played (or is playing) keeps its buttons here: ⬇ MP3 shows up once its recording is done
+    tools: kind === 'up' ? null : toolbarView(sg, false), shareUrl: sg.shareUrl || '',
   };
 }
 const rowActions = {
@@ -114,6 +116,10 @@ const rowActions = {
   down: (sg) => moveInPlaylist(queue.songs.indexOf(sg), 1),
   remove: (sg) => removeFromPlaylist(queue.songs.indexOf(sg)),
   again: (sg) => addToPlaylist(sg, { at: 'next' }),
+  tool: (name, sg) => {
+    if (name === 'copy-link') { navigator.clipboard?.writeText(sg.shareUrl).then(() => addMsg('info', `📋 link copied: ${sg.shareUrl}`), () => addMsg('info', `🔗 ${sg.shareUrl}`)); return; }
+    songAction(name, sg);
+  },
 };
 
 export function renderPlaylist() {

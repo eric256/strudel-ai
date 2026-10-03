@@ -189,7 +189,7 @@ export function drawMeter(cv, lvl) {
 function drawMixer() {
   mixer.raf = requestAnimationFrame(drawMixer);
   const buf = mixer.buf || (mixer.buf = new Float32Array(1024));
-  for (const el of document.querySelectorAll('#mixerStrips .mx-strip')) {
+  for (const el of $('mixerStrips').querySelectorAll('.mx-strip')) { // (the panel may be in another window)
     const base = el.dataset.base;
     const isMaster = base === '__master';
     const an = isMaster ? masterAnalyser() : mixer.orbits[base] != null ? sdController()?.nodes?.[mixer.orbits[base]]?.__ch?.an : null;

@@ -6,7 +6,8 @@ import { T } from './index.js'; // templates use each other through T, so an ove
  * One song in the playlist.
  * row: { song (passed back to the actions), k (its place in the playlist), kind: 'played' | 'now' | 'up', status, icon, title, source, meta, error,
  *        failed, first (can't move up), last (can't move down) }
- * act: { retry, now, next, up, down, remove, again } — each called with row.song
+ *        tools: the song's buttons (songToolbar's data, see songs.js) for a song that played or is playing, else null
+ * act: { retry, now, next, up, down, remove, again } — each called with row.song; tool(name, row.song) for the tools
  */
 export function playlistRow(row, act) {
   const btn = (name, label, title, fn, disabled = false) => html`<button data-pl=${name} title=${title} ?disabled=${disabled} @click=${() => fn(row.song)}>${label}</button>`;
@@ -27,6 +28,26 @@ export function playlistRow(row, act) {
       ${row.error ? html`<div class="meta bad" title=${row.error}>⚠ ${row.error.slice(0, 120)}</div>` : nothing}
     </div>
     <div class="pl-btns">${buttons}</div>
+    ${row.tools ? T.playlistSongTools(row, act) : nothing}
+  </div>`;
+}
+
+/**
+ * The buttons under a song that played (or is playing): ⬇ MP3 once its recording is ready, ★ favorite, 📁 save,
+ * ⬇ JSON, 🔗 link (or 📋 copy it once it exists). row.tools as in playlistRow.
+ */
+export function playlistSongTools(row, act) {
+  const tb = row.tools, m = tb.mp3;
+  const btn = (name, label, title, extra = '') => html`<button class="pl-tool ${extra}" data-tool=${name} title=${title} @click=${() => act.tool(name, row.song)}>${label}</button>`;
+  return html`<div class="pl-tools">
+    ${m.kind === 'take' ? btn('mp3', html`⬇ MP3 <span class="muted">${m.time}</span>`, `Download the recording of this song (${m.mb} MB) — kept until the page is reloaded`, 'ready')
+      : m.kind === 'recording' ? html`<span class="pl-rec muted small" title="Recording this song as it plays — ⬇ MP3 appears here when it has played to its end">🎙 recording…</span>`
+      : nothing}
+    ${btn('fav', tb.fav ? '★' : '☆', tb.fav ? 'A favorite on this server — click to remove it' : 'Add to ★ Favorites (everyone on this server sees it)')}
+    ${tb.mine ? nothing : btn('save', '📁', 'Save to 📁 My songs')}
+    ${tb.state === 'written' ? btn('json', '⬇ JSON', 'Download the whole song as a .json file') : nothing}
+    ${tb.state !== 'written' ? nothing : tb.sharing ? html`<span class="muted small">creating link…</span>`
+      : row.shareUrl ? btn('copy-link', '📋 link', `Copy the link: ${row.shareUrl}`) : btn('link', '🔗 Link', 'Create a link that plays this whole song on this server')}
   </div>`;
 }
 

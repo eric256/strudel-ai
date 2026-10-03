@@ -152,21 +152,10 @@ Tick **⚡ live** (⚙ Settings → General) and your edits in the code window t
 
 Encoding happens in the browser while you record (lamejs, 192 kbps stereo), so nothing is uploaded.
 - It's a panel: dock, tab or float it like any other (see [Panels and layout](#panels-and-layout)).
-- **🌀 hydra:** live video-synth visuals ([Hydra](https://hydra.ojack.xyz)) behind the code, fed by Strudel's own visuals (`initHydra({ feedStrudel: 1 })`, so `s0` is Strudel's canvas).
-  - Pick a preset: kaleidoscope, tunnel, waves, cells or feedback. Or choose **✎ code** and write your own, e.g. `src(s0).kaleid(H("<4 5 6>")).diff(osc(1,0.5,5)).modulateScale(osc(2,-0.25,1)).out()`. `H("…")` turns a Strudel pattern into a value that changes with the music.
-  - **mix** sets how strongly it shows through, and the code gets a shadow so it stays readable. Hydra is served by this server, and the choice is remembered.
-
-## 🎨 Part visuals
-
-Each part of a song section gets one of Strudel's inline visuals under its line, in the part's own colour, picked by what it does:
-- drums and percussion: a **punchcard**;
-- bass: a scrolling **piano roll**;
-- chords, pads and keys: a **spiral**;
-- melodies, hooks and counter-melodies: a **pitch wheel**;
-- arps: a dense piano roll;
-- fx and noise: a **scope**.
-
-Turn them off in ⚙ Settings → General → 🎨 part visuals; the section playing now changes on the next bar.
+- **🌀 Hydra** (its own panel, or **🌀 Hydra ↗** in the visualizer bar): live video-synth visuals ([Hydra](https://hydra.ojack.xyz)) fed by Strudel's own visuals (`initHydra({ feedStrudel: 1 })`, so `s0` is Strudel's canvas).
+  - **visual:** kaleidoscope, tunnel, waves, cells, feedback, or your own code (**✎ code**).
+  - **show:** **in this panel**, which can float, pop out or stay 📌 on top like any panel, or **behind the code**, where the code area turns see-through and the code gets a shadow.
+  - **mix** sets how strongly it shows behind the code. Hydra is served by this server, and your choices are remembered.
 
 ## 🎵 Songs & 📻 Station
 
@@ -494,10 +483,16 @@ To write one, see **[PLUGINS.md](PLUGINS.md)**.
 
 ## Panels and layout
 
-Every part of the app is a panel in [dockview](https://dockview.dev): the code editor ⌨, Chat 💬, Songs 🎵, Station 📻, **Now playing** 🎶, Visualizer 📊, Keys 🎹, Pads 🔲, Mixer 🎚, Master 🎛 and Console 🖥.
+Every part of the app is a panel in [dockview](https://dockview.dev): the code editor ⌨, Chat 💬, Songs 🎵, Station 📻, Playlist 📃, **Now playing** 🎶, Visualizer 📊, Hydra 🌀, Keys 🎹, Pads 🔲, Mixer 🎚, Master 🎛 and Console 🖥.
 
 - **Tabs and splits:** drag a tab onto another group to tab it there, or onto any edge of any group to split it. Splits can nest as deeply as you like, and you drag the bars between groups to resize them. A panel you open joins the group its kind already lives in (the tools go below the code, the song panels go on the right).
-- **Right-click a tab** to **maximise** its group, **float** it as a window, or **pop it out** into its own browser window, e.g. the visualizer or mixer on a second screen.
+- **The buttons at the right of each panel header** act on the panel showing in that group:
+  - **⧉ float** it over the layout (drag it anywhere, resize it), and **⇲ dock** it back;
+  - **↗** open it in its own browser window, for example the visualizer or mixer on a second screen;
+  - **📌 always on top:** a small window that stays above your other windows, even other apps (Document Picture-in-Picture: Chrome and Edge). Close that window to bring the panel back. One panel at a time; its animations may pause while the main tab is hidden.
+  - **⛶** maximise or restore.
+
+  Right-clicking a tab offers the same.
 - **Open / close:** **✕** on a tab closes it, and the header buttons (📊 🎹 🔲 🎚 🖥) toggle their panels. **▦ Panels** lists every panel and has **↺ reset layout**.
 - **Always there:** the code editor and **Now playing** can't be closed. Now playing keeps a group of its own (nothing tabs over it) and never gets shorter than its transport bar.
 - The layout is saved in the browser. dockview is served by this server.

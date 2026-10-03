@@ -25,7 +25,7 @@ export function debugContext() {
     `AI ${$('provider')?.value || '?'} / ${$('model')?.value || '?'}${st.claudeEffort ? ` (effort ${st.claudeEffort})` : ''}`,
     `panels open: ${safe(() => ws.panels().filter((p) => p.open).map((p) => p.id).join(', '))}`,
     `plugins: ${safe(() => pluginsState().map((p) => `${p.name}${p.on ? ' (on)' : ''}${p.error ? ` ✗ ${p.error}` : ''}`).join(', ') || 'none')}`,
-    `settings: ${['quantize', 'fade', 'liveMode', 'autoComplete', 'partVisuals', 'recSongs', 'setForm', 'setBand', 'stationForm', 'stationBand', 'masterStyle', 'masterFollow', 'vizMode', 'aiBudget'].filter((k) => st[k] !== undefined).map((k) => `${k}=${JSON.stringify(st[k])}`).join(' ')}`,
+    `settings: ${['quantize', 'fade', 'liveMode', 'autoComplete', 'recSongs', 'setForm', 'setBand', 'stationForm', 'stationBand', 'masterStyle', 'masterFollow', 'vizMode', 'aiBudget'].filter((k) => st[k] !== undefined).map((k) => `${k}=${JSON.stringify(st[k])}`).join(' ')}`,
   ].join('\n');
   const now = [
     `${isPlaying() ? 'playing' : 'stopped'} · ${$('status')?.textContent || ''}${engine.paused ? ' · paused' : ''}`,
