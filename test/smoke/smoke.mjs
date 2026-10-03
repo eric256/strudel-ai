@@ -374,20 +374,23 @@ try {
     expect(await ev(() => document.querySelectorAll('#playlist .pl-row.up .pl-tools').length === 0), 'upcoming songs should not have the played-song buttons');
   });
 
-  await step('dynamics: a solo section brings its part forward; a hard ending leaves a bar of silence', async () => {
+  await step('dynamics: a solo section brings its part forward; a hard ending leaves a bar of silence; the feel humanizes the parts', async () => {
     // a written song playing, open in the song editor
     await ev(() => { strudelAI.ws.open('song'); });
     await p.waitForFunction(() => strudelAI.queue.running && strudelAI.queue.songs[strudelAI.queue.current]?.sheet && document.querySelector('#nowSongView [data-act="edit"]'), null, { timeout: 30000 });
     await ev(() => document.querySelector('#nowSongView [data-act="edit"]').click());
     await p.waitForFunction(() => document.querySelectorAll('#editForm .se-sec').length >= 2, null, { timeout: 5000 });
     await ev(() => { const s = [...document.querySelectorAll('#editForm .se-head select')].find((x) => [...x.options].some((o) => o.value === 'cut')); s.value = 'cut'; s.dispatchEvent(new Event('change')); });
+    // the feel: how loosely the band plays (humanized dynamics and timing on every part)
+    await ev(() => { const i = [...document.querySelectorAll('#editForm .se-head .se-num')].find((x) => x.max === '100'); i.value = '70'; i.dispatchEvent(new Event('change')); });
     await ev(() => document.querySelectorAll('#editForm .se-sec')[1].click());
     await ev(() => { const s = [...document.querySelectorAll('#editForm .se-selrow select')].find((x) => [...x.options].some((o) => o.value === '')); s.value = s.options[1].value; s.dispatchEvent(new Event('change')); });
     await ev(() => { const i = [...document.querySelectorAll('#editForm .se-selrow .se-num')].find((x) => x.max === '130'); i.value = '80'; i.dispatchEvent(new Event('change')); });
     await ev(() => document.querySelector('#editForm .se-apply').click());
     await p.waitForFunction(() => /applied|⚠/.test(document.querySelector('#editForm .se-msg')?.textContent || ''), null, { timeout: 15000 });
-    const sg = await ev(() => { const x = strudelAI.queue.songs[strudelAI.queue.current]; return { ending: x.sheet.ending, solo: x.sheet.sections[1].solo, level: x.sheet.sections[1].level, gap: !!x.blocks[x.blocks.length - 1].gap }; });
+    const sg = await ev(() => { const x = strudelAI.queue.songs[strudelAI.queue.current]; return { ending: x.sheet.ending, solo: x.sheet.sections[1].solo, level: x.sheet.sections[1].level, gap: !!x.blocks[x.blocks.length - 1].gap, feel: x.sheet.feel, felt: /\.mul\(velocity\(rand/.test(x.blocks[0].code) }; });
     expect(sg.ending === 'cut' && sg.solo && sg.level === 0.8 && sg.gap, `the sheet: ${JSON.stringify(sg)}`);
+    expect(sg.feel === 0.7 && sg.felt, `the feel is in the sheet and the parts' code: ${JSON.stringify(sg)}`);
     // go to the solo section: the mixer brings its part forward
     await ev(() => [...document.querySelectorAll('#editForm .se-selrow button')].find((b) => /go/.test(b.textContent)).click());
     await p.waitForFunction((part) => strudelAI.mixer.lead === part, sg.solo, { timeout: 15000 });

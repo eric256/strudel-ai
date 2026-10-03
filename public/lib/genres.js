@@ -21,6 +21,7 @@ export const GENRES = {
   dub: { name: 'dub & reggae', words: ['dub', 'reggae', 'ska', 'dancehall', 'riddim', 'one-drop', 'dub techno'] },
   chiptune: { name: 'chiptune', words: ['chiptune', '8-bit', 'chip', 'video game', 'arcade', 'game boy', 'nes'] },
   downtempo: { name: 'downtempo', words: ['downtempo', 'trip hop', 'trip-hop', 'chillout', 'lounge', 'chill'] },
+  acoustic: { name: 'acoustic & folk', words: ['acoustic', 'unplugged', 'folk', 'singer-songwriter', 'bluegrass', 'country', 'americana', 'celtic', 'irish', 'campfire', 'coffeehouse', 'fingerstyle', 'busking', 'string band'] },
   latin: { name: 'latin', words: ['latin', 'bossa', 'bossa nova', 'samba', 'salsa', 'afro-cuban', 'tango', 'cumbia'] },
 };
 

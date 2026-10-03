@@ -46,6 +46,10 @@ export const DEFAULT_FORMS = [
   // long forms (about 4 minutes): every section changes something, so they keep moving
   { name: 'long ballad', genres: 'pop, rock', meters: '4/4, 6/8, 12/8', keys: 'C major, G major, Eb major, A minor', use: 'long ballads, power ballads, soul, gospel, slow builds — about 4 minutes', sections: "intro 4, verse 8, verse 8, pre-chorus 4, chorus 4, interlude 4, verse 8, pre-chorus 4, chorus 4, chorus 4, bridge 8, breakdown 4, chorus 4, chorus 4, outro 8" },
   { name: 'ambient journey', genres: 'ambient, cinematic', meters: '4/4, 3/4', keys: 'D lydian, F major, A minor, E dorian', use: 'long ambient, environmental, nature soundscapes, drone, generative, meditation — about 4 minutes', sections: "intro 8, drift 8, A 8, A' 8, swell 8, B 8, B' 8, still 8, return 8, outro 8" },
+  // acoustic & folk
+  { name: 'folk song', genres: 'acoustic', meters: '4/4, 3/4, 6/8', keys: 'G major, D major, C major, A major, E minor', use: 'folk, americana, singer-songwriter, country — verses and a sing-along chorus', sections: 'intro 4, verse 8, chorus 4, verse 8, chorus 4, instrumental 8, verse 8, chorus 4, outro 4' },
+  { name: 'acoustic ballad', genres: 'acoustic, pop', meters: '4/4, 6/8, 3/4', keys: 'C major, G major, D major, A minor, Eb major', use: 'acoustic ballads, piano ballads, unplugged, coffeehouse — quiet start, a fuller last chorus', sections: 'intro 4, verse 8, verse 8, chorus 4, verse 8, chorus 4, bridge 4, chorus 4, outro 4' },
+  { name: 'tune set', genres: 'acoustic', meters: '6/8, 4/4, 2/4', keys: 'D major, G major, A dorian, E dorian, A major', use: 'celtic, bluegrass, jigs, reels, fiddle tunes — the tune, a second part, solos, the tune again', sections: 'intro 4, A 8, A 8, B 8, B 8, solo 8, A 8, B 8, outro 4' },
 ];
 
 // built-ins before v1.19 — anything else new is added for people who already have their own list

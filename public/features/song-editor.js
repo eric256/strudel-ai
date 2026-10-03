@@ -2,7 +2,7 @@
 // (no AI); a playing song switches to the new version from its next section.
 // (split out of app.js: start-up code runs in setup(), called from app.js)
 import { METERS, normMeter, tempoLine } from '../lib/music.js';
-import { definesId, libraryIds } from '../lib/sheet.js';
+import { definesId, libraryIds, normFeel, STYLE_FEEL } from '../lib/sheet.js';
 import { patternLines } from '../lib/labels.js';
 import { wrapCode } from '../format.js';
 import { isMine, saveMySongs } from './song-library.js';
@@ -30,7 +30,7 @@ export function rawSheet(sh) {
     chords: Object.fromEntries(Object.entries(sh.chords).map(([k, v]) => [k, v.replace(/^<|>$/g, '')])),
     parts: sh.parts.map((p) => ({ name: p.id, role: p.role, sound: p.sound, variants: p.variants, desc: p.desc, ...(p.tune ? { tune: p.tune } : {}) })),
     sections: sh.sections.map((x) => ({ name: x.name, bars: x.bars, chords: x.chords, play: x.play.map((y) => (y.variant === 'main' ? y.part : `${y.part}.${y.variant}`) + (y.enter ? `@${y.enter}` : '')), ...(x.shift ? { shift: x.shift } : {}), ...(x.bpm ? { bpm: x.bpm } : {}), ...(x.level ? { level: x.level } : {}), ...(x.solo ? { solo: x.solo } : {}) })),
-    ending: sh.ending || 'fade',
+    ending: sh.ending || 'fade', ...(sh.feel != null ? { feel: sh.feel } : {}),
   };
 }
 /**
@@ -150,6 +150,7 @@ const edit = {
     if (k === 'title') draft.title = v.trim() || draft.title;
     else if (k === 'bpm') draft.raw.bpm = Number(v) || draft.raw.bpm;
     else if (k === 'scale') { draft.raw.scale = v.trim() || draft.raw.scale; draft.raw.key = draft.raw.scale.replace(':', ' '); }
+    else if (k === 'feel') draft.raw.feel = normFeel(Number(v) / 100) ?? 0;
     else if (k === 'master') { draft.raw.master = v; delete draft.raw.masterParams; } // a new style starts from its own settings
     else if (k === 'hook' || k === 'melody') {
       // the part that plays the tune has it in its code: change it there too
@@ -347,7 +348,7 @@ export function renderSongEditor() {
     totalBars: r.sections.reduce((a, x) => a + x.bars, 0),
     sel: r.sections[draft.sel] ? { i: draft.sel, name: r.sections[draft.sel].name, bars: r.sections[draft.sel].bars, chords: r.sections[draft.sel].chords, shift: r.sections[draft.sel].shift || '', bpm: r.sections[draft.sel].bpm || '',
       level: Math.round((r.sections[draft.sel].level || 1) * 100), solo: r.sections[draft.sel].solo || '' } : null,
-    ending: r.ending || 'fade', partNames: parts,
+    ending: r.ending || 'fade', feel: Math.round((r.feel ?? STYLE_FEEL[r.master] ?? 0) * 100), partNames: parts,
     chordNames: Object.keys(r.chords),
     grid: {
       parts: parts.map((name) => ({ name, color: vizColor(name) })),

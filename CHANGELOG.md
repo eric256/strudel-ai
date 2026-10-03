@@ -2,6 +2,33 @@
 
 The version is in `package.json`. Bump it when you release. Open pages also notice *any* redeploy through the build id, which is a hash of the app files, even if the version wasn't bumped.
 
+## 1.48.0
+- **More natural instruments, and acoustic songs:**
+  - **🎙 Real recordings in the sound guide.** Strudel already loads sampled acoustic instruments; the AI wasn't told about them, so it used the General MIDI soundfonts.
+    - **Melodic:** the Salamander grand (`piano`), and from VCSL `steinway`, `kawai`, harp, folk harp, strumstick, psaltery, vibraphone, marimba, kalimba, sax, harmonica, recorders, ocarina and pipe organ.
+    - **Percussion:** cajón, frame drum, congas, bongos, shakers, tambourine, an acoustic kick, snare and hi-hat, and more.
+    - **What the AI is told:** they're marked 🎙 and preferred for acoustic, folk, jazz and classical songs. The part writer gets the hit numbers of the recorded drums (e.g. cajón bass tone, middle, slap; snare soft→loud).
+  - **🌿 Feel: songs played like a band.** Each part gets small random dynamics and lateness: `.mul(velocity(…))` and `.nudge(…)`, with its own random stream. Drums and bass stay steadier.
+    - **How much:** from the master style (acoustic 80, warm 60, cinematic 50, rock 45, ambient 35, dub 30, hip hop 25, pop 20; electronic styles 0), a band's `feel`, or the new **feel** field in ✎ Edit song.
+    - **Limit:** timing applies to sampled sounds; soundfonts and synths get the dynamics.
+  - **🎻 Acoustic & folk genre** (acoustic, unplugged, folk, singer-songwriter, bluegrass, country, americana, celtic …):
+    - **5 bands:** acoustic duo, folk band, bluegrass pickers, celtic session, piano & strings.
+    - **3 forms:** folk song, acoustic ballad, tune set.
+    - **Master style:** a new natural-sounding **acoustic** style.
+  - **Playing advice for the AI:** how to make acoustic and live-band parts sound played:
+    - accents and ghost notes;
+    - down/up strums with softer upstrokes;
+    - picked arpeggios;
+    - piano left and right hands;
+    - letting notes ring;
+    - no synth filters;
+    - a light swing.
+  - **📻 Two new stations:** Front Porch Acoustic and Celtic Hearth. A station's song whose own description names no genre is now planned in the station's genre.
+  - **Existing bands:** the jazz, lo-fi, latin, ambient and cinematic built-in bands now use the recorded piano, vibraphone, marimba and woodblock. Bands you already have keep their sounds; ⚙ Settings → 🎸 Bands → restore the built-ins to update them.
+- **Tests:**
+  - **Unit:** the acoustic genre and its planning, feel defaults and edits, and the feel code in each part.
+  - **Smoke:** the song editor's feel reaches the sheet and the parts' code.
+
 ## 1.47.0
 - **⬆ Promotion between the modes:**
   - **⌨ Jam → 🎼 song: 🎼 Make it a song** (Jam's code bar) writes a whole song from the jam:

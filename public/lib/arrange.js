@@ -9,6 +9,20 @@ export const LIB_START = '// ── parts (shared by every section of this song)
 
 export const SEC_START = '// ── this section ──';
 
+/**
+ * A part's human feel (sheet.feel, 0–1): each note a little softer or louder and a little behind the beat, as players
+ * play — different for every part (its own random stream), drums and bass steadier than the rest. '' when tight.
+ * (The timing nudge moves sampled sounds; soundfont and synth notes get the dynamics only.)
+ */
+export function feelCode(feel, role = '', i = 0) {
+  if (!(feel > 0)) return '';
+  const steady = /drum|beat/i.test(role) ? 0.4 : /bass/i.test(role) ? 0.6 : 1;
+  const r = (x) => Math.round(x * 1000) / 1000;
+  const seed = (k) => r(0.1 + 0.137 * i + k);
+  const soft = r(1 - 0.3 * feel), late = r(0.022 * feel * steady);
+  return `.mul(velocity(rand.late(${seed(0)}).range(${soft}, 1)))${late ? `.nudge(rand.late(${seed(0.5)}).range(0, ${late}))` : ''}`;
+}
+
 /** Full program for one section: the library, then one labelled group per part. fill: a fill bar (true, or which fill). */
 export function sectionCode(song, sec, { fill = false } = {}) {
   const lib = song.library;
@@ -32,7 +46,7 @@ export function sectionCode(song, sec, { fill = false } = {}) {
     // harmonic parts follow the (moved) chords; melodic plain parts (the hook) are moved with them; drums never
     const lift = shift && !isFnPart(lib, id) && !/drum|perc|beat|fx|noise/i.test(`${part?.role} ${x.part}`) ? `.transpose(${shift})` : '';
     const mask = fill ? null : enterMask(x.enter, sec.bars);
-    lines.push(`${x.part}: ${partExpr(lib, id)}${lift}${mask ? `.mask("${mask}")` : ''}.postgain(slider(1, 0, 1.5)).late(sectionStart)`);
+    lines.push(`${x.part}: ${partExpr(lib, id)}${lift}${mask ? `.mask("${mask}")` : ''}${feelCode(song.sheet.feel, part?.role, song.sheet.parts.indexOf(part))}.postgain(slider(1, 0, 1.5)).late(sectionStart)`);
   }
   return lines.join('\n') + '\n';
 }

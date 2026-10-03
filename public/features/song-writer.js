@@ -1,9 +1,10 @@
 // Feature module split out of app.js (see the section comments below).
 import { definesId, fillPart, libraryIds, miniStrings, partExpr } from '../lib/sheet.js';
 import { prepareCode, soundCatalog, soundRegistry } from './sound-check.js';
-import { soundGuide } from '../sounds.js';
+import { soundGuide, ACOUSTIC_PERC } from '../sounds.js';
 import { formChoice, formsForRequest, songForms } from './forms.js';
 import { planSong, planForRequest } from '../lib/plan.js';
+import { GENRES, detectGenre } from '../lib/genres.js';
 import { bandChoice, bands, bandsForRequest, normalizeSheet } from './bands.js';
 import { HARMONIC_ROLE, meterSteps, normMeter, tempoLine } from '../lib/music.js';
 import { stylesForPrompt } from '../master.js';
@@ -53,13 +54,15 @@ async function sheetSounds() {
   const avail = new Set(Object.keys(reg));
   for (const k of Object.keys(reg)) { const i = k.lastIndexOf('_'); if (i > 0 && reg[k].data?.type === 'sample') avail.add(k.slice(0, i)); }
   const guide = soundGuide(avail);
-  return guide.length ? `${catalog}\n\nSOUND GUIDE — what the most useful sounds are good for (role · character · genres); pick sounds that fit the genre and each other:\n${guide.join('\n')}` : catalog;
+  return guide.length ? `${catalog}\n\nSOUND GUIDE — what the most useful sounds are good for (role · character · genres); pick sounds that fit the genre and each other. The 🎙 ones are real recordings of acoustic instruments — the most natural sound: for acoustic, folk, jazz, classical or any "real band" song, prefer them to the gm_ (General MIDI) versions:\n${guide.join('\n')}` : catalog;
 }
 /** The titles of the other songs this session (so a new one gets a title of its own). */
 const usedTitles = (song) => [...new Set([...sessionSongs, ...queue.songs].filter((x) => x !== song && !x.autoTitle).map((x) => x.title))].slice(-30);
 async function writeSongSheet(song, signal) {
   // the plan: the form and band (yours, or ones that fit the genre), and a meter and key they allow
-  const plan = planSong(`${song.title} ${song.desc}`, { forms: songForms, bands, form: formChoice(song), band: bandChoice(song) });
+  // a station's song whose description names no genre takes the station's genre
+  const stGenre = song.from === 'station' && !detectGenre(`${song.title} ${song.desc}`) ? detectGenre(queue.station?.theme) : null;
+  const plan = planSong(`${song.title} ${song.desc}${stGenre ? ` (${GENRES[stGenre].words[0]})` : ''}`, { forms: songForms, bands, form: formChoice(song), band: bandChoice(song) });
   const choice = plan.form?.name || formChoice(song), bandPick = plan.band?.name || bandChoice(song);
   clog('info', `🧭 “${song.title}”: ${[plan.genre && `genre ${plan.genre}`, plan.form && `form ${plan.form.name}`, plan.band && `band ${plan.band.name}`, plan.meter, plan.key].filter(Boolean).join(' · ') || 'the AI picks form, band, meter and key'}`);
   const prev = queue.songs[queue.songs.indexOf(song) - 1]?.sheet;
@@ -111,6 +114,8 @@ async function partsCatalog(sh) {
       if (best) want.add(best);
     }
   }
+  // an acoustic part's hand percussion and kit pieces
+  if (sh.parts.some((p) => ACOUSTIC_PERC.includes(String(p.sound || '').toLowerCase()))) for (const k of ACOUSTIC_PERC) want.add(k);
   // plain drum samples for parts without a bank
   for (const k of ['bd', 'sd', 'hh', 'oh', 'cp', 'rim', 'lt', 'mt', 'ht', 'cr', 'perc']) if (reg[k]) want.add(k);
   return `Sounds for this song: ${[...want].filter((k) => reg[k]).join(' ')}\n${lines.join('\n')}`;

@@ -6,6 +6,7 @@ import { html, nothing, repeat } from '../html.js';
  * v: { title, bpm, meter, meters, scale, master, masters, melody, hook, dirty, msg, bad, playing, canJump,
  *      sections: [{ i, name, bars, chords, selected }], totalBars,
  *      sel: { i, name, bars, chords, shift, bpm, level (%), solo } | null, chordNames: [..], partNames: [..],
+ *      feel: 0–100 (how loosely the band plays: humanized dynamics and timing),
  *      ending: 'fade' | 'cut' (how the song ends: its last section fades out, or it stops with a bar of silence after),
  *      grid: { parts: [{ name, color }], rows: [[{ state: 'off' | 'main' | 'variant', label, enter, title }]] } (rows[part][section]),
  *      chords: [{ name, chords, used }],
@@ -26,6 +27,7 @@ export function songEditor(v, act) {
       <label title="The master style: the mastering on the whole song (tweak it live in 🎛 Master)">master <select @change=${(e) => act.field('master', e.target.value)}>${v.masters.map((n) => html`<option ?selected=${n === v.master}>${n}</option>`)}</select></label>
       <label title="How the song ends: the last section fades out, or it stops on the last bar with a moment of silence before the next song">ending <select @change=${(e) => act.field('ending', e.target.value)}>
         <option value="fade" ?selected=${v.ending !== 'cut'}>fade out</option><option value="cut" ?selected=${v.ending === 'cut'}>stop + silence</option></select></label>
+      <label title="Feel: how loosely the band plays — 0 = on the grid, like a machine; 100 = a live band (each note a little softer or louder, a little behind the beat)">feel ${num(v.feel, 'feel', { min: 0, max: 100 })}</label>
       <span class="spacer"></span>
       ${v.playing ? nothing : html`<button title="Play this song" @click=${act.play}>▶ play</button>`}
       <button class="se-apply${v.dirty ? ' dirty' : ''}" ?disabled=${!v.dirty} title="Check the changes and switch the song over (from its next section, if it's playing)" @click=${act.apply}>✓ apply</button>

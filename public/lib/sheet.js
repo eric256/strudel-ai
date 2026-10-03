@@ -97,9 +97,19 @@ export function normalizeSheet(raw, choice = 'auto', { enforceForm = true, band:
   assignTunes(parts, sections, { melody, band });
   // the ending: the last section fades out, or stops hard with a moment of silence before the next song
   const ending = /cut|stop|hard/i.test(String(raw.ending || '')) ? 'cut' : 'fade';
+  // the feel: the sheet's, else the band's, else its master style's
+  const feel = normFeel(raw.feel) ?? normFeel(band?.feel) ?? STYLE_FEEL[masterStyle] ?? 0;
   return { form: form?.name || String(raw.form || ''), ...(band ? { band: band.name } : {}), master: masterStyle, ...(Object.keys(tweaks).length ? { masterParams: tweaks } : {}),
-    bpm, meter, key: String(raw.key || scale.replace(':', ' ')), scale, chords, hook, ...(melody ? { melody } : {}), parts, sections, ending };
+    bpm, meter, key: String(raw.key || scale.replace(':', ' ')), scale, chords, hook, ...(melody ? { melody } : {}), parts, sections, ending, feel };
 }
+
+/**
+ * How loosely each master style's players play by default (the song's "feel": 0 = on the grid, like a machine; 1 = a live
+ * band: every note a little softer or louder, a little behind the beat). Electronic styles stay tight.
+ */
+export const STYLE_FEEL = { acoustic: 0.8, warm: 0.6, cinematic: 0.5, rock: 0.45, ambient: 0.35, dub: 0.3, hiphop: 0.25, pop: 0.2 };
+/** A feel value (0–1, two decimals), or null when there is none. */
+export const normFeel = (v) => (v === '' || v == null || !Number.isFinite(Number(v)) ? null : Math.round(Math.max(0, Math.min(1, Number(v))) * 100) / 100);
 
 /**
  * Which parts play the song's tunes (part.tune): the hook — a part named hook, else the melody part heard most in the
