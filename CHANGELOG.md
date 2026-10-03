@@ -15,6 +15,7 @@ The version is in `package.json`. Bump it when you release. Open pages also noti
   - **📌** always on top: a small Picture-in-Picture window that stays above other windows (Chrome and Edge);
   - **⛶** maximise.
 - **⚙ Settings is a large window** with the tabs down the left and a page that scrolls. Drag its corner to resize it; the size is remembered. On narrow screens the tabs go back on top.
+- **Inline part visuals removed:** the punchcard, piano roll, spiral and other visuals under each part of a song's sections are gone, along with their setting. Older saved and shared songs drop them when they play.
 - **Smoke test:** Hydra in its panel and behind the code; float and dock a panel; the Playlist's buttons for played songs (28 steps).
 
 ## 1.40.0

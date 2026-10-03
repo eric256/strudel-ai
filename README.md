@@ -157,18 +157,6 @@ Encoding happens in the browser while you record (lamejs, 192 kbps stereo), so n
   - **show:** **in this panel**, which can float, pop out or stay 📌 on top like any panel, or **behind the code**, where the code area turns see-through and the code gets a shadow.
   - **mix** sets how strongly it shows behind the code. Hydra is served by this server, and your choices are remembered.
 
-## 🎨 Part visuals
-
-Each part of a song section gets one of Strudel's inline visuals under its line, in the part's own colour, picked by what it does:
-- drums and percussion: a **punchcard**;
-- bass: a scrolling **piano roll**;
-- chords, pads and keys: a **spiral**;
-- melodies, hooks and counter-melodies: a **pitch wheel**;
-- arps: a dense piano roll;
-- fx and noise: a **scope**.
-
-Turn them off in ⚙ Settings → General → 🎨 part visuals; the section playing now changes on the next bar.
-
 ## 🎵 Songs & 📻 Station
 
 | Tab | What you give it | What it does |
