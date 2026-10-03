@@ -810,3 +810,5 @@ body.hydra-behind .code-bar { background: color-mix(in srgb, var(--panel-2) 80%,
 .se-def textarea { font: 12px/1.45 var(--mono); width: 100%; resize: vertical; }
 .se-ask { display: flex; gap: 6px; margin-top: 6px; }
 .se-ask input { flex: 1; }
+.field-row { display: flex; flex-wrap: wrap; gap: 6px 14px; }
+.field-row > .field { flex: 1 1 220px; }

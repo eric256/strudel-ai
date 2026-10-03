@@ -178,17 +178,24 @@ Encoding happens in the browser while you record (lamejs, 192 kbps stereo), so n
 | **🎵 Songs** | a set list: `title \| description` lines | writes each song while the previous one plays, then hands over on the bar line |
 | **📻 Station** | a theme | an agent keeps inventing new songs for the theme, writes them and plays them, forever |
 
-### How a song is written: song sheet → parts → arrangement
+### How a song is written: plan → song sheet → parts → arrangement
+0. **Plan.** The app decides a few things before the AI writes:
+   - **Form and band:** your picks in the Songs / Station tab, or ones that fit the description's genre. Forms and bands list the genres they're *used for*, and the app picks one of the close matches at random, so songs of one genre vary.
+   - **Meter and key:** ones the form and band both allow (each lists its usual **meters** and **keys**). A meter or key the description names wins.
+
+   The plan goes to the AI as decided. The 🖥 Console shows it (🧭).
 1. **Song sheet.** The AI plans the whole song as data:
    - tempo, **meter** (4/4 for most dance music; 3/4, 6/8, 12/8, 5/4 or 7/8 where the genre or description calls for it), key and scale;
    - 2–3 chord progressions, e.g. *verse* `Am F C G`, *chorus* `F G Am Am`;
-   - a **hook** melody of 1–4 bars, in a style that suits the genre (call and answer, a syncopated riff, held notes, octave leaps …);
+   - a main **melody** for the verses or theme, and a **hook**: the short, catchy figure of the choruses (1–4 bars, in a style that suits the genre: call and answer, a syncopated riff, held notes, octave leaps …);
    - 5–9 **parts** (drums, bass, keys, pad, hook, a counter-melody, a riff …), each with one sound and variants:
      - `drums.half` and `drums.fill`;
      - alternate lines such as `bass.alt1` or `keys.alt2`, a different figure on the same sound, so each section has something of its own;
      - `hook.harmony` (the hook a third above) for a last chorus;
    - parts can come and go inside a section: `riff@in` enters halfway, `counter@out` drops out halfway, `riff@alt` plays 2 bars on and 2 off;
-   - the **form**: the order and length of the sections, copied from one of your song forms (see below). Each section says which chords it uses and which parts play.
+   - the **form**: the order and length of the sections, built on the planned song form but varied for this song (see below). Each section says which chords it uses and which parts play;
+   - the **band**: its core instruments, any of its optional ones that suit the song, and 1–2 parts of the AI's own.
+   - **Master:** the song is mastered in the band's style, with the band's own tweaks to it (its sound).
 2. **Parts.** The AI writes every part once, as a library of named patterns (`drums_main`, `bass_main` …).
    - Harmonic parts (bass, chords, pads, arpeggios) are functions of the chord progression, so each section can give them its own chords.
    - The library is test-played silently before it's used. If a part is missing or a sound, scale or chord doesn't exist, it goes back to the AI with the error (up to 3 tries).
@@ -197,7 +204,7 @@ Encoding happens in the browser while you record (lamejs, 192 kbps stereo), so n
    - **Sections start on their first bar:** each section's parts and chord progression are anchored to the bar it switches in on, so phrases and progressions always begin at their start.
    - **Meters:** one cycle is one bar. The tempo line follows the meter (`setcpm(bpm/3)` in 3/4), and the *fade*, pad *sync* and status bar beat count use the playing song's meter.
    - **Smooth changes:** parts that continue into the next section are identical code, so the crossfade keeps them steady and only what changes fades.
-   - **Fills:** the drums' *fill* variant plays in the last bar before a chorus or drop. The fill and the drop's downbeat cut in hard; everything else uses the *fade* setting.
+   - **Fills:** the drums' fill variants (*fill*, *fill2* …) play in the last bar before a chorus, a drop or a solo, taking turns so they vary. The fill and the drop's downbeat cut in hard; everything else uses the *fade* setting.
    - **Your changes stay:** fader positions and mute/solo carry over from one section to the next.
    - **Repairs:** if a section fails when it's about to play, the parts are fixed with the error and the song's remaining sections are re-arranged. The old music keeps playing meanwhile.
    - **If it fails:** the sheet and the parts each get 3 tries. If they still fail, the song is started over once from a fresh sheet. If that fails too, the song is marked ✗: the set or station moves on, and **↻ Try again** in the song's row writes it from scratch and plays it next. Songs are no longer written block by block. Songs saved in that older format still load, play and repair themselves.
@@ -292,7 +299,7 @@ Every finished song has a toolbar:
 **Dynamics:**
 - **Volume:** each section has its own (quieter intros and breakdowns, a bigger last chorus). The output follows it smoothly as the sections change.
 - **Solo sections:** one part takes the lead and plays its *solo* variant. The mixer brings it forward and softens the others.
-- **Fills:** a drum fill joins two sections whenever the next one is a different kind (verse → chorus, chorus → verse, into the bridge, the solo, the drop …).
+- **Smooth changes:** the AI eases the moves between sections: parts drop out or come in halfway, the volume steps gradually, and half-time or alternate variants bridge sparse and full sections. A drum fill leads into choruses, drops and solos. A song can have several fills of different kinds (a snare roll, a tom run, a hat build, a stop), and they take turns.
 - **Endings:** a song either **fades out** over its last section, or **stops hard** with a bar of silence before the next song.
 - **In the song editor:** a section's **volume** and **solo**, and the song's **ending**.
 

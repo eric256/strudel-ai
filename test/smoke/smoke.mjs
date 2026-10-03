@@ -64,7 +64,7 @@ try {
     expect(sh.band === 'techno rig' && sh.master === 'techno', `band ${sh.band} / master ${sh.master}`);
     expect(sh.pad === 'gm_pad_sweep', `the band's pad, got ${sh.pad}`);
     const req = log.find((x) => x.kind === 'sheet');
-    expect(/SOUND GUIDE/.test(req.sys) && /BAND — write the song for exactly this band/.test(req.last), 'the sheet request has the band and the sound guide');
+    expect(/SOUND GUIDE/.test(req.sys) && /BAND — write the song for this band/.test(req.last), 'the sheet request has the band and the sound guide');
   });
 
   await step('now playing shows the sections and the master style', async () => {

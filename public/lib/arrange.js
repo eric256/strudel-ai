@@ -3,16 +3,17 @@ import { wrapCode } from '../format.js';
 import { signed, sliderless } from './util.js';
 import { tempoLine, transposeProgression, enterMask } from './music.js';
 import { LABEL_LINE, parseLabel, makeLabel, patternLines } from './labels.js';
-import { fillPart, isFnPart, partExpr } from './sheet.js';
+import { fillPart, fillVariants, isFnPart, partExpr } from './sheet.js';
 
 export const LIB_START = '// ── parts (shared by every section of this song) ──';
 
 export const SEC_START = '// ── this section ──';
 
-/** Full program for one section: the library, then one labelled group per part. */
+/** Full program for one section: the library, then one labelled group per part. fill: a fill bar (true, or which fill). */
 export function sectionCode(song, sec, { fill = false } = {}) {
   const lib = song.library;
   const fp = fill ? fillPart(song.sheet) : null;
+  const fillVar = typeof fill === 'string' ? fill : 'fill';
   const shift = sec.shift || 0;
   const moves = [shift ? `key ${signed(shift)}` : '', sec.bpm ? `${sec.bpm} bpm` : ''].filter(Boolean).join(' · ');
   const lines = [
@@ -26,7 +27,7 @@ export function sectionCode(song, sec, { fill = false } = {}) {
     'const sectionStart = 0 // set when the section switches in',
   ];
   for (const x of sec.play) {
-    const id = `${x.part}_${fp && x.part === fp.id ? 'fill' : x.variant}`;
+    const id = `${x.part}_${fp && x.part === fp.id ? fillVar : x.variant}`;
     const part = song.sheet.parts.find((p) => p.id === x.part);
     // harmonic parts follow the (moved) chords; melodic plain parts (the hook) are moved with them; drums never
     const lift = shift && !isFnPart(lib, id) && !/drum|perc|beat|fx|noise/i.test(`${part?.role} ${x.part}`) ? `.transpose(${shift})` : '';
@@ -38,17 +39,20 @@ export function sectionCode(song, sec, { fill = false } = {}) {
 
 /** Bars of silence after a song that stops hard (ending "cut"), before the next song. */
 export const GAP_BARS = 1;
+/** The sections a drum fill leads into (other changes are smoothed by the parts coming and going, and the volume). */
+export const FILL_INTO = ['chorus', 'drop', 'solo'];
 /**
- * Engine steps for a sheet song: one per section, plus a one-bar fill that joins two different sections (into a chorus,
- * out of a verse, into the bridge …), and a bar of silence after a hard ending.
+ * Engine steps for a sheet song: one per section, plus a one-bar fill leading into a chorus, a drop or a solo (the
+ * song's fills take turns, so they vary), and a bar of silence after a hard ending.
  */
 export function arrangeSong(song) {
   const sh = song.sheet;
-  const fp = fillPart(sh);
+  const fp = fillPart(sh), fills = fillVariants(sh);
   const steps = [];
+  let nFill = 0;
   sh.sections.forEach((sec, j) => {
     const next = sh.sections[j + 1];
-    const wantFill = fp && next && sec.bars >= 4 && next.type !== sec.type && next.type !== 'outro' &&
+    const wantFill = fp && next && sec.bars >= 4 && FILL_INTO.includes(next.type) && next.type !== sec.type &&
       sec.play.some((x) => x.part === fp.id);
     const prevFill = steps[steps.length - 1]?.fillStep;
     steps.push({
@@ -58,7 +62,8 @@ export function arrangeSong(song) {
       fade: prevFill || sec.type === 'drop' ? 0 : undefined,
     });
     if (wantFill) {
-      steps.push({ bars: 1, prompt: `${sec.name} · fill`, section: sec, fillStep: true, code: sectionCode(song, sec, { fill: true }), status: 'ready', error: null, fade: 0 });
+      const fill = fills[nFill++ % fills.length];
+      steps.push({ bars: 1, prompt: `${sec.name} · ${fill}`, section: sec, fillStep: fill, code: sectionCode(song, sec, { fill }), status: 'ready', error: null, fade: 0 });
     }
   });
   if (sh.ending === 'cut') {

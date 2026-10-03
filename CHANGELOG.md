@@ -2,6 +2,27 @@
 
 The version is in `package.json`. Bump it when you release. Open pages also notice *any* redeploy through the build id, which is a hash of the app files, even if the version wasn't bumped.
 
+## 1.45.0
+- **Song creation follows a plan.** Before the AI writes a song, the app decides:
+  - **Form and band:** your picks, or ones that fit the description's genre. The app chooses at random among the close matches, so songs of one genre vary; nothing that only mentions the genre in passing is picked.
+  - **Meter and key:** ones the form and band both allow. A meter or key named in the description wins.
+
+  The AI writes the song inside that plan (🧭 in the 🖥 Console shows it).
+- **Forms and bands carry more:**
+  - Every form and band has the **meters** and **keys** it suits (the usual meter first).
+  - Bands have **their own sound**: tweaks of their master style, e.g. the fusion band's brighter, wider mix. These become the song's master settings.
+  - A band's instruments can be **optional** (a line starting with `+`). The core ones always play; optional ones are used when they suit the song, and the AI may add 1–2 parts of its own.
+  - All of these are editable in ⚙ Settings → 🎼 Song forms / 🎸 Bands. Your saved built-ins get the new fields.
+- **More forms and bands per genre:**
+  - **Forms:** techno journey, techno tool, house extended, edm festival, dnb roller, beat tape, lo-fi loop, jazz ballad and city pop.
+  - **Bands:** acid box, deep house quartet, chillhop crew, boom bap crate, darkwave rig and jungle crew.
+- **Melody and hook:** the sheet has a main **melody** for the verses or theme as well as the chorus's **hook**, and a theme / melody part plays it.
+- **Fills, reconsidered:**
+  - A drum fill leads into choruses, drops and solos only (not into every change).
+  - A song may have several fills of different kinds (`fill`, `fill2`, `fill3`: a snare roll, a tom run, a hat build, a stop), and they take turns.
+  - Other changes are smoothed instead: parts drop out or come in halfway, the volume steps gradually, and half-time or alternate variants bridge sparse and full sections.
+- **Tests:** unit tests for planning (genre matching and variety, your picks, the description, nothing fitting), every built-in form and band having real meters and keys, optional instruments, band tweaks and fills taking turns.
+
 ## 1.44.1
 - **🌀 Hydra draws again.** Strudel's `H("<4 5 6>")` gave Hydra the pattern's text instead of a number, so every frame turned into NaN and the visuals were blank (the debug log showed "function does not return a number" on every frame).
   - Hydra now gets its own `H()`, which reads the pattern as mini-notation at the playing cycle and always returns a number.
