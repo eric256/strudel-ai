@@ -26,7 +26,7 @@ import { T } from '../templates/index.js';
 export function rawSheet(sh) {
   return {
     form: sh.form, ...(sh.band ? { band: sh.band } : {}), master: sh.master || 'clean', ...(sh.masterParams ? { masterParams: sh.masterParams } : {}),
-    bpm: sh.bpm, meter: normMeter(sh.meter), key: sh.key, scale: sh.scale, hook: sh.hook,
+    bpm: sh.bpm, meter: normMeter(sh.meter), key: sh.key, scale: sh.scale, hook: sh.hook, ...(sh.melody ? { melody: sh.melody } : {}),
     chords: Object.fromEntries(Object.entries(sh.chords).map(([k, v]) => [k, v.replace(/^<|>$/g, '')])),
     parts: sh.parts.map((p) => ({ name: p.id, role: p.role, sound: p.sound, variants: p.variants, desc: p.desc })),
     sections: sh.sections.map((x) => ({ name: x.name, bars: x.bars, chords: x.chords, play: x.play.map((y) => (y.variant === 'main' ? y.part : `${y.part}.${y.variant}`) + (y.enter ? `@${y.enter}` : '')), ...(x.shift ? { shift: x.shift } : {}), ...(x.bpm ? { bpm: x.bpm } : {}), ...(x.level ? { level: x.level } : {}), ...(x.solo ? { solo: x.solo } : {}) })),
@@ -78,7 +78,7 @@ export async function refreshPlayingSection(sg) {
   const st = engine.steps.find((x) => x.status === 'playing' && x.song === sg);
   const sec = st?.section && sg.sheet.sections.find((x) => x.name === st.section.name);
   if (!sec) return false;
-  const code = atSectionStart(carryLiveState(getCode(), sectionCode(sg, sec, { fill: !!st.fillStep })), st.startedAt ?? 0);
+  const code = atSectionStart(carryLiveState(getCode(), sectionCode(sg, sec, { fill: st.fillStep || false })), st.startedAt ?? 0);
   const err = await evaluateCode(code, { at: nextBoundary(1), fade: fadeCycles(sg), label: `“${sg.title}” ${st.prompt} (edited)` });
   if (err) { clog('warn', `the edited ${st.prompt} didn't play (${err.message}) — it changes from the next section`); return false; }
   st.code = code;
@@ -258,7 +258,7 @@ const edit = {
       for (const x of vars) ensureDef(part, x);
       // sections that played a variant that's gone play main
       for (const sec of draft.raw.sections) sec.play = sec.play.map((str) => { const x = parsePlay(str); return x.part === part.name && !vars.includes(x.variant) ? playStr({ ...x, variant: 'main' }) : str; });
-      draft.defs = draft.defs.filter((d) => !d.id.startsWith(`${part.name}_`) || vars.includes(d.id.slice(part.name.length + 1)) || d.id === `${part.name}_fill`);
+      draft.defs = draft.defs.filter((d) => !d.id.startsWith(`${part.name}_`) || vars.includes(d.id.slice(part.name.length + 1)) || /^fill\d*$/.test(d.id.slice(part.name.length + 1)));
     } else part[k] = v.trim();
     changed();
   },

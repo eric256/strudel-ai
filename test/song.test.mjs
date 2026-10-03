@@ -6,7 +6,8 @@ import { normChord, normProgression, transposeProgression, normMeter, meterBeats
 import { parseLabel, makeLabel, patternLines } from '../public/lib/labels.js';
 import { setScales, fixScaleString } from '../public/lib/scales.js';
 import { DEFAULT_FORMS, parseFormSections, formBars, findIn, formsForRequest } from '../public/lib/forms.js';
-import { DEFAULT_BANDS, parseInstruments, enforceBand, bandsForRequest } from '../public/lib/bands.js';
+import { DEFAULT_BANDS, parseInstruments, enforceBand, bandsForRequest, parseTweaks } from '../public/lib/bands.js';
+import { planSong, planForRequest, genreScore, describedKey, describedMeter } from '../public/lib/plan.js';
 import { normalizeSheet, libraryIds, fillPart, isFnPart, miniStrings } from '../public/lib/sheet.js';
 import { GAP_BARS, sectionCode, arrangeSong, carryLiveState, LIB_START, SEC_START } from '../public/lib/arrange.js';
 import { parseJSONLoose, closest, esc } from '../public/lib/util.js';
@@ -75,13 +76,16 @@ test('forms: sections parse, lists are searched by name', () => {
 });
 
 test('bands: instruments parse and are enforced by role', () => {
-  const inst = parseInstruments('drums: RolandTR909 — four on the floor\nbass: gm_synth_bass_1\nnot an instrument');
-  assert.deepEqual(inst, [{ role: 'drums', sound: 'RolandTR909', desc: 'four on the floor' }, { role: 'bass', sound: 'gm_synth_bass_1', desc: '' }]);
+  const inst = parseInstruments('drums: RolandTR909 — four on the floor\nbass: gm_synth_bass_1\n+ fx: white — risers\nnot an instrument');
+  assert.deepEqual(inst, [{ role: 'drums', sound: 'RolandTR909', desc: 'four on the floor', optional: false }, { role: 'bass', sound: 'gm_synth_bass_1', desc: '', optional: false },
+    { role: 'fx', sound: 'white', desc: 'risers', optional: true }]);
   const band = { name: 'x', instruments: 'pad: gm_pad_warm\npad: gm_pad_halo\nbass: sine' };
   const parts = [{ role: 'pad', sound: 'sawtooth' }, { role: 'pad', sound: 'square' }, { role: 'bass', sound: 'SINE' }, { role: 'melody', sound: 'square' }];
   enforceBand(parts, band);
   assert.deepEqual(parts.map((p) => p.sound), ['gm_pad_warm', 'gm_pad_halo', 'SINE', 'square']);
-  assert.match(bandsForRequest(DEFAULT_BANDS, 'techno rig'), /exactly this band \(set "band": "techno rig" and "master": "techno"\)/);
+  assert.match(bandsForRequest(DEFAULT_BANDS, 'techno rig'), /write the song for this band \(set "band": "techno rig" and "master": "techno"\)/);
+  assert.match(bandsForRequest(DEFAULT_BANDS, 'techno rig'), /fx: white — noise risers and sweeps \(optional\)/);
+  assert.deepEqual(parseTweaks('high 2.5, space 0.3'), { high: 2.5, space: 0.3 });
   for (const b of DEFAULT_BANDS) assert.ok(normStyle(b.master), `band ${b.name} has a known master style`);
 });
 
@@ -226,21 +230,59 @@ test('dynamics: section level, a solo section, the ending', () => {
   assert.equal(normalizeSheet(structuredClone(RAW), 'auto', ctx).ending, 'fade', 'songs fade out unless they stop hard');
 });
 
-test('arranging: a fill joins every change of section type; a hard ending leaves a bar of silence', () => {
+test('arranging: fills lead into choruses, drops and solos and take turns; a hard ending leaves a bar of silence', () => {
   const raw = structuredClone(RAW);
+  raw.parts[0].variants = ['main', 'fill', 'fill2'];
   raw.sections = [
     { name: 'intro', bars: 4, chords: 'verse', play: ['drums', 'bass'] },
     { name: 'verse', bars: 8, chords: 'verse', play: ['drums', 'bass'] },
-    { name: 'verse 2', bars: 8, chords: 'verse', play: ['drums', 'bass'] },
+    { name: 'chorus', bars: 4, chords: 'chorus', play: ['drums', 'bass', 'lead'] },
     { name: 'bridge', bars: 8, chords: 'chorus', play: ['drums', 'lead'] },
+    { name: 'solo', bars: 8, chords: 'verse', play: ['drums', 'bass'], solo: 'lead' },
     { name: 'chorus', bars: 4, chords: 'chorus', play: ['drums', 'bass', 'lead'] },
     { name: 'outro', bars: 4, chords: 'verse', play: ['drums', 'bass'] },
   ];
   raw.ending = 'cut';
-  const song = { title: 'T', sheet: normalizeSheet(raw, 'auto', { ...ctx, enforceForm: false }), library: LIB };
+  const song = { title: 'T', sheet: normalizeSheet(raw, 'auto', { ...ctx, enforceForm: false }), library: LIB + 'const drums_fill2 = s("hh*16")\nconst lead_solo = n("0 2 4 7")\n' };
+  assert.deepEqual(libraryIds(song.sheet).filter((x) => x.startsWith('drums_fill')).sort(), ['drums_fill', 'drums_fill2']);
   const steps = arrangeSong(song);
-  const fillsAfter = steps.filter((s) => s.fillStep).map((s) => s.prompt);
-  assert.deepEqual(fillsAfter, ['intro · fill', 'verse 2 · fill', 'bridge · fill'], 'into a new kind of section (not verse → verse, not into the outro)');
+  assert.deepEqual(steps.filter((s) => s.fillStep).map((s) => s.prompt), ['verse · fill', 'bridge · fill2', 'solo · fill'],
+    'into the chorus, the solo and the last chorus — not into the bridge or the outro — and the fills take turns');
+  assert.match(steps.find((s) => s.fillStep === 'fill2').code, /^drums: drums_fill2\.postgain/m);
   const last = steps[steps.length - 1];
   assert.ok(last.gap && last.bars === GAP_BARS && /silence/.test(last.code), 'a bar of silence after a hard ending');
+});
+
+test('planning: form and band from the genre (one of the close matches), meter and key they allow', () => {
+  let r = 0;
+  const rand = () => { r = (r + 0.37) % 1; return r; };
+  for (let k = 0; k < 20; k++) {
+    const p = planSong('dark warehouse techno with acid lines', { forms: DEFAULT_FORMS, bands: DEFAULT_BANDS, rand });
+    assert.match(p.form.name, /techno/, `a techno form, not ${p.form.name}`);
+    assert.ok(['techno rig', 'acid box'].includes(p.band.name), `a techno band, not ${p.band.name}`);
+    assert.equal(p.meter, '4/4');
+    assert.ok([...p.form.keys.split(', '), ...p.band.keys.split(', ')].includes(p.key), p.key);
+  }
+  const forms = new Set(Array.from({ length: 30 }, () => planSong('techno', { forms: DEFAULT_FORMS, bands: DEFAULT_BANDS, rand }).form.name));
+  assert.ok(forms.size >= 2, 'songs of one genre get different forms');
+  // your picks and the description win
+  const mine = planSong('a jazz waltz in D dorian', { forms: DEFAULT_FORMS, bands: DEFAULT_BANDS, form: 'short', band: 'chip band', rand });
+  assert.equal(mine.form.name, 'short');
+  assert.equal(mine.band.name, 'chip band');
+  assert.equal(mine.meter, '3/4');
+  assert.equal(mine.key, 'D dorian');
+  assert.match(planForRequest(mine), /meter: 3\/4 \(as the description says\)[\s\S]*key: D dorian \(scale "D:dorian"\)/);
+  // nothing fits: the AI picks
+  const none = planSong('field recordings of whales', { forms: DEFAULT_FORMS, bands: DEFAULT_BANDS, rand });
+  assert.equal(none.band, null);
+  assert.ok(genreScore('a drum & bass roller', 'drum & bass, jungle') >= 3);
+  assert.equal(describedKey('lo-fi in F# minor'), 'F# minor');
+  assert.equal(describedMeter('a 12/8 shuffle'), '12/8');
+});
+
+test('every built-in form and band has meters and keys that are real', () => {
+  for (const x of [...DEFAULT_FORMS, ...DEFAULT_BANDS]) {
+    for (const m of (x.meters || '').split(', ').filter(Boolean)) assert.equal(normMeter(m), m, `${x.name}: meter ${m}`);
+    for (const k of (x.keys || '').split(', ').filter(Boolean)) assert.match(k, /^[A-G][#b]? (major|minor|dorian|phrygian|lydian|mixolydian)$/, `${x.name}: key ${k}`);
+  }
 });

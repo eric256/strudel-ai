@@ -7,7 +7,7 @@ import { normProgression, normMeter, sectionType, ENTER_MODES, MAX_KEY_SHIFT, MA
 /** The longest section the AI may write (your own edits may be longer). */
 const MAX_SECTION_BARS = 16;
 import { findIn } from './forms.js';
-import { enforceBand } from './bands.js';
+import { enforceBand, parseTweaks } from './bands.js';
 import { normStyle, styleParams, diffParams } from '../master.js';
 
 export function normalizeSheet(raw, choice = 'auto', { enforceForm = true, band: bandPick = null, forms = [], bands = [] } = {}) {
@@ -24,7 +24,10 @@ export function normalizeSheet(raw, choice = 'auto', { enforceForm = true, band:
   }
   if (!Object.keys(chords).length) throw new Error('no chord progressions');
   const meter = normMeter(raw.meter || raw.time || raw.timeSignature);
-  const hook = String(raw.hook || '0 2 4 2').replace(/[^0-9~\s\-\[\]<>.*@!_?,:]/g, ' ').replace(/\s+/g, ' ').trim() || '0 2 4 2';
+  const degrees = (t) => String(t || '').replace(/[^0-9~\s\-\[\]<>.*@!_?,:]/g, ' ').replace(/\s+/g, ' ').trim();
+  const hook = degrees(raw.hook) || '0 2 4 2';
+  // the main melody (the verses' tune); the hook is the chorus's catch
+  const melody = degrees(raw.melody);
   const parts = [];
   for (const p of Array.isArray(raw.parts) ? raw.parts : []) {
     const id = ident(p.name || p.role);
@@ -87,23 +90,29 @@ export function normalizeSheet(raw, choice = 'auto', { enforceForm = true, band:
   const band = (bandPick && bandPick !== 'auto' && findIn(bands, bandPick)) || findIn(bands, raw.band);
   if (band && enforceForm) enforceBand(parts, band);
   const masterStyle = normStyle(raw.master || raw.masterStyle) || normStyle(band?.master) || normStyle(form?.name || raw.form) || 'clean';
-  const tweaks = raw.masterParams && typeof raw.masterParams === 'object' ? diffParams(styleParams(masterStyle, raw.masterParams), masterStyle) : {};
+  // the song's own tweaks of its master style: what the sheet says, else the band's (its "sound")
+  const own = raw.masterParams && typeof raw.masterParams === 'object' ? raw.masterParams : band && normStyle(band.master) === masterStyle ? parseTweaks(band.tweaks) : null;
+  const tweaks = own ? diffParams(styleParams(masterStyle, own), masterStyle) : {};
   // the ending: the last section fades out, or stops hard with a moment of silence before the next song
   const ending = /cut|stop|hard/i.test(String(raw.ending || '')) ? 'cut' : 'fade';
   return { form: form?.name || String(raw.form || ''), ...(band ? { band: band.name } : {}), master: masterStyle, ...(Object.keys(tweaks).length ? { masterParams: tweaks } : {}),
-    bpm, meter, key: String(raw.key || scale.replace(':', ' ')), scale, chords, hook, parts, sections, ending };
+    bpm, meter, key: String(raw.key || scale.replace(':', ' ')), scale, chords, hook, ...(melody ? { melody } : {}), parts, sections, ending };
 }
 
-/** The part that gets the one-bar fill before choruses / drops (drums with a "fill" variant). */
-export const fillPart = (sheet) => sheet.parts.find((p) => p.variants.includes('fill') && /drum|perc|beat/i.test(p.role + p.id)) ||
-  sheet.parts.find((p) => p.variants.includes('fill'));
+/** A fill variant: "fill", "fill2", "fill3" … (a part may have several, of different character). */
+export const isFillVariant = (v) => /^fill\d*$/.test(v);
+/** The part that plays the one-bar fills (drums with a fill variant). */
+export const fillPart = (sheet) => sheet.parts.find((p) => p.variants.some(isFillVariant) && /drum|perc|beat/i.test(p.role + p.id)) ||
+  sheet.parts.find((p) => p.variants.some(isFillVariant));
+/** The fill part's fills, in the order they take turns. */
+export const fillVariants = (sheet) => fillPart(sheet)?.variants.filter(isFillVariant) || [];
 
 /** Library const names the sections need (+ the fill variant). */
 export function libraryIds(sheet) {
   const ids = new Set();
   for (const sec of sheet.sections) for (const x of sec.play) ids.add(`${x.part}_${x.variant}`);
   const fp = fillPart(sheet);
-  if (fp) ids.add(`${fp.id}_fill`);
+  if (fp) for (const v of fillVariants(sheet)) ids.add(`${fp.id}_${v}`);
   return [...ids];
 }
 

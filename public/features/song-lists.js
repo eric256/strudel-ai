@@ -82,7 +82,7 @@ function sectionParts(st, sh) {
   const fill = st.fillStep && fillPart(sh)?.id;
   return sec.play.map((x) => ({
     name: x.part, color: vizColor(x.part),
-    variant: x.variant !== 'main' ? (fill === x.part ? 'fill' : x.variant) : fill === x.part ? 'fill' : '',
+    variant: fill === x.part ? (typeof st.fillStep === 'string' ? st.fillStep : 'fill') : x.variant !== 'main' ? x.variant : '',
     enter: x.enter && !st.fillStep ? x.enter : '', enterTitle: ENTER_TITLE[x.enter] || '',
   }));
 }

@@ -2,8 +2,9 @@
 import { definesId, fillPart, libraryIds, miniStrings, partExpr } from '../lib/sheet.js';
 import { prepareCode, soundCatalog, soundRegistry } from './sound-check.js';
 import { soundGuide } from '../sounds.js';
-import { formChoice, formsForRequest } from './forms.js';
-import { bandChoice, bandsForRequest, normalizeSheet } from './bands.js';
+import { formChoice, formsForRequest, songForms } from './forms.js';
+import { planSong, planForRequest } from '../lib/plan.js';
+import { bandChoice, bands, bandsForRequest, normalizeSheet } from './bands.js';
 import { HARMONIC_ROLE, meterSteps, normMeter, tempoLine } from '../lib/music.js';
 import { stylesForPrompt } from '../master.js';
 import { extractCode, requestLLM, syntaxError } from './llm.js';
@@ -57,12 +58,15 @@ async function sheetSounds() {
 /** The titles of the other songs this session (so a new one gets a title of its own). */
 const usedTitles = (song) => [...new Set([...sessionSongs, ...queue.songs].filter((x) => x !== song && !x.autoTitle).map((x) => x.title))].slice(-30);
 async function writeSongSheet(song, signal) {
-  const choice = formChoice(song), bandPick = bandChoice(song);
+  // the plan: the form and band (yours, or ones that fit the genre), and a meter and key they allow
+  const plan = planSong(`${song.title} ${song.desc}`, { forms: songForms, bands, form: formChoice(song), band: bandChoice(song) });
+  const choice = plan.form?.name || formChoice(song), bandPick = plan.band?.name || bandChoice(song);
+  clog('info', `🧭 “${song.title}”: ${[plan.form && `form ${plan.form.name}`, plan.band && `band ${plan.band.name}`, plan.meter, plan.key].filter(Boolean).join(' · ') || 'the AI picks form, band, meter and key'}`);
   const prev = queue.songs[queue.songs.indexOf(song) - 1]?.sheet;
   let msg = (song.autoTitle ? `SONG (no title yet — give it one in "title"): ${song.desc}\n` : `SONG: "${song.title}" — ${song.desc}\n`) +
     (prev ? `The previous song was ${prev.bpm} bpm, ${normMeter(prev.meter)}, in ${prev.key}; this one should flow from it (a related key or a nearby tempo is nice).\n` : '') +
     (song.autoTitle && usedTitles(song).length ? `Titles already used — don't reuse them or their words: ${usedTitles(song).join(' · ')}\n` : '') +
-    `\n${formsForRequest(choice)}\n\n${bandsForRequest(bandPick)}\n\nMASTER STYLES — set "master" to the one that fits (the band's, unless the description asks for another):\n${stylesForPrompt()}\n\nWrite the song sheet JSON.`;
+    `\n${formsForRequest(choice)}\n\n${bandsForRequest(bandPick)}\n\n${planForRequest(plan)}\n\nMASTER STYLES — set "master" to the one that fits (the band's, unless the description asks for another):\n${stylesForPrompt()}\n\nWrite the song sheet JSON.`;
   const sounds = await sheetSounds();
   let lastErr;
   for (let attempt = 0; attempt < 3; attempt++) {
@@ -109,6 +113,7 @@ async function partsCatalog(sh) {
 }
 
 /** Write (or repair) the part library. Returns checked, corrected library code. */
+const fillVariantsOf = (p) => p.variants.filter((v) => /^fill\d*$/.test(v));
 async function writeSongLibrary(song, signal, { fix = null, prev = null } = {}) {
   const sh = song.sheet;
   const fp = fillPart(sh);
@@ -116,9 +121,10 @@ async function writeSongLibrary(song, signal, { fix = null, prev = null } = {}) 
     const p = sh.parts.find((q) => id.startsWith(q.id + '_'));
     const variant = id.slice(p.id.length + 1);
     const kind = HARMONIC_ROLE.test(p.role) ? 'function of prog' : 'plain pattern';
-    const extra = p.role === 'melody' && /hook/.test(p.id + p.desc) ? ` — plays the hook: n("${sh.hook}").scale("${sh.scale}")` : '';
+    const extra = p.role === 'melody' && /hook/.test(p.id + p.desc) ? ` — plays the hook: n("${sh.hook}").scale("${sh.scale}")`
+      : p.role === 'melody' && sh.melody && /melody|theme|lead|tune/.test(p.id + p.desc) ? ` — plays the main melody: n("${sh.melody}").scale("${sh.scale}")` : '';
     const vdesc = variant === 'main' ? ''
-      : variant === 'fill' && p === fp ? ' (ONE-bar fill leading into the next section)'
+      : /^fill\d*$/.test(variant) && p === fp ? ` (ONE-bar fill leading into a chorus, drop or solo${fillVariantsOf(p).length > 1 ? ` — make each of ${fillVariantsOf(p).join(', ')} a different kind: a snare roll, a tom run, a hat or open-hat build, a drop-out stop with one hit, a syncopated kick break` : ''})`
       : /^alt/.test(variant) ? ` (an ALTERNATE ${p.role || 'part'}: same sound and register as ${p.id}_main, but a clearly different line — new rhythm, contour or figure — that still fits the chords and the other parts; it gives the sections that use it their own character)`
       : /harm/.test(variant) ? ` (a HARMONY of ${p.id}_main: same rhythm, a third or sixth above — e.g. the same degrees .add(2) — softer gain)`
       : ` (${variant} version of ${p.id}_main)`;
@@ -190,7 +196,7 @@ export function repairSong(song, err) {
     song.library = await writeSongLibrary(song, queue.abort?.signal, { fix: err, prev: song.library });
     for (const st of song.blocks || []) {
       if (['playing', 'done', 'armed'].includes(st.status)) continue;
-      st.code = sectionCode(song, st.section, { fill: !!st.fillStep });
+      st.code = sectionCode(song, st.section, { fill: st.fillStep || false });
       st.status = 'ready';
       st.error = null;
     }

@@ -190,6 +190,7 @@ Example:
   "key": "A minor",
   "scale": "A:minor",
   "chords": { "verse": "Am F C G", "chorus": "F G Am Am", "bridge": "Dm Em F G" },
+  "melody": "<[0 ~ 2 4] [5 4 2 ~] [4 ~ 2 0] [-1@3 ~]>",
   "hook": "<[0@3 2] [4 2 0 ~] [0@3 -1] [~ 2 4 7]>",
   "parts": [
     { "name": "drums", "role": "drums", "sound": "RolandTR909", "variants": ["main", "half", "fill"], "desc": "four-on-the-floor kick, offbeat open hats, clap on 2 and 4" },
@@ -197,12 +198,13 @@ Example:
     { "name": "keys", "role": "chords", "sound": "gm_epiano1", "variants": ["main", "alt1"], "desc": "main: offbeat chord stabs; alt1: a broken-chord figure across the bar" },
     { "name": "pad", "role": "pad", "sound": "gm_pad_warm", "variants": ["main"], "desc": "long soft chords" },
     { "name": "hook", "role": "melody", "sound": "gm_lead_2_sawtooth", "variants": ["main", "harmony"], "desc": "plays the hook, bright and short; harmony: the hook a third above" },
+    { "name": "theme", "role": "melody", "sound": "gm_vibraphone", "variants": ["main"], "desc": "plays the main melody in the verses" },
     { "name": "counter", "role": "counter", "sound": "gm_flute", "variants": ["main", "alt1", "solo"], "desc": "a counter-melody that answers the hook in its gaps; alt1: slow held notes for the verses; solo: an improvised-sounding lead line for the solo" },
     { "name": "riff", "role": "melody", "sound": "gm_electric_guitar_muted", "variants": ["main"], "desc": "a short syncopated two-bar riff that comes and goes" }
   ],
   "sections": [
     { "name": "intro", "bars": 4, "chords": "verse", "play": ["pad", "drums.half", "riff@in"], "level": 0.7 },
-    { "name": "verse 1", "bars": 8, "chords": "verse", "play": ["pad", "drums", "bass", "counter.alt1@in"] },
+    { "name": "verse 1", "bars": 8, "chords": "verse", "play": ["pad", "drums", "bass", "theme", "counter.alt1@in"] },
     { "name": "pre-chorus", "bars": 4, "chords": "bridge", "play": ["pad", "drums", "bass", "keys.alt1"] },
     { "name": "chorus", "bars": 4, "chords": "chorus", "play": ["drums", "bass", "keys", "hook", "counter"] },
     { "name": "verse 2", "bars": 8, "chords": "verse", "play": ["drums", "bass.alt1", "keys.alt1", "riff@alt"] },
@@ -239,6 +241,11 @@ Rules:
   * a "harmony" variant of the hook (the hook a third above) for the last chorus;
   * let parts come and go INSIDE a section with "@in" (enters halfway), "@out" (drops out halfway) or "@alt"
     (2 bars on, 2 off): "riff@in", "counter.alt1@alt". Use these on riffs, counter-melodies and percussion.
+- PLAN: when the request has a PLAN (meter, key), it was decided for this song: use that meter and key (and the form
+  and band the request names) — "meter" and "key" / "scale" in your sheet match it.
+- MELODY and HOOK are two different tunes in scale degrees (same notation): the MELODY is the song's main tune — it
+  carries the verses (or the A sections, the theme) and is longer and more flowing; the HOOK is the short, catchy figure
+  of the choruses / drops. A "melody" role part named theme / melody / lead plays the melody, the hook part the hook.
 - CHORDS: 2–3 progressions, 4 chords each, one chord per bar, all in the song's key and scale.
   Chord symbols: C Am F G7 Dm7 C^7 (major 7th) Am9 Fsus Bb E7 F#m Bo (diminished). Never write "maj7": use "^7".
 - LONG FORMS (long ballad, ambient journey — about 4 minutes) must keep MOVING: no two neighbouring sections sound the
@@ -267,9 +274,10 @@ Rules:
   ambient → "ambient" …). A description that asks for a sound ("dusty", "huge", "underwater", "old radio") picks it.
 - PARTS: 5–9 parts, one sound each, from the AVAILABLE SOUNDS list (for drums: a drum-machine bank name).
   name: one lowercase word. role: drums, perc, bass, chords, pad, arp, melody, counter or fx.
-  "variants" lists main plus what the sections use (drums: main, half, fill; keys: main, alt1; hook: main, harmony). Give drums a "fill" variant when the
-  song has more than one kind of section (almost always): the app plays it in the last bar of a section whenever the next
-  section is a different kind (verse → chorus, chorus → verse, into the bridge, the solo, the drop …), so it joins them.
+  "variants" lists main plus what the sections use (drums: main, half, fill; keys: main, alt1; hook: main, harmony).
+  FILLS: give drums one or more fill variants — "fill", and for longer songs "fill2" (and "fill3") of a different kind
+  (a snare roll, a tom run, a hat build, a stop with one hit). The app plays one in the last bar before a chorus, a drop
+  or a solo, and the fills take turns, so the song doesn't repeat the same fill.
 - KEY AND TEMPO MOVE where the genre does it — use them. A section may add "shift" (semitones up or down from the song's
   key, -3…+3: the app moves the chords and melodies, never the drums) and/or "bpm" (its own tempo, within ±8% of the
   song's). Fitting, and welcome: a pop / rock / gospel / ballad / anthem last chorus lifted +1 or +2; jazz and fusion
@@ -287,7 +295,12 @@ Rules:
   last bar, and the app leaves a moment of silence before the next song — punchy pop, rock, funk, fusion, big band).
 - "play": the parts heard in a section; "part" means its main variant, "part.variant" another one; add "@in", "@out" or
   "@alt" to bring a part in or out within the section.
-- SMOOTH FLOW: between neighbouring sections change at most 1–2 parts, except going into a chorus / drop or a breakdown.
+- SMOOTH FLOW: moving between sections should feel natural, not abrupt. Between neighbouring sections change at most
+  1–2 parts, except going into a chorus / drop or a breakdown. Ease the changes with what a section can do:
+  * let a part that is about to leave drop out halfway ("pad@out") and a part that is new come in halfway ("riff@in"),
+    instead of everything switching on the downbeat;
+  * step the "level" gradually (0.7 → 0.85 → 1 → 1.1), not from soft to loud in one jump, except for a deliberate drop;
+  * use "half" or alt variants as a bridge between a sparse and a full section.
   Keep drums and bass through most of the song; intro, breakdown and outro thin out.
 - Use the "space" sample rarely. Stay true to the song description: genre, tempo, key and mood.`;
 

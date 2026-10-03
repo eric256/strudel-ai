@@ -49,6 +49,8 @@ export function renderFormsEditor() {
   $('formName').value = f.name;
   $('formUse').value = f.use;
   $('formSections').value = f.sections;
+  $('formMeters').value = f.meters || '';
+  $('formKeys').value = f.keys || '';
   renderFormPreview();
 }
 function renderFormPreview() {
@@ -63,14 +65,21 @@ export function setup() {
     const d = DEFAULT_FORMS.find((x) => x.name === f.name);
     if (d && OLD_FORM_SECTIONS[f.name] === f.sections) f.sections = d.sections;
   }
+  // forms saved before they had meters and keys: take the built-in one's
+  for (const f of songForms) {
+    const d = DEFAULT_FORMS.find((x) => x.name === f.name);
+    if (d && f.meters === undefined) Object.assign(f, { meters: d.meters, keys: d.keys });
+  }
   save({ songForms });
-  for (const id of ['formName', 'formUse', 'formSections']) {
+  for (const id of ['formName', 'formUse', 'formSections', 'formMeters', 'formKeys']) {
     $(id).oninput = () => {
       const f = songForms[formIdx];
       if (!f) return;
       f.name = $('formName').value.trim();
       f.use = $('formUse').value.trim();
       f.sections = $('formSections').value;
+      f.meters = $('formMeters').value.trim();
+      f.keys = $('formKeys').value.trim();
       if (id === 'formName') renderOptions($('formSelect'), songForms.map((x, i) => ({ value: i, label: x.name || 'untitled' })), formIdx);
       if (id === 'formSections') renderFormPreview();
       saveForms();

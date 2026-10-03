@@ -43,6 +43,9 @@ export function renderBandsEditor() {
   $('bandUse').value = b.use;
   $('bandMaster').value = normStyle(b.master) || 'clean';
   $('bandInstruments').value = b.instruments;
+  $('bandMeters').value = b.meters || '';
+  $('bandKeys').value = b.keys || '';
+  $('bandTweaks').value = b.tweaks || '';
   renderBandPreview();
 }
 async function renderBandPreview() {
@@ -66,8 +69,13 @@ export function setup() {
   // part takes the band's sound for its role). Auto: the AI picks the band that fits the genre. Editable in ⚙ Settings.
   // ---------------------------------------------------------------------------
   bands = addNewDefaults(load().bands, DEFAULT_BANDS, 'bands', []);
+  // bands saved before they had meters, keys and their own sound: take the built-in one's
+  for (const b of bands) {
+    const d = DEFAULT_BANDS.find((x) => x.name === b.name);
+    if (d && b.meters === undefined) Object.assign(b, { meters: d.meters, keys: d.keys, tweaks: d.tweaks || '' });
+  }
   save({ bands });
-  for (const id of ['bandName', 'bandUse', 'bandInstruments', 'bandMaster']) {
+  for (const id of ['bandName', 'bandUse', 'bandInstruments', 'bandMaster', 'bandMeters', 'bandKeys', 'bandTweaks']) {
     $(id)[id === 'bandMaster' ? 'onchange' : 'oninput'] = () => {
       const b = bands[bandIdx];
       if (!b) return;
@@ -75,6 +83,9 @@ export function setup() {
       b.use = $('bandUse').value.trim();
       b.master = $('bandMaster').value;
       b.instruments = $('bandInstruments').value;
+      b.meters = $('bandMeters').value.trim();
+      b.keys = $('bandKeys').value.trim();
+      b.tweaks = $('bandTweaks').value.trim();
       if (id === 'bandName') renderOptions($('bandSelect'), bands.map((x, i) => ({ value: i, label: x.name || 'untitled' })), bandIdx);
       if (id === 'bandInstruments' || id === 'bandMaster') renderBandPreview();
       saveBands();
