@@ -155,7 +155,7 @@ function sectionProgress(st) {
 // progress of the playing section in the song views (updated without re-rendering the lists;
 // renderSongs calls it right after it rebuilds a view, so the bar never blinks out)
 function updateSectionProgress() {
-  for (const el of document.querySelectorAll('.sv-left[data-i]')) {
+  for (const el of ['nowSongView', 'editSongView'].flatMap((id) => [...$(id).querySelectorAll('.sv-left[data-i]')])) { // (panels may be in another window)
     const st = engine.steps[Number(el.dataset.i)];
     const sum = el.closest('summary');
     if (engine.paused && engine.paused.step === st) {

@@ -101,6 +101,22 @@ export function setup() {
   $('aboutClose').onclick = () => $('aboutDlg').close();
   $('aboutDlg').addEventListener('click', (e) => { if (e.target === $('aboutDlg')) $('aboutDlg').close(); });
   $('settingsBtn').onclick = () => openSettings();
+  // the settings window remembers the size you drag it to
+  {
+    const dlg = $('settingsDlg');
+    const size = load().settingsSize;
+    if (size?.w && size?.h) Object.assign(dlg.style, { width: `${size.w}px`, height: `${size.h}px` });
+    let t = null;
+    dlg.addEventListener('close', () => { dlg.__base = null; });
+    new ResizeObserver(() => {
+      if (!dlg.open) return;
+      const now = `${dlg.offsetWidth}x${dlg.offsetHeight}`;
+      if (!dlg.__base) { dlg.__base = now; return; } // opening it isn't resizing it
+      if (now === dlg.__base) return;
+      clearTimeout(t);
+      t = setTimeout(() => save({ settingsSize: { w: Math.round(dlg.offsetWidth), h: Math.round(dlg.offsetHeight) } }), 400);
+    }).observe(dlg);
+  }
   $('settingsClose').onclick = () => $('settingsDlg').close();
   $('settingsDlg').addEventListener('click', (e) => { if (e.target === $('settingsDlg')) $('settingsDlg').close(); });
   for (const b of document.querySelectorAll('.settings-tabs button')) b.onclick = () => openSettings(b.dataset.sec);

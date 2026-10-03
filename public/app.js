@@ -802,6 +802,7 @@ const PANELS = [
   { id: 'song', title: 'Now playing', icon: '🎶', el: $('songPanel'), area: 'right' },
   { id: 'edit', title: 'Edit song', icon: '✎', el: $('editPanel'), area: 'right' },
   { id: 'viz', title: 'Visualizer', icon: '📊', el: $('viz-dock'), area: 'bottom' },
+  { id: 'hydra', title: 'Hydra', icon: '🌀', el: $('hydra-dock'), area: 'bottom' },
   { id: 'keys', title: 'Keys', icon: '🎹', el: $('keys-dock'), area: 'bottom' },
   { id: 'pads', title: 'Pads', icon: '🔲', el: $('pads-dock'), area: 'bottom' },
   { id: 'mixer', title: 'Mixer', icon: '🎚', el: $('mixer-dock'), area: 'bottom' },

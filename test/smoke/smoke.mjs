@@ -296,10 +296,28 @@ try {
     await p.waitForFunction(() => strudelAI.padsState.pending.size > 0 || /^pad1:/m.test(document.querySelector('strudel-editor').editor.code), null, { timeout: 5000 });
   });
 
-  await step('🌀 Hydra visuals start and stop', async () => {
-    await ev(() => { const h = document.getElementById('hydraMode'); h.value = 'kaleido'; h.onchange(); });
-    await p.waitForTimeout(1500);
-    await ev(() => { const h = document.getElementById('hydraMode'); h.value = 'off'; h.onchange(); });
+  await step('🌀 Hydra visuals show in their panel, then behind the code, and stop', async () => {
+    await ev(() => { const w = document.getElementById('hydraWhere'); w.value = 'panel'; w.onchange(); const h = document.getElementById('hydraMode'); h.value = 'kaleido'; h.onchange(); });
+    await p.waitForFunction(() => document.getElementById('hydra-canvas')?.parentElement?.id === 'hydraStage' && strudelAI.ws.isOpen('hydra'), null, { timeout: 15000 });
+    expect(await ev(() => document.getElementById('hydra-canvas').getBoundingClientRect().height > 50), 'the Hydra canvas has no size in its panel');
+    await ev(() => { const w = document.getElementById('hydraWhere'); w.value = 'code'; w.onchange(); });
+    expect(await ev(() => document.getElementById('hydra-canvas').parentElement.classList.contains('ws-center') && document.body.classList.contains('hydra-behind')), 'Hydra did not move behind the code');
+    await ev(() => { const w = document.getElementById('hydraWhere'); w.value = 'panel'; w.onchange(); const h = document.getElementById('hydraMode'); h.value = 'off'; h.onchange(); });
+    expect(await ev(() => !document.getElementById('hydra-canvas') && !document.body.classList.contains('hydra-on')), 'Hydra did not stop');
+  });
+
+  await step('panels float over the layout and dock back (header buttons ⧉ ⇲ ↗ ⛶)', async () => {
+    await ev(() => strudelAI.ws.open('mixer'));
+    await p.waitForTimeout(200);
+    const where = () => ev(() => strudelAI.ws.api.getPanel('mixer').group.api.location.type);
+    const headerHas = (label) => ev((l) => [...strudelAI.ws.api.getPanel('mixer').group.element.querySelectorAll('.dv-act')].some((b) => b.textContent === l), label);
+    expect(await headerHas('⧉') && await headerHas('↗'), 'the mixer header has no float / pop-out buttons');
+    await ev(() => [...strudelAI.ws.api.getPanel('mixer').group.element.querySelectorAll('.dv-act')].find((b) => b.textContent === '⧉').click());
+    await p.waitForFunction(() => strudelAI.ws.api.getPanel('mixer').group.api.location.type === 'floating', null, { timeout: 3000 });
+    expect(await headerHas('⇲'), 'a floating panel has no dock button');
+    await ev(() => [...strudelAI.ws.api.getPanel('mixer').group.element.querySelectorAll('.dv-act')].find((b) => b.textContent === '⇲').click());
+    await p.waitForFunction(() => strudelAI.ws.api.getPanel('mixer').group.api.location.type === 'grid', null, { timeout: 3000 });
+    expect(await where() === 'grid', 'the mixer did not dock back');
   });
 
   await step('📁 save to My songs, 🔗 share link, ⏺ MP3 start / stop', async () => {
@@ -330,6 +348,16 @@ try {
     await p.waitForFunction(() => strudelAI.queue.station && strudelAI.queue.songs.some((s) => s.from === 'station' && s.status === 'playing'), null, { timeout: 40000 });
     expect(log.some((x) => x.kind === 'songs'), 'the station did not ask for songs');
     await ev(() => document.getElementById('stationStop').click());
+  });
+
+  await step('📃 a song that played (or is playing) keeps its buttons in the playlist: ⬇ MP3 once recorded, ★, JSON, link', async () => {
+    await ev(() => strudelAI.ws.open('playlist'));
+    // a finished recording (as mp3.js leaves it) on the playing song
+    await ev(() => { const sg = strudelAI.queue.songs[strudelAI.queue.current]; sg.take = { url: 'blob:smoke', name: 'smoke.mp3', secs: 42, size: 1e6 }; strudelAI.player.emit('songs'); });
+    await p.waitForFunction(() => [...document.querySelectorAll('#playlist .pl-row.now .pl-tools button')].some((b) => /⬇ MP3/.test(b.textContent)), null, { timeout: 3000 });
+    const played = await ev(() => [...document.querySelectorAll('#playlist .pl-row.played')].map((r) => r.querySelectorAll('.pl-tools button').length));
+    expect(played.every((n) => n >= 2), `a played song has no buttons: ${played}`);
+    expect(await ev(() => document.querySelectorAll('#playlist .pl-row.up .pl-tools').length === 0), 'upcoming songs should not have the played-song buttons');
   });
 
   await step('stop', async () => {

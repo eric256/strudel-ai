@@ -81,6 +81,8 @@ export function createWorkspace({ dv, root, center, panels, saved, onSave }) {
       element.hidden = false;
       return { element, init() {} };
     },
+    // ⧉ float / ⇲ dock, ↗ own window, 📌 always on top, ⛶ maximise — on every group's header
+    createRightHeaderActionComponent: () => headerActions(),
     // the fixed panels' tabs have no close button
     createTabComponent: ({ name }) => (name === 'fixed' ? fixedTab() : undefined),
     // right-click a tab: maximise, float, pop out into a window
@@ -91,6 +93,99 @@ export function createWorkspace({ dv, root, center, panels, saved, onSave }) {
   });
 
   const title = (p) => `${p.icon ? p.icon + ' ' : ''}${p.title}`;
+
+  // --- header buttons: float, dock, pop out, always on top, maximise (they act on the group's active panel) ---
+  const canPin = () => 'documentPictureInPicture' in window;
+  function headerActions() {
+    const element = document.createElement('div');
+    element.className = 'dv-actions';
+    let params = null;
+    const subs = [];
+    const button = (label, tip, fn) => {
+      const b = document.createElement('button');
+      b.className = 'dv-act';
+      b.textContent = label;
+      b.title = tip;
+      b.addEventListener('pointerdown', (e) => e.stopPropagation()); // not a drag of the header
+      b.onclick = (e) => { e.stopPropagation(); try { fn(); } catch (err) { console.warn('[panels]', err); } };
+      return b;
+    };
+    function draw() {
+      element.replaceChildren();
+      const g = params?.group;
+      const panel = g?.activePanel;
+      if (!panel) return;
+      const where = g.api.location?.type || 'grid';
+      const movable = panel.id !== EDITOR; // the code editor stays in the page
+      if (movable && where === 'grid') element.append(button('⧉', 'Float this panel over the layout (drag it anywhere, resize it)', () => floatPanel(panel.id)));
+      if (movable && where !== 'grid') element.append(button('⇲', 'Dock this panel back into the layout', () => dockPanel(panel.id)));
+      if (movable && where !== 'popout') element.append(button('↗', 'Open this panel in its own browser window', () => popoutPanel(panel.id)));
+      if (movable && canPin()) element.append(button('📌', 'Always on top: this panel in a small window that stays above your other windows (Chrome / Edge)', () => pinOnTop(panel.id)));
+      if (where === 'grid') element.append(button('⛶', 'Maximise / restore this panel', () => (panel.api.isMaximized() ? panel.api.exitMaximized() : panel.api.maximize())));
+    }
+    return {
+      element,
+      init(p) {
+        params = p;
+        draw();
+        subs.push(p.api.onDidLocationChange(() => draw()), p.api.onDidActivePanelChange(() => draw()));
+      },
+      dispose() { for (const d of subs) d.dispose?.(); },
+    };
+  }
+  function floatPanel(id) {
+    const panel = panelOf(id);
+    if (!panel) return;
+    const r = root.getBoundingClientRect();
+    const w = Math.min(560, Math.max(320, panel.api.width || 420)), h = Math.min(480, Math.max(220, panel.api.height || 300));
+    api.addFloatingGroup(panel, { position: { left: Math.max(20, (r.width - w) / 2), top: Math.max(20, (r.height - h) / 3) }, width: w, height: h });
+  }
+  /** Back into the layout: tabbed with a panel from the same area, else beside the editor. */
+  function dockPanel(id) {
+    const panel = panelOf(id);
+    if (!panel) return;
+    const area = P.get(id)?.area;
+    const mate = api.panels.find((x) => x.id !== id && x.id !== NOW && x.group.api.location?.type === 'grid' && P.get(x.id)?.area === area && x.id !== EDITOR);
+    if (mate) panel.api.moveTo({ group: mate.group, position: 'center' });
+    else panel.api.moveTo({ group: panelOf(EDITOR).group, position: { right: 'right', left: 'left', top: 'top' }[area] || 'bottom' });
+  }
+  function popoutPanel(id) {
+    const panel = panelOf(id);
+    if (panel) api.addPopoutGroup(panel).catch?.((e) => console.warn('[panels] pop-out failed (pop-ups blocked?)', e));
+  }
+
+  // 📌 always on top: Document Picture-in-Picture (Chrome / Edge). The panel's element moves into the little window
+  // (the app keeps finding it by id) and comes back when the window closes.
+  const pinned = { id: null, win: null, holder: null, observer: null };
+  async function pinOnTop(id) {
+    const p = P.get(id);
+    if (!p || !canPin()) return;
+    if (pinned.win) pinned.win.close(); // one at a time
+    const r = p.el.getBoundingClientRect();
+    const win = await window.documentPictureInPicture.requestWindow({ width: Math.round(Math.max(340, r.width)), height: Math.round(Math.max(220, r.height)) });
+    for (const node of document.querySelectorAll('link[rel="stylesheet"], style')) win.document.head.append(node.cloneNode(true));
+    const copyTheme = () => {
+      win.document.documentElement.style.cssText = document.documentElement.style.cssText;
+      win.document.documentElement.dataset.theme = document.documentElement.dataset.theme || '';
+    };
+    copyTheme();
+    pinned.observer = new MutationObserver(copyTheme);
+    pinned.observer.observe(document.documentElement, { attributes: true, attributeFilter: ['style', 'data-theme'] });
+    win.document.title = `${p.icon || ''} ${p.title} — Strudel AI`;
+    win.document.body.className = `pip-body ${document.body.className}`;
+    const holder = document.createElement('div');
+    holder.className = 'pip-holder muted small';
+    holder.textContent = `📌 ${p.title} is in its always-on-top window — close that window to bring it back here.`;
+    p.el.replaceWith(holder);
+    win.document.body.append(p.el);
+    Object.assign(pinned, { id, win, holder });
+    win.addEventListener('pagehide', () => {
+      pinned.observer?.disconnect();
+      if (holder.isConnected) holder.replaceWith(p.el); else store.appendChild(p.el);
+      Object.assign(pinned, { id: null, win: null, holder: null, observer: null });
+      window.dispatchEvent(new Event('resize'));
+    }, { once: true });
+  }
   function fixedTab() {
     const element = document.createElement('div');
     element.className = 'dv-fixed-tab';
@@ -158,6 +253,7 @@ export function createWorkspace({ dv, root, center, panels, saved, onSave }) {
   api.onDidRemovePanel((panel) => {
     if (panel.id === EDITOR) setTimeout(() => { if (!panelOf(EDITOR)) addFixed(EDITOR, { position: { direction: 'left' } }); });
     if (panel.id === NOW) setTimeout(ensureNow);
+    if (pinned.id === panel.id) pinned.win?.close(); // closing a pinned panel brings it home first
     const p = P.get(panel.id);
     if (p?.el && p.el.parentNode !== store) store.appendChild(p.el); // keep the panel's DOM (and its state) for next time
   });
@@ -200,6 +296,11 @@ export function createWorkspace({ dv, root, center, panels, saved, onSave }) {
       if (onOpen) { p.onOpen = onOpen; onOpen(open.has(id)); }
     },
     reset() { buildDefault(); ensureNow(); sync(); },
+    float: floatPanel,
+    dock: dockPanel,
+    popout: popoutPanel,
+    pinOnTop,
+    pinnedId: () => pinned.id,
     layout: () => api.toJSON(),
     panels: () => [...P.values()].filter((p) => p.id !== EDITOR).map((p) => ({ id: p.id, title: p.title, icon: p.icon, open: !!panelOf(p.id), fixed: FIXED.has(p.id) })),
     /**

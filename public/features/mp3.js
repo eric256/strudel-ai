@@ -119,9 +119,10 @@ export function mp3TakeEnd(keep = true) {
   mp3Finish(seg, (blob, secs) => {
     if (sg.take) URL.revokeObjectURL(sg.take.url);
     sg.take = { url: URL.createObjectURL(blob), name: mp3Name(sg.title), secs, size: blob.size };
+    if (sg.copyOf) sg.copyOf.take = sg.take; // a song queued again: its entry in 🎵 Songs gets the MP3 too
     mp3.takes = mp3.takes.filter((t) => t !== sg).concat(sg);
     while (mp3.takes.length > MP3_MAX_TAKES) { const old = mp3.takes.shift(); URL.revokeObjectURL(old.take.url); delete old.take; }
-    clog('ok', `🎙 “${sg.title}” recorded (${fmtTime(secs)}, ${(blob.size / 1e6).toFixed(1)} MB) — ⬇ MP3 in its song view`);
+    clog('ok', `🎙 “${sg.title}” recorded (${fmtTime(secs)}, ${(blob.size / 1e6).toFixed(1)} MB) — ⬇ MP3 in the 📃 Playlist (played songs) and its song view`);
     songsChanged();
     renderSongs();
   });
