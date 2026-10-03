@@ -37,7 +37,7 @@ import { setup as setup_stations } from './features/stations.js';
 import { addToPlaylist, sessionSongs, setup as setup_playlist } from './features/playlist.js';
 import { setup as setup_themes } from './features/themes.js';
 import { pluginsState, setup as setup_plugins } from './features/plugins.js';
-import { MODES, currentMode, setMode, setup as setup_modes } from './features/modes.js';
+import { MODES, currentMode, savedLayout, saveLayout, setMode, setup as setup_modes } from './features/modes.js';
 import { html, nothing, render, renderOptions } from './html.js';
 import { T } from './templates/index.js';
 // Strudel AI — browser app
@@ -810,8 +810,8 @@ try {
   document.body.dataset.mode = mode;
   ws = createWorkspace({
     dv: await loadDockview(), root: $('workspace'), center: document.querySelector('#workspace .ws-center'), panels: PANELS,
-    saved: saved.panelLayouts?.[mode] || (mode === 'radio' ? saved.panelLayout : null) || null, preset: MODES[mode].preset,
-    onSave: (layout) => save({ panelLayouts: { ...(load().panelLayouts || {}), [currentMode()]: layout } }),
+    saved: savedLayout(mode) || (mode === 'radio' ? saved.panelLayout : null) || null, preset: MODES[mode].preset,
+    onSave: (layout) => saveLayout(currentMode(), layout),
   });
 } catch (e) {
   const msg = document.createElement('div');

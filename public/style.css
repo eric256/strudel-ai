@@ -758,3 +758,55 @@ body.hydra-behind .code-bar { background: color-mix(in srgb, var(--panel-2) 80%,
 .mode-btn { border: none; background: none; color: var(--muted); padding: 4px 10px; border-radius: 6px; font-size: 13px; white-space: nowrap; }
 .mode-btn:hover { color: var(--text); background: var(--raised); }
 .mode-btn.on { color: var(--on-accent); background: var(--accent); }
+
+/* ✎ song editor */
+.se { display: flex; flex-direction: column; gap: 8px; padding: 8px 10px 16px; }
+.se-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }
+.se-head label, .se-selrow label { display: flex; align-items: center; gap: 4px; font-size: 12px; color: var(--muted); }
+.se-title { width: 200px; font-weight: 600; }
+.se-num { width: 58px; }
+.se-scale { width: 90px; }
+.se-head .spacer, .se-selrow .spacer { flex: 1; }
+.se-apply.dirty { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
+.se-msg { min-height: 16px; color: var(--accent-2-text); }
+.se-msg.bad { color: var(--danger-text); }
+.se-label { font: 600 11px var(--mono); text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin-top: 6px; }
+.se-label .muted { text-transform: none; letter-spacing: 0; font-family: system-ui; font-weight: 400; }
+.se-timeline { display: flex; gap: 3px; align-items: stretch; min-height: 46px; }
+.se-sec { flex: 1 1 0; min-width: 44px; display: flex; flex-direction: column; justify-content: center; padding: 4px 6px; border-radius: 6px; cursor: pointer;
+  background: var(--raised); border: 1px solid var(--border); overflow: hidden; white-space: nowrap; user-select: none; }
+.se-sec b { font-size: 12px; overflow: hidden; text-overflow: ellipsis; }
+.se-sec span { font: 11px var(--mono); color: var(--muted); }
+.se-sec small { font-size: 10px; color: var(--faint); overflow: hidden; text-overflow: ellipsis; }
+.se-sec:hover { border-color: var(--accent-dim); }
+.se-sec.on { border-color: var(--accent); background: var(--accent-soft); }
+.se-add { flex: 0 0 34px; }
+.se-selrow { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; padding: 6px 8px; border-radius: 6px; background: var(--sunken); }
+.se-secname { width: 120px; }
+.se-grid-wrap { overflow-x: auto; }
+.se-grid { border-collapse: collapse; font-size: 12px; }
+.se-grid th { font-weight: 600; padding: 2px 6px; white-space: nowrap; color: var(--muted); cursor: pointer; }
+.se-grid thead th.on { color: var(--accent); }
+.se-grid tbody th { text-align: right; color: var(--c, var(--text)); cursor: default; }
+.se-grid td { padding: 1px; }
+.se-cell { width: 100%; min-width: 46px; height: 24px; padding: 0 4px; font-size: 11px; border-radius: 4px; border: 1px dashed var(--border); background: none; color: var(--faint); }
+.se-cell.col { border-color: var(--accent-dim); }
+.se-cell.main, .se-cell.variant { border-style: solid; border-color: var(--c); background: color-mix(in srgb, var(--c) 30%, transparent); color: var(--text); }
+.se-cell.variant { background: color-mix(in srgb, var(--c) 55%, transparent); }
+.se-cell small { margin-left: 2px; color: var(--muted); }
+.se-chords { display: flex; flex-direction: column; gap: 4px; align-items: flex-start; }
+.se-chord { display: flex; gap: 6px; align-items: center; }
+.se-cname { width: 110px; }
+.se-cval { width: 280px; font-family: var(--mono); }
+.se-parts { display: flex; flex-direction: column; gap: 4px; align-items: stretch; }
+.se-parts > .link { align-self: flex-start; }
+.se-part { border: 1px solid var(--border); border-left: 3px solid var(--c); border-radius: 6px; padding: 4px 6px; background: var(--raised); }
+.se-prow { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.se-toggle { border: none; background: none; padding: 0 4px; }
+.se-pname { width: 90px; font-weight: 600; }
+.se-psound { width: 170px; font-family: var(--mono); font-size: 12px; }
+.se-pvars { width: 150px; font-size: 12px; }
+.se-def { display: flex; flex-direction: column; gap: 2px; margin-top: 6px; font: 11px var(--mono); color: var(--muted); }
+.se-def textarea { font: 12px/1.45 var(--mono); width: 100%; resize: vertical; }
+.se-ask { display: flex; gap: 6px; margin-top: 6px; }
+.se-ask input { flex: 1; }

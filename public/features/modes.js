@@ -19,7 +19,8 @@ export const MODES = {
   },
   studio: {
     label: '🎼 Studio', title: 'Studio: work on one song with the AI — chat changes that song while it plays',
-    preset: { right: ['chat', 'edit', 'songs'], bottom: ['mixer', 'master'], now: true },
+    // the song editor gets the big space under the code
+    preset: { right: ['chat', 'songs'], bottom: ['edit', 'mixer', 'master'], bottomHeight: 0.58, now: true }, layoutVersion: 2,
     targets: ['song', 'auto', 'pads', 'new'], target: 'song',
     code: '// 🎼 Studio: open a song (🎵 Songs → ✎ Edit, or ✨ new song in the chat) and change it with the chat.\n// The code of the section playing shows here.\n',
   },
@@ -30,6 +31,13 @@ export const MODES = {
     code: '// ⌨ Jam: write Strudel code here (Ctrl+Enter plays it), or ask the chat: “a dusty boom bap beat at 88 bpm”.\nsetcpm(90/4)\ndrums: s("bd ~ [~ bd] ~, ~ sd ~ sd, hh*8").bank("RolandTR808").gain(0.8)\n',
   },
 };
+/** A mode's saved layout — unless it was saved for an older version of its preset (then the new preset is used). */
+export const savedLayout = (mode) => ((load().panelLayoutVersions?.[mode] || 1) === (MODES[mode].layoutVersion || 1) ? load().panelLayouts?.[mode] || null : null);
+/** Save a mode's layout (with its preset's version). */
+export const saveLayout = (mode, layout) => save({
+  panelLayouts: { ...(load().panelLayouts || {}), [mode]: layout },
+  panelLayoutVersions: { ...(load().panelLayoutVersions || {}), [mode]: MODES[mode].layoutVersion || 1 },
+});
 /** The mode in use (the page starts in the saved one). */
 export const currentMode = () => document.body.dataset.mode || (MODES[load().mode] ? load().mode : 'radio');
 
@@ -56,11 +64,11 @@ export function setMode(mode) {
   if (!MODES[mode] || mode === from) return;
   stopAll();
   if (mode === 'jam') { setNowSong(null); songsChanged(); } // no song in a jam (the transport and Now playing forget it)
-  const st = load();
-  save({ panelLayouts: { ...(st.panelLayouts || {}), [from]: ws.layout() }, ...(from === 'jam' ? { jamCode: getCode() } : {}) });
+  saveLayout(from, ws.layout());
+  if (from === 'jam') save({ jamCode: getCode() });
   document.body.dataset.mode = mode;
   save({ mode });
-  ws.setLayout(load().panelLayouts?.[mode] || null, MODES[mode].preset);
+  ws.setLayout(savedLayout(mode), MODES[mode].preset);
   mirror()?.setCode(mode === 'jam' ? load().jamCode || MODES.jam.code : MODES[mode].code);
   applyChatTargets(mode);
   renderModeSwitch();

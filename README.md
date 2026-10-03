@@ -23,7 +23,7 @@ Pick one in the header. Switching stops all music. Each mode has its own panel l
 | Mode | For | Chat works on | Layout |
 | --- | --- | --- | --- |
 | **📻 Radio** | Stations and the playlist write songs for you; play along on the pads, mixer and master, with visuals | the whole song, the code, the pads, or ✨ a new song | Chat · Songs · Station · Playlist, Now playing |
-| **🎼 Studio** | Working on one song with the AI | the song (its sections, chords and parts) | Chat · Edit song · Songs, Now playing, Mixer · Master below |
+| **🎼 Studio** | Working on one song with the AI | the song (its sections, chords and parts) | Chat · Songs, Now playing; the ✎ song editor · Mixer · Master below the code |
 | **⌨ Jam** | Live-coding: you and the AI write one piece of code in the editor, with no songs | the code in the editor (or the pads) | Chat, Keys · Pads · Visualizer below |
 
 - **⌨ Jam** keeps its own code, saved as you type, so it's still there when you come back.
@@ -248,8 +248,13 @@ A song's sheet and sections show in two places only:
 - **🎶 Now playing:** the song that's playing, with live progress.
   - **⏭ go** on a section jumps to it on the next boundary, and **Alt+1 … Alt+9** jump to the playing song's sections.
   - **⏸ hold this section** stays on it until you pick another.
-- **✎ Edit song:** **✎ Edit** opens the song in its own panel. There you can edit its tempo, meter, scale, chords, sections, parts and parts code, with its sections listed below the editor.
-  - **✓ apply** checks and test-plays the change and re-arranges the song. A playing song switches over from its next section.
+- **✎ Edit song:** **✎ Edit** opens the song editor in its own panel. In 🎼 Studio it gets the big space under the code. You change a draft of the song, and **✓ apply** checks it, test-plays the parts and switches the song over. If it's playing, you hear the section playing now change from the next bar.
+  - **Song:** title, tempo, meter, scale and master style.
+  - **Sections:** a timeline, with each section as wide as its bars. Click one to edit its name, bars, chord progression, key change and tempo. You can move it (← → or drag), duplicate it, delete it, add one, or, while the song plays, **⏭ go** there or **🔁 loop** it while you work.
+  - **Arrangement:** a grid of parts × sections. Click a cell to cycle off → the main version → the part's other variants. Right-click it to make the part come in halfway, drop out halfway or alternate.
+  - **Chords:** the named progressions the sections use.
+  - **Parts:** name, role, sound and variants. Open a part to edit the code of each variant, or **✨ ask the AI** about it ("make it busier", "a darker sound"). **＋ part** adds one with starter code that fits its role.
+  - **↺ revert** throws your changes away. A song played again is a copy, and an edit applies to every copy of it.
   - Songs in My songs are saved; for other songs, 📁 Save to My songs keeps the edit.
   - Closing the panel ends editing.
 
@@ -263,7 +268,7 @@ Every finished song has a toolbar:
 | ▶ Play | plays it from the start (already written, so no AI is used) |
 | ☆ Favorite | adds it to **★ Favorites**, a list stored on the server that everyone who opens this server sees and that survives restarts. Click again to remove it |
 | 📁 Save to My songs | copies it into **My songs** (kept in your browser) — this is how a station song moves to the Songs tab to be worked on |
-| ✎ Edit | (My songs) edit the song as text: tempo, scale, chords (`name: Am F C G`), sections (`name \| bars \| chords \| parts`), parts (`name \| role \| sound \| variants`) and the parts code. **apply** checks and test-plays the parts and re-arranges the song; a song that's playing switches over from its next section |
+| ✎ Edit | open the song editor (see *✎ Edit song* above) |
 | 🔲 Song pads | loads the song's own 16 pads into the pad dock to jam along, and keeps following: as songs change, the dock switches to each new song's pads (**follow song** in the pad dock; click again or **↩ my pads** to stop) |
 | ⬇ MP3 / 🎙 MP3 | **⬇ MP3** downloads the song's recording once it has played to its end. With no recording yet, **🎙 MP3** plays the song now if nothing is playing, or records it the next time it plays from the start (the station keeps playing) |
 | ⬇ JSON | downloads the whole song (sheet, parts, sections, pads) as a `.json` file. **⬆ import** loads such a file — or a session log — on any Strudel AI server |

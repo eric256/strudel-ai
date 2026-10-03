@@ -171,19 +171,30 @@ try {
     expect(await ev(() => strudelAI.queue.songs.length) === n, 'not removed');
   });
 
-  await step('✎ Edit song applies changes (a longer chorus, another master style)', async () => {
+  await step('✎ song editor: master, section bars, the arrangement grid, a new section and part, ✓ apply (live)', async () => {
     await ev(() => { window.__edited = strudelAI.queue.songs[strudelAI.queue.current]; document.querySelector('#nowSongView [data-act="edit"]').click(); });
-    await p.waitForTimeout(600);
-    await ev(() => {
-      const f = document.getElementById('editForm');
-      f.querySelector('[data-f="master"]').value = 'dub';
-      const t = f.querySelector('[data-f="sections"]');
-      t.value = t.value.replace(/^chorus \| 4 \|/m, 'chorus | 8 |');
-      f.querySelector('[data-act="edit-save"]').click();
-    });
-    await p.waitForFunction(() => /applied/.test(document.querySelector('#editForm .sv-edit-msg')?.textContent || ''), null, { timeout: 15000 });
-    const s = await ev(() => { const sh = window.__edited.sheet; return { master: sh.master, chorus: sh.sections.find((x) => x.name === 'chorus').bars }; });
-    expect(s.master === 'dub' && s.chorus === 8, JSON.stringify(s));
+    await p.waitForFunction(() => document.querySelectorAll('#editForm .se-sec').length >= 2, null, { timeout: 5000 });
+    const change = (sel, v) => ev(([sel, v]) => { const el = document.querySelector(sel); el.value = v; el.dispatchEvent(new Event('change')); }, [sel, v]);
+    // master → dub
+    await ev(() => { const s = [...document.querySelectorAll('#editForm .se-head select')][1]; s.value = 'dub'; s.dispatchEvent(new Event('change')); });
+    // the chorus: 8 bars
+    await ev(() => [...document.querySelectorAll('#editForm .se-sec')].find((x) => /chorus/.test(x.querySelector('b').textContent)).click());
+    await change('#editForm .se-selrow .se-num', '8');
+    // the grid: the first part switched on (or off) in the first section
+    const before = await ev(() => document.querySelector('#editForm .se-grid tbody tr .se-cell').className);
+    await ev(() => document.querySelector('#editForm .se-grid tbody tr .se-cell').click());
+    expect(await ev(() => document.querySelector('#editForm .se-grid tbody tr .se-cell').className) !== before, 'the grid cell did not change');
+    // a new section (a copy of the last one) and a new part with starter code
+    await ev(() => document.querySelector('#editForm .se-add').click());
+    await ev(() => [...document.querySelectorAll('#editForm .se-parts > .link')].find((b) => /part/.test(b.textContent)).click());
+    expect(await ev(() => /const part_main = /.test([...document.querySelectorAll('#editForm .se-def textarea')].map((t) => t.value).join())), 'the new part has no starter code');
+    expect(await ev(() => /changed/.test(document.querySelector('#editForm .se-msg').textContent) || /new part/.test(document.querySelector('#editForm .se-msg').textContent)), 'no "changed" note');
+    await ev(() => document.querySelector('#editForm .se-apply').click());
+    await p.waitForFunction(() => /applied|⚠/.test(document.querySelector('#editForm .se-msg')?.textContent || ''), null, { timeout: 15000 });
+    const msg = await ev(() => document.querySelector('#editForm .se-msg').textContent);
+    expect(/applied/.test(msg), msg);
+    const s = await ev(() => { const sh = window.__edited.sheet; return { master: sh.master, chorus: sh.sections.find((x) => x.name === 'chorus').bars, sections: sh.sections.length, part: sh.parts.some((x) => x.id === 'part'), lib: /const part_main/.test(window.__edited.library) }; });
+    expect(s.master === 'dub' && s.chorus === 8 && s.part && s.lib, JSON.stringify(s));
   });
 
   await step('a song that can\'t be written is marked ✗ with ↻ Try again (no block-by-block fallback)', async () => {
