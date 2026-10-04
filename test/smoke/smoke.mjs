@@ -99,6 +99,16 @@ try {
     await p.waitForFunction(() => document.querySelector('strudel-editor').editor.repl.scheduler.started && !strudelAI.engine.paused, null, { timeout: 5000 });
   });
 
+  await step('↺ restart: the song plays again from its first section, fresh (even from paused)', async () => {
+    await ev(() => document.getElementById('nowPause').click());
+    await p.waitForTimeout(300);
+    await ev(() => document.getElementById('restartSong').click());
+    await p.waitForFunction(() => strudelAI.engine.running && !strudelAI.engine.paused && document.querySelector('strudel-editor').editor.repl.scheduler.started, null, { timeout: 10000 });
+    await p.waitForFunction(() => strudelAI.engine.steps.some((x) => x.status === 'playing'), null, { timeout: 10000 });
+    const r = await ev(() => { const sg = strudelAI.queue.songs[strudelAI.queue.current]; return { first: sg?.sheet?.sections[0].name, prompt: strudelAI.engine.steps.find((x) => x.status === 'playing')?.prompt }; });
+    expect(r.first && r.prompt === r.first, `restarted at ${r.prompt}, not ${r.first}`);
+  });
+
   await step('templates: titles are text (escaped), and an opened section stays open while the view updates', async () => {
     await ev(() => { const sg = strudelAI.queue.songs[strudelAI.queue.current]; window.__realTitle = sg.title; sg.title = '<img src=x onerror="window.__xss=1">Bold'; strudelAI.player.emit('songs'); });
     await p.waitForTimeout(400);
@@ -117,15 +127,45 @@ try {
     for (const n of ['drums', 'bass', 'pad', 'hook', '__master']) expect(names.includes(n), `no ${n} strip (${names})`);
   });
 
+  await step('🎚 mixer console: knobs (H / M / L / pan) and a dB fader per strip; dragging the fader sets the level', async () => {
+    const c = await ev(() => { const s = document.querySelector('#mixerStrips .mx-strip[data-base="drums"]'); return { knobs: s.querySelectorAll('sa-knob').length, fader: !!s.querySelector('sa-fader[data-k="vol"]'), clip: !!s.querySelector('.mx-clip') }; });
+    expect(c.knobs === 4 && c.fader && c.clip, JSON.stringify(c));
+    const box = await p.locator('#mixerStrips .mx-strip[data-base="drums"] sa-fader').boundingBox();
+    await p.mouse.move(box.x + box.width / 2, box.y + box.height * 0.2);
+    await p.mouse.down(); await p.mouse.move(box.x + box.width / 2, box.y + box.height * 0.6, { steps: 5 }); await p.mouse.up();
+    const vol = await ev(() => strudelAI.mixer.ch.drums?.vol);
+    expect(vol > 0 && vol < 1, `drums fader: ${vol}`);
+    await ev(() => { const f = document.querySelector('#mixerStrips .mx-strip[data-base="drums"] sa-fader'); f.dispatchEvent(new MouseEvent('dblclick', { bubbles: true })); });
+    await p.waitForTimeout(100);
+    expect(await ev(() => strudelAI.mixer.ch.drums.vol) === 1, 'double-click did not reset the fader to 0 dB');
+  });
+
+  await step('🎚 equalizer: a channel\'s EQ button opens 7 bands; a preset shapes that channel', async () => {
+    await ev(() => document.querySelector('#mixerStrips .mx-strip[data-base="bass"] [data-mx="eq"]').click());
+    await p.waitForFunction(() => document.querySelectorAll('#eqBody .eq-band sa-fader').length === 7, null, { timeout: 3000 });
+    await ev(() => [...document.querySelectorAll('#eqBody .eq-presets button')].find((b) => /Soft/.test(b.textContent)).click());
+    const g = await ev(() => strudelAI.mixer.ch.bass.geq);
+    expect(JSON.stringify(g) === JSON.stringify([0, 0, 0, 0, -1.5, -4, -6]), `bass eq: ${g}`);
+    await ev(() => [...document.querySelectorAll('#eqBody .eq-presets button')].find((b) => /Flat/.test(b.textContent)).click());
+  });
+
   await step('the master chain is on the output and follows the song', async () => {
     await ev(() => strudelAI.ws.open('master'));
     await p.waitForTimeout(800);
-    const m = await ev(() => ({ installed: !!globalThis.getSuperdoughAudioController().output.channelMerger.__master, style: strudelAI.master.style, controls: document.querySelectorAll('#masterBody input[type=range]').length }));
+    const m = await ev(() => ({ installed: !!globalThis.getSuperdoughAudioController().output.channelMerger.__master, style: strudelAI.master.style, controls: document.querySelectorAll('#masterBody .ms-node sa-knob').length }));
     expect(m.installed, 'chain not installed');
     expect(m.style === 'techno', `style ${m.style}`);
     expect(m.controls === 16, `controls ${m.controls}`);
     const peak = await ev(async () => { const a = strudelAI.master.chain.analyser, b = new Float32Array(2048); let x = 0; for (let i = 0; i < 15; i++) { a.getFloatTimeDomainData(b); for (const v of b) x = Math.max(x, Math.abs(v)); await new Promise((r) => setTimeout(r, 100)); } return x; });
     expect(peak > 0.01, `no sound through the master (peak ${peak})`);
+  });
+
+  await step('🎛 master nodes: ⏻ switches a node off (its effect goes neutral) and on again', async () => {
+    await ev(() => document.querySelector('#masterBody .ms-pow[data-node="Space"]').click());
+    const off = await ev(() => ({ off: strudelAI.master.off.includes('Space'), cls: document.querySelector('#masterBody .ms-node[data-group="Space"]').classList.contains('off') }));
+    expect(off.off && off.cls, JSON.stringify(off));
+    await ev(() => document.querySelector('#masterBody .ms-pow[data-node="Space"]').click());
+    expect(await ev(() => !strudelAI.master.off.includes('Space')), 'Space did not switch back on');
   });
 
   await step('⏭ next and ⏮ previous song', async () => {

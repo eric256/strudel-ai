@@ -188,10 +188,26 @@ await send('a dusty groove with a walking bass');
 await p.waitForFunction(() => document.querySelector('strudel-editor').editor.repl.scheduler.started, null, { timeout: 30000 });
 await p.waitForTimeout(2500);
 await shot('12-jam-mode');
-for (const [id, el, name] of [['pads', '#pads-dock', '13-pads'], ['keys', '#keys-dock', '14-keys'], ['mixer', '#mixer-dock', '15-mixer'], ['master', '#master-dock', '16-master']]) {
+for (const [id, el, name] of [['pads', '#pads-dock', '13-pads'], ['keys', '#keys-dock', '14-keys'], ]) {
   await open(id);
   await shot(name, el);
 }
+// the console panels, floated big enough to show them whole
+const big = async (id, name, w, h) => {
+  await open(id);
+  await ev(([id, w, h]) => { const pn = strudelAI.ws.api.getPanel(id); strudelAI.ws.api.addFloatingGroup(pn, { position: { left: 40, top: 60 }, width: w, height: h }); }, [id, w, h]);
+  await p.waitForTimeout(1200);
+  await shot(name, `#${id}-dock`);
+  await ev((id) => strudelAI.ws.dock?.(id), id);
+};
+await big('mixer', '15-mixer', 760, 560);
+await big('master', '16-master', 1180, 420);
+// 🎚 Equalizer: the first channel, with the "Soft top" preset
+await ev(() => strudelAI.openEqualizer(strudelAI.mixerChannels()[0]?.base || 'master'));
+await p.waitForTimeout(500);
+await ev(() => [...document.querySelectorAll('#eqBody .eq-presets button')].find((b) => /Soft/.test(b.textContent))?.click());
+await big('eq', '16b-equalizer', 1000, 360);
+await ev(() => [...document.querySelectorAll('#eqBody .eq-presets button')].find((b) => /Flat/.test(b.textContent))?.click());
 await open('viz');
 await ev(() => { const s = document.getElementById('vizMode'); s.value = 'dashboard'; s.dispatchEvent(new Event('change')); });
 await p.waitForTimeout(1500);

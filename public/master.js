@@ -8,6 +8,7 @@
 // A STYLE (lo-fi, techno, ambient …) is a set of these settings. Songs carry a style ("master" in the song sheet)
 // and optionally their own tweaks; the 🎛 Master panel moves every control live, like a mixer.
 // ---------------------------------------------------------------------------
+import { EQ_BANDS, normEq } from './lib/eq.js';
 
 /** Every control: key, label, range, default, unit, the panel's group. */
 export const MASTER_PARAMS = [
@@ -29,6 +30,28 @@ export const MASTER_PARAMS = [
   { key: 'loud', label: 'Out', min: -12, max: 6, step: 0.5, def: 0, unit: 'dB', group: 'Output', title: 'Output level into the limiter (−1 dB ceiling)' },
 ];
 export const MASTER_DEFAULTS = Object.fromEntries(MASTER_PARAMS.map((p) => [p.key, p.def]));
+
+/**
+ * The master as a chain of nodes, in signal order: each a group of controls (the 🎚 Equalizer's 7 bands come first,
+ * in their own panel). A node switched off passes the sound through: its controls are sent at their neutral values.
+ */
+export const MASTER_NODES = [
+  { group: 'EQ', name: 'Tone', icon: '🎛', title: 'The style\'s tone: low shelf, mid peak, high shelf' },
+  { group: 'Filter', name: 'Filter', icon: '〰', title: 'A DJ filter on the whole mix' },
+  { group: 'Color', name: 'Colour', icon: '🔥', title: 'Saturation, bit crush and vinyl' },
+  { group: 'Space', name: 'Space', icon: '🌫', title: 'Reverb on the whole mix' },
+  { group: 'Echo', name: 'Echo', icon: '🔁', title: 'Tempo-synced echo' },
+  { group: 'Dynamics', name: 'Dynamics', icon: '🗜', title: 'Glue compression and stereo width' },
+  { group: 'Output', name: 'Output', icon: '🔊', title: 'Level into the limiter (−1 dB ceiling), and what comes out' },
+];
+/** A node's controls when it's off: no change to the sound. */
+const NEUTRAL = { ...MASTER_DEFAULTS, glue: 0 };
+/** The settings the chain gets: yours, with the nodes that are off at their neutral values. */
+export function effectiveParams(params, off = []) {
+  const out = { ...params };
+  for (const d of MASTER_PARAMS) if (off.includes(d.group) && d.key !== 'size' && d.key !== 'time' && d.key !== 'reso' && d.key !== 'feedback') out[d.key] = NEUTRAL[d.key];
+  return out;
+}
 
 /** The styles: what each is for, and its settings (anything not given is the default). */
 export const MASTER_STYLES = {
@@ -134,12 +157,16 @@ function vinylBuffer(ac) {
 export function createMaster(ac) {
   const node = (Ctor, o) => new Ctor(ac, o);
   const input = node(GainNode, { gain: 1 });
+  // the 🎚 Equalizer's 7 bands come first (your EQ), then the style's tone controls
+  const geq = EQ_BANDS.map((b) => node(BiquadFilterNode, { type: b.type, frequency: b.f, Q: b.q || 0.7, gain: 0 }));
+  input.connect(geq[0]);
+  for (let i = 1; i < geq.length; i++) geq[i - 1].connect(geq[i]);
   const low = node(BiquadFilterNode, { type: 'lowshelf', frequency: 120 });
   const mid = node(BiquadFilterNode, { type: 'peaking', frequency: 1000, Q: 0.7 });
   const high = node(BiquadFilterNode, { type: 'highshelf', frequency: 6000 });
   const lp = node(BiquadFilterNode, { type: 'lowpass', frequency: 20000, Q: 0.7 });
   const hp = node(BiquadFilterNode, { type: 'highpass', frequency: 10, Q: 0.7 });
-  input.connect(low); low.connect(mid); mid.connect(high); high.connect(lp); lp.connect(hp);
+  geq[geq.length - 1].connect(low); low.connect(mid); mid.connect(high); high.connect(lp); lp.connect(hp);
   // drive and crush: wet / dry pairs
   const driveDry = node(GainNode, { gain: 1 }), driveWet = node(GainNode, { gain: 0 });
   const shaper = node(WaveShaperNode, { oversample: '2x' });
@@ -228,6 +255,9 @@ export function createMaster(ac) {
     get params() { return { ...params }; },
     /** Set some or all controls; ramp = seconds to glide there. */
     set(next, ramp = 0.03) { params = clampParams({ ...params, ...next }); apply(ramp); },
+    /** The 🎚 Equalizer's band gains (dB, low → high). */
+    setEq(gains, ramp = 0.03) { const g = normEq(gains); geq.forEach((n, i) => to(n.gain, g[i], ramp)); },
+    eqNodes: geq,
     setTempo(c) { if (c > 0 && Math.abs(c - cps) > 1e-4) { cps = c; apply(0.1); } },
     setRunning(r) { if (r !== running) { running = r; to(vinylGain.gain, r ? params.vinyl * 0.12 : 0, 0.05); } },
     /** Gain reduction of the glue compressor and the limiter, in dB (≤ 0). */

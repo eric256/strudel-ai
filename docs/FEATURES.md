@@ -11,7 +11,7 @@ Pick or describe a station, put it on air, and an AI agent keeps inventing, writ
 | 📻 Station | 📃 Playlist | 🎶 Now playing |
 |---|---|---|
 | ![Station](screenshots/02-station.png) | ![Playlist](screenshots/03-playlist.png) | ![Now playing](screenshots/04-now-playing.png) |
-| The theme, form and band for its songs, and what's on air. | What's playing and coming up: play next, reorder, remove, loop. | The song's sheet, its sections with live progress, ⏭ go, ⏸ hold, and its toolbar (✎ edit, ★ favorite, 📁 save, MP3, 🎸 band, 📻 station, link). |
+| The theme, form and band for its songs, and what's on air. | What's playing and coming up: play next, reorder, remove, loop. | The song's sheet, its sections with live progress, ⏭ go, ⏸ hold, ↺ restart, and its toolbar (✎ edit, ★ favorite, 📁 save, MP3, 🎸 band, 📻 station, link). |
 
 **🎵 Songs:** this session's songs, ★ Favorites (shared on the server) and 📁 My songs (saved, with import / export).
 ![Songs](screenshots/05-songs.png)
@@ -50,10 +50,14 @@ You and the AI write one piece of code in the editor; 🎼 Make it a song grows 
 
 ## Mix and master
 
-| 🎚 Mixer | 🎛 Master |
-|---|---|
-| ![Mixer](screenshots/15-mixer.png) | ![Master](screenshots/16-master.png) |
-| A channel per part: level, EQ, pan, mute / solo, meters. | The master style of the song: EQ, filter, drive, reverb, echo, glue, width and loudness. |
+**🎚 Mixer:** a console with a channel per part. Each strip has H / M / L and pan knobs, M / S / EQ, 👍 / 👎 for its sound, and a dB fader beside its meter and clip LED. The status bar warns ● HOT / ● CLIP when the mix gets close to the top.
+![Mixer](screenshots/15-mixer.png)
+
+**🎛 Master:** the song's master style as nodes in signal order (EQ → Tone → Filter → Colour → Space → Echo → Dynamics → Output), with knobs, and ⏻ to switch a node off.
+![Master](screenshots/16-master.png)
+
+**🎚 Equalizer:** 7 bands on the master or any channel. The curve is drawn over the live spectrum, with presets such as Soft top for harsh synths.
+![Equalizer](screenshots/16b-equalizer.png)
 
 ## Visuals
 
