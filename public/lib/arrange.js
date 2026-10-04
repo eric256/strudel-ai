@@ -4,10 +4,15 @@ import { signed, sliderless } from './util.js';
 import { tempoLine, transposeProgression, enterMask } from './music.js';
 import { LABEL_LINE, parseLabel, makeLabel, patternLines } from './labels.js';
 import { fillPart, fillVariants, isFnPart, partExpr } from './sheet.js';
+import { softenCode } from './taste.js';
 
 export const LIB_START = '// ── parts (shared by every section of this song) ──';
 
 export const SEC_START = '// ── this section ──';
+
+/** 🎧 Your taste (features/taste.js sets it): "soften harsh synths" adds a low-pass to harsh parts as they're arranged. */
+let TASTE = null;
+export const setArrangeTaste = (t) => { TASTE = t; };
 
 /**
  * A part's human feel (sheet.feel, 0–1): each note a little softer or louder and a little behind the beat, as players
@@ -46,7 +51,7 @@ export function sectionCode(song, sec, { fill = false } = {}) {
     // harmonic parts follow the (moved) chords; melodic plain parts (the hook) are moved with them; drums never
     const lift = shift && !isFnPart(lib, id) && !/drum|perc|beat|fx|noise/i.test(`${part?.role} ${x.part}`) ? `.transpose(${shift})` : '';
     const mask = fill ? null : enterMask(x.enter, sec.bars);
-    lines.push(`${x.part}: ${partExpr(lib, id)}${lift}${mask ? `.mask("${mask}")` : ''}${feelCode(song.sheet.feel, part?.role, song.sheet.parts.indexOf(part))}.postgain(slider(1, 0, 1.5)).late(sectionStart)`);
+    lines.push(`${x.part}: ${partExpr(lib, id)}${lift}${mask ? `.mask("${mask}")` : ''}${feelCode(song.sheet.feel, part?.role, song.sheet.parts.indexOf(part))}${softenCode(lib, id, TASTE)}.postgain(slider(1, 0, 1.5)).late(sectionStart)`);
   }
   return lines.join('\n') + '\n';
 }

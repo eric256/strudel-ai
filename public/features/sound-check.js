@@ -1,4 +1,6 @@
 // Feature module split out of app.js (see the section comments below).
+import { applyAvoid } from '../lib/taste.js';
+import { getTaste } from './taste.js';
 import { closest } from '../lib/util.js';
 import { fixScaleString, scaleHelp, setScales } from '../lib/scales.js';
 import { patternLines } from '../lib/labels.js';
@@ -278,6 +280,10 @@ export async function prepareCode(code, { quiet = false, library = false } = {})
   }
   const allCorrections = [...sc.corrections, ...chk.corrections];
   if (chk.unknown.length) return { code: chk.code, error: unknownMessage(chk.unknown), corrections: allCorrections };
+  // 🎧 your taste: sounds you never want are swapped for their stand-ins
+  const av = applyAvoid(chk.code, getTaste());
+  if (av.swapped.length) clog('fix', `🎧 your taste: ${av.swapped.map(([a, b, n]) => `${a} → ${b}${n > 1 ? ` (×${n})` : ''}`).join(', ')}`);
+  chk.code = av.code;
   const failed = await preloadSoundfonts(chk.code);
   if (failed.length && !quiet) {
     addMsg('error', `Couldn't download soundfont(s) ${failed.join(', ')} from felixroos.github.io — they will be silent. Check the browser's internet access.`);

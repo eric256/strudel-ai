@@ -224,5 +224,16 @@ export function readSources(code) {
   for (const s of out) if (count[s.label] > 1) s.label = `${s.label} ${(seen[s.label] = (seen[s.label] || 0) + 1)}`;
   return out;
 }
+/** The plain string arguments of calls to `names` (s, sound, bank …): [{ name, value, start, end }] (contents' span). */
+export function stringArgs(code, names) {
+  const out = [];
+  for (const c of scanCalls(code)) {
+    if (!names.includes(c.name)) continue;
+    const args = callArgs(code, c);
+    const lit = args.length === 1 ? literal(args[0]) : null;
+    if (lit) out.push({ name: c.name, ...lit });
+  }
+  return out;
+}
 /** Replace a note pattern's string. */
 export const setSource = (code, src, value) => code.slice(0, src.start) + value + code.slice(src.end);

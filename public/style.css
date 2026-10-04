@@ -882,6 +882,19 @@ body.hydra-behind .code-bar { background: color-mix(in srgb, var(--panel-2) 80%,
 .pe-mini input { flex: 1; font: 12px var(--mono); }
 .pe-code summary { font: 600 11px var(--mono); color: var(--muted); cursor: pointer; }
 .pe-code textarea { width: 100%; font: 12px/1.45 var(--mono); resize: vertical; margin-top: 4px; }
+/* 🎧 my taste */
+.mx-taste { display: flex; justify-content: center; gap: 2px; min-height: 20px; }
+.mx-taste button { padding: 0 4px; font-size: 11px; border: none; background: none; opacity: .55; }
+.mx-taste button:hover, .mx-taste button.on { opacity: 1; }
+.taste { display: flex; flex-direction: column; gap: 8px; }
+.taste-rows { display: flex; flex-direction: column; gap: 4px; }
+.taste-row { display: flex; align-items: center; gap: 8px; }
+.taste-sound { min-width: 180px; font: 13px var(--mono); }
+.taste-sound-in, .taste-instead { width: 200px; font: 13px var(--mono); }
+.taste-check { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+.taste-liked { display: flex; flex-wrap: wrap; gap: 6px; }
+.taste-chip { font: 12px var(--mono); padding: 2px 8px; border-radius: 12px; background: var(--raised); border: 1px solid var(--border); }
+.taste-likes { width: 100%; font: 13px system-ui; resize: vertical; }
 /* ⌨ Jam only: 🎼 Make it a song */
 .jam-only { display: none; }
 body[data-mode="jam"] .jam-only { display: inline-flex; margin-left: auto; }

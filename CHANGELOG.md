@@ -2,6 +2,20 @@
 
 The version is in `package.json`. Bump it when you release. Open pages also notice *any* redeploy through the build id, which is a hash of the app files, even if the version wasn't bumped.
 
+## 1.52.0
+- **🎧 My taste** (⚙ Settings): what you like and what you never want to hear, for the AI and enforced by the app. For example, never a harsh square wave again.
+  - **Sounds I never want,** each with a softer stand-in (`lib/taste.js`). The AI is told in every request and they're left out of the sound guide.
+    - **New code:** `prepareCode` swaps them in all code before it plays: chat replies, parts, song edits and jams (🎧 in the console).
+    - **Song sheets:** part sounds, a band's included, take the stand-in.
+    - **Songs already written** (playlist, session, My songs) are changed, and the playing one switches from the next bar.
+  - **Soften harsh synths:** square / saw / pulse parts without their own filter get a low-pass as they're arranged, and the cutoff is adjustable.
+  - **Sounds I like** and **my taste in my words** are sent to the AI with every request.
+  - **👍 / 👎 on 🎚 mixer channels:** likes or bans the sound the part's code plays. A ban comes with a softer stand-in and takes effect at once.
+- **Tests and docs:**
+  - Unit tests for the taste rules: swaps, whole words only, stand-ins, softening and prompt text.
+  - A smoke step covers the settings page, songs already written, new code, softening and mixer 👎.
+  - The feature tour has a 🎧 My taste screenshot, and the mixer shows the new buttons.
+
 ## 1.51.1
 - **📸 Feature tour:** [docs/FEATURES.md](docs/FEATURES.md), with 28 screenshots:
   - the three modes, the station, playlist, Now playing and Songs;

@@ -22,10 +22,11 @@ import * as plugins from './plugins.js';
 import * as layout from './layout.js';
 import * as modes from './modes.js';
 import * as partEditor from './part-editor.js';
+import * as taste from './taste.js';
 
 /** The built-in templates by name (each name is unique across the files). */
 const BUILTIN = {};
-for (const mod of [playlist, songs, songEditor, mixer, master, pads, keys, editors, themes, plugins, layout, modes, partEditor]) {
+for (const mod of [playlist, songs, songEditor, mixer, master, pads, keys, editors, themes, plugins, layout, modes, partEditor, taste]) {
   for (const [name, fn] of Object.entries(mod)) {
     if (typeof fn !== 'function') continue;
     if (name in BUILTIN) throw new Error(`template "${name}" is defined twice`);

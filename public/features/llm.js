@@ -3,6 +3,8 @@ import { stripThinking } from '../lib/util.js';
 import { soundCatalog } from './sound-check.js';
 import { promptOverride } from './settings.js';
 import { promptHints } from './plugins.js';
+import { getTaste } from './taste.js';
+import { tasteForPrompt } from '../lib/taste.js';
 import { $, clog, load, renderMarkdownLite, scrollChat } from '../app.js';
 export let session;
 // ---------------------------------------------------------------------------
@@ -114,7 +116,7 @@ async function requestLLMRaw({ messages, code, mode, onUpdate, signal, edited, s
       sounds,
       fixing: !!fixing,
       systemPrompt: promptOverride(mode),
-      promptExtra: promptHints(mode),
+      promptExtra: [promptHints(mode), tasteForPrompt(getTaste())].filter(Boolean).join('\n\n'),
       temperature: Number($('temp').value),
       effort: $('claudeEffort').value,
     }),

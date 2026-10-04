@@ -208,13 +208,15 @@ await shot('19-floating-panel');
 await ev(() => strudelAI.ws.dock?.('mixer'));
 await ev(() => document.getElementById('stop').click());
 
-// ⚙ Settings
+// ⚙ Settings (with a taste to show: no square waves, softer synths, a few likes)
+await ev(() => strudelAI.setTaste({ avoid: [{ sound: 'square', instead: 'triangle' }, { sound: 'gm_distortion_guitar', instead: 'gm_overdriven_guitar' }], soften: true, cutoff: 3200, likes: 'warm, round sounds; Rhodes and upright bass; nothing screechy', liked: ['gm_epiano1', 'gm_acoustic_bass'] }, { quiet: true }));
 await ev(() => document.getElementById('settingsBtn').click());
-for (const [sec, name] of [['setGeneral', '20-settings-general'], ['setAI', '21-settings-ai'], ['setBands', '22-settings-bands'], ['setForms', '23-settings-forms'], ['setStations', '24-settings-stations'], ['setTheme', '25-settings-themes'], ['setPlugins', '26-settings-plugins']]) {
+for (const [sec, name] of [['setGeneral', '20-settings-general'], ['setAI', '21-settings-ai'], ['setBands', '22-settings-bands'], ['setForms', '23-settings-forms'], ['setStations', '24-settings-stations'], ['setMyTaste', '24b-settings-my-taste'], ['setTheme', '25-settings-themes'], ['setPlugins', '26-settings-plugins']]) {
   await ev((sec) => document.querySelector(`.settings-tabs button[data-sec="${sec}"]`).click(), sec);
   await shot(name, '#settingsDlg');
 }
 await ev(() => document.getElementById('settingsClose').click());
+await ev(() => strudelAI.setTaste({}, { quiet: true }));
 
 
 await browser.close();

@@ -378,6 +378,7 @@
       <button data-sec="setPrompts">📝 Prompts</button>
       <button data-sec="setForms">🎼 Song forms</button>
       <button data-sec="setBands">🎸 Bands</button>
+      <button data-sec="setMyTaste">🎧 My taste</button>
       <button data-sec="setTheme">🎨 Theme</button>
       <button data-sec="setStations">📻 Stations</button>
       <button data-sec="setPlugins">🧩 Plugins</button>
@@ -484,6 +485,10 @@
       <p class="muted small">Pick a theme: the colours of every panel, meter and graph, and the code editor's colours. Your own themes are saved in this browser; export one to share it, import a theme file someone gave you.</p>
       <div id="themeList" class="theme-list"></div>
       <div id="themeEditor"></div>
+    </section>
+    <section id="setMyTaste" class="settings-sec" hidden>
+      <p class="muted small">What you like and what you never want to hear. The AI is told with every request, and the app makes sure of it: sounds you avoid are swapped out of everything before it plays, including the songs already written. Saved in this browser (and in 💾 Backup).</p>
+      <div id="tasteForm"></div>
     </section>
     <section id="setStations" class="settings-sec" hidden>
       <p class="muted small">A station is a name and a theme; the 📻 Station tab plays it.</p>
