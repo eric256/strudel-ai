@@ -783,7 +783,8 @@ body.hydra-behind .code-bar { background: color-mix(in srgb, var(--panel-2) 80%,
 .se-add { flex: 0 0 34px; }
 .se-selrow { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; padding: 6px 8px; border-radius: 6px; background: var(--sunken); }
 .se-secname { width: 120px; }
-.se-grid-wrap { overflow-x: auto; }
+.se-grid-wrap { overflow-x: auto; position: relative; }
+.se-playhead { position: absolute; top: 0; width: 2px; margin-left: -1px; background: var(--accent); box-shadow: 0 0 6px var(--accent); pointer-events: none; z-index: 2; border-radius: 1px; }
 .se-grid { border-collapse: collapse; font-size: 12px; }
 .se-grid th { font-weight: 600; padding: 2px 6px; white-space: nowrap; color: var(--muted); cursor: pointer; }
 .se-grid thead th.on { color: var(--accent); }

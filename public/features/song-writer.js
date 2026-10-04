@@ -246,12 +246,21 @@ async function appendSong(k) {
   const song = queue.songs[k];
   if (!song) return;
   let steps;
-  if (song.blocks?.length) {
+  if (song.sheet && song.library && song.blocks?.length) {
+    // written from a sheet (played again, or edited): arranged afresh — every section, its latest version
+    steps = arrangeSong(song);
+  } else if (song.blocks?.length) {
     // already written (loop / jump back): reuse blocks and their code
     steps = song.blocks.map((b) => ({ ...b, status: b.code ? 'ready' : 'waiting', startedAt: undefined, genPromise: undefined, error: null }));
   } else {
     // song sheet → part library → sections arranged by the app
     steps = await sheetSteps(song);
+  }
+  // ⏭ go on a song that isn't playing: it starts at that section (song.startAt, its place in the sheet)
+  if (song.startAt != null) {
+    const from = steps.findIndex((st) => !st.fillStep && !st.gap && st.secIndex === song.startAt);
+    if (from > 0) steps = steps.slice(from);
+    delete song.startAt;
   }
   steps.forEach((st, j) => Object.assign(st, { song, songPos: j, songLen: steps.length, songStart: j === 0 }));
   song.blocks = steps;

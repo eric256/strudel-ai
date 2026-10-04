@@ -488,6 +488,29 @@ try {
     await ev(() => document.getElementById('stop').click());
   });
 
+  await step('✎ song editor: a playhead line follows the song across the arrangement', async () => {
+    await ev(() => strudelAI.setMode('studio'));
+    if (!(await ev(() => !!strudelAI.activeSong()))) {
+      await ev(() => { document.getElementById('input').value = 'a dark synth tune'; document.getElementById('chat-form').requestSubmit(); });
+      await p.waitForFunction(() => document.querySelectorAll('#editForm .se-sec').length >= 2 && !!strudelAI.activeSong(), null, { timeout: 40000 });
+    }
+    // the song open in the editor, playing
+    await ev(() => { const sg = strudelAI.activeSong(); strudelAI.openSongEditor(sg); if (!strudelAI.queue.running) strudelAI.playSong(sg); });
+    await p.waitForFunction(() => { const l = document.querySelector('#editForm .se-playhead'); return l && !l.hidden; }, null, { timeout: 20000 });
+    const at = () => ev(() => {
+      const l = document.querySelector('#editForm .se-playhead'), x = l.getBoundingClientRect().left;
+      const name = strudelAI.engine.steps.find((s) => s.status === 'playing')?.section?.name;
+      const th = [...document.querySelectorAll('#editForm .se-grid thead th')].find((t) => t.textContent === name);
+      return { x, inside: !!th && x >= th.getBoundingClientRect().left - 1 && x <= th.getBoundingClientRect().right + 1, name };
+    });
+    const a = await at();
+    await p.waitForTimeout(1500);
+    const b2 = await at();
+    expect(a.inside && b2.inside && (b2.x > a.x || b2.name !== a.name), `the playhead: ${JSON.stringify({ a, b2 })}`);
+    await ev(() => document.getElementById('stop').click());
+    await p.waitForFunction(() => document.querySelector('#editForm .se-playhead').hidden, null, { timeout: 5000 });
+  });
+
   await step('🧩 part editor: a part opens from ✎ Edit song; notes on the staff, an effect, ▶ loop on its own, ✓ apply into the song', async () => {
     expect(!(await ev(() => document.getElementById('editSongView'))), '✎ Edit song still shows the song view (it is in 🎶 Now playing)');
     await ev(() => strudelAI.setMode('studio'));
@@ -529,6 +552,34 @@ try {
     const lib = await ev(() => strudelAI.activeSong().library);
     expect(lib.includes(final.trim().split('\n')[0].slice(0, 60)) && /hook_main[^\n]*\.room\(/.test(lib), `the song's parts don't have the edit: ${lib}`);
     await ev(() => document.querySelector('#partForm .pe-stop')?.click());
+    await ev(() => document.getElementById('stop').click());
+  });
+
+  await step('⏸ paused song → 🧩 loop a part, fix it, ✓ apply → ▶ carries on with the fix (progress, jumps); ⏭ go when stopped plays it from there', async () => {
+    await ev(() => strudelAI.setMode('studio'));
+    await ev(() => { const sg = strudelAI.activeSong(); strudelAI.openSongEditor(sg); strudelAI.playSong(sg); });
+    await p.waitForFunction(() => strudelAI.engine.running && strudelAI.engine.steps.some((x) => x.status === 'playing') && document.querySelector('strudel-editor').editor.repl.scheduler.started, null, { timeout: 30000 });
+    await p.waitForTimeout(500);
+    await ev(() => document.getElementById('nowPause').click());
+    expect(await ev(() => !!strudelAI.engine.paused), 'did not pause');
+    await ev(() => { const row = [...document.querySelectorAll('#editForm .se-part')].find((r) => r.querySelector('.se-pname').value === 'hook'); row.querySelector('.se-pedit').click(); });
+    await p.waitForSelector('#partForm .pe-play', { timeout: 5000 });
+    await ev(() => document.querySelector('#partForm .pe-play').click());
+    await p.waitForSelector('#partForm .pe-stop', { timeout: 5000 });
+    expect(await ev(() => !!strudelAI.engine.paused && strudelAI.engine.running), 'looping a part stopped the song instead of keeping it paused');
+    await ev(() => { const t = document.querySelector('#partForm .pe-mini input'); t.value = '7 5 4 2'; t.dispatchEvent(new Event('change')); });
+    await ev(() => document.querySelector('#partForm .pe-stop').click());
+    await ev(() => document.querySelector('#partForm .se-apply').click());
+    await p.waitForFunction(() => /applied/.test(document.querySelector('#editForm .se-msg')?.textContent || ''), null, { timeout: 15000 });
+    const pausedHasFix = await ev(() => !!strudelAI.engine.paused && /7 5 4 2/.test(strudelAI.engine.paused.code));
+    expect(pausedHasFix || !(await ev(() => /hook:/.test(strudelAI.engine.paused?.code || ''))), 'the paused section didn\'t take the fix');
+    await ev(() => document.getElementById('nowPause').click());
+    await p.waitForFunction(() => /bar \d+\//.test([...document.querySelectorAll('#nowSongView .sv-left')].map((x) => x.textContent).join(' ')), null, { timeout: 10000 });
+    // stopped: ⏭ go on a section plays the song again from there
+    await ev(() => document.getElementById('stop').click());
+    await p.waitForTimeout(300);
+    const name = await ev(() => { const j = [...document.querySelectorAll('#nowSongView .jump[data-i]')]; const el = j[j.length - 1]; const nm = el.closest('details').querySelector('.prompt').textContent.trim().split(/\s/)[0]; el.click(); return nm; });
+    await p.waitForFunction((nm) => strudelAI.engine.running && strudelAI.engine.steps.find((x) => x.status === 'playing')?.prompt.startsWith(nm), name, { timeout: 15000 });
     await ev(() => document.getElementById('stop').click());
   });
 

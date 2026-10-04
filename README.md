@@ -275,11 +275,13 @@ Played songs have **↺** to queue them again. **clear upcoming** empties the qu
 A song's sheet and sections show in two places only:
 - **🎶 Now playing:** the song that's playing, with live progress.
   - **⏭ go** on a section jumps to it on the next boundary, and **Alt+1 … Alt+9** jump to the playing song's sections.
+    - **While paused,** it carries on from that section.
+    - **When the song has stopped,** it plays the song again starting there. The same goes for ⏭ go and 🔁 loop in ✎ Edit song.
   - **⏸ hold this section** stays on it until you pick another.
 - **✎ Edit song:** **✎ Edit** opens the song editor in its own panel. In 🎼 Studio it gets the big space under the code. You change a draft of the song, and **✓ apply** checks it, test-plays the parts and switches the song over. If it's playing, you hear the section playing now change from the next bar.
   - **Song:** title, tempo, meter, scale, master style and **feel** (0 = on the grid, 100 = a loose live band).
   - **Sections:** a timeline, with each section as wide as its bars. Click one to edit its name, bars, chord progression, key change and tempo. You can move it (← → or drag), duplicate it, delete it, add one, or, while the song plays, **⏭ go** there or **🔁 loop** it while you work.
-  - **Arrangement:** a grid of parts × sections. Click a cell to cycle off → the main version → the part's other variants. Right-click it to make the part come in halfway, drop out halfway or alternate.
+  - **Arrangement:** a grid of parts × sections. Click a cell to cycle off → the main version → the part's other variants. Right-click it to make the part come in halfway, drop out halfway or alternate. While the song plays, a **playhead line** moves across the grid with it.
   - **Chords:** the named progressions the sections use.
   - **Parts:** name, role, sound and variants. Open a part to edit the code of each variant, or **✨ ask the AI** about it ("make it busier", "a darker sound"). **＋ part** adds one with starter code that fits its role.
   - **↺ revert** throws your changes away. A song played again is a copy, and an edit applies to every copy of it.
@@ -288,7 +290,9 @@ A song's sheet and sections show in two places only:
   - The song's sections and progress are in 🎶 Now playing; the editor doesn't repeat them.
 - **🧩 Part editor:** **🧩 edit** on a part in ✎ Edit song opens it in its own panel. It edits the same draft, so ✓ apply there or here puts the changes into the song.
   - **Variant** picks which version of the part you edit (main, alt1, fill …), with the sections each one plays in. **Section** picks whose chords it loops over.
-  - **▶ loop** plays the part over and over, **solo** or with the rest of that section. Every change plays as you make it. Looping stops the song.
+  - **▶ loop** plays the part over and over, **solo** or with the rest of that section. Every change plays as you make it.
+    - **A playing song** is paused where it is (section and bar).
+    - **Carrying on:** ■ stop the loop, ✓ apply, then ▶ in 🎶 Now playing carries on from there with your fix. The paused section takes the new version.
   - **Effects:**
     - The methods on the whole part (gain, velocity, pan, low-/high-pass and resonance, vowel, envelope, note length, reverb, delay, shape, distort, crush, coarse, phaser, speed, vibrato) as sliders. Pitch filters use a log scale.
     - A value that's a live slider in the song (◉) stays one.

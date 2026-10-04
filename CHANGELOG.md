@@ -2,6 +2,20 @@
 
 The version is in `package.json`. Bump it when you release. Open pages also notice *any* redeploy through the build id, which is a hash of the app files, even if the version wasn't bumped.
 
+## 1.51.0
+- **✎ Edit song: a playhead line** moves across the arrangement grid with the song. It sits in the playing section's column, as far through it as the section has played, and is hidden when that song isn't playing.
+- **Fix: after looping a part in 🧩 Part editor, 🎶 Now playing lost the song** (no progress, no jumping) until the song was played again from 🎵 Songs.
+  - **Cause:** ▶ loop *stopped* the song. Jumping then did nothing, since the playlist wasn't running.
+  - **▶ loop now pauses the song** where it is.
+  - **✓ apply while paused** puts the new version into the paused section, so ▶ carries on with your fix.
+  - **⏭ go while paused** carries on from that section.
+  - **⏭ go on a song that has stopped** (in 🎶 Now playing, or ⏭ go / 🔁 loop in ✎ Edit song) plays it again starting at that section.
+  - **A song played again from its sheet** is arranged afresh: every section, in its latest version. Before, it reused the earlier play-through's sections, which could miss ones that were jumped past.
+- **Smoke tests:**
+  - the playhead follows the song;
+  - pause, loop and fix a part, ✓ apply, then ▶ carries on with progress;
+  - ⏭ go after a stop plays from that section.
+
 ## 1.50.0
 - **🧩 Part editor:** a new panel for one part of the song. Open it with **🧩 edit** on a part in ✎ Edit song; it edits the same draft as the song editor.
   - **Variants and sections:** pick the variant (with the sections it plays in) and the section whose chords it loops over.

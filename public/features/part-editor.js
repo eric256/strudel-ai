@@ -4,7 +4,7 @@
 // notes on a staff (melodies: scale degrees or note names) or a grid (drums, chord tones, sample hits, rhythms) or
 // level bars (velocity). It edits ✎ Edit song's draft, so ✓ apply there (or here) puts it into the song.
 // ---------------------------------------------------------------------------
-import { $, evaluateCode, mirror, queue, ws } from '../app.js';
+import { $, engine, evaluateCode, isPlaying, mirror, pauseSong, ws } from '../app.js';
 import { render, nothing } from '../html.js';
 import { T } from '../templates/index.js';
 import { currentDraft, setDraftDef, applyDraft, revertDraft } from './song-editor.js';
@@ -94,10 +94,12 @@ function auditionCode() {
   return sectionCode({ title: d.title, sheet, library }, { ...sec, play });
 }
 async function play() {
-  if (queue.running) $('stop').onclick?.(); // the song stops, so you hear the part
+  // the song pauses where it is (section and bar), so it can carry on afterwards with your changes
+  if (engine.running && !engine.paused && isPlaying()) pauseSong();
+  if (engine.running && !engine.paused) $('stop').onclick?.(); // (a song that couldn't pause would take over again)
   const err = await evaluateCode(auditionCode(), { label: `🧩 ${pe.part}`, undo: false });
   pe.playing = !err;
-  pe.msg = err ? `⚠ it doesn't play: ${err.message}` : `▶ looping ${pe.part} (${pe.variant}) over ${currentDraft()?.raw.sections[pe.section]?.name || 'the section'} — changes play as you make them`;
+  pe.msg = err ? `⚠ it doesn't play: ${err.message}` : `▶ looping ${pe.part} (${pe.variant}) over ${currentDraft()?.raw.sections[pe.section]?.name || 'the section'} — changes play as you make them${engine.paused ? ' · the song is paused: ■ stop, ✓ apply, then ▶ in 🎶 Now playing carries on' : ''}`;
   pe.bad = !!err;
   renderPartEditor();
 }
@@ -113,7 +115,12 @@ function live() {
     renderPartEditor();
   }, 150);
 }
-function stop() { mirror()?.stop(); pe.playing = false; pe.msg = ''; renderPartEditor(); }
+function stop() {
+  mirror()?.stop();
+  pe.playing = false;
+  pe.msg = engine.paused ? `■ stopped — the song is paused at ${engine.paused.step.prompt || 'its section'}: ✓ apply, then ▶ in 🎶 Now playing carries on with your changes` : '';
+  renderPartEditor();
+}
 
 // --- what the template calls --------------------------------------------------------------------------------------
 const act = {
@@ -307,7 +314,8 @@ export function renderPartEditor() {
   const d = currentDraft();
   const open = !!(pe.part && d && d.raw.parts.some((x) => x.name === pe.part));
   $('partEmpty').hidden = open;
-  if (pe.playing && !mirror()?.repl?.scheduler?.started) pe.playing = false; // something else stopped it
+  // something else stopped it, or the song took over again (▶ resume, ⏭ go)
+  if (pe.playing && (!mirror()?.repl?.scheduler?.started || (engine.running && !engine.paused))) pe.playing = false;
   render(open ? T.partEditor(view(), act) : nothing, el);
 }
 
