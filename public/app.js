@@ -1709,6 +1709,8 @@ export function activeSong() {
   const playing = queue.running ? queue.songs[queue.current] : null;
   if (playing?.sheet && playing.library) return playing;
   if (editing) return editing;
+  // (🎼 Studio: a song only highlighted in 🎵 Songs isn't on the bench — with none open, the chat writes a new one)
+  if (currentMode() === 'studio') return null;
   const viewed = viewedSong('set');
   return viewed?.sheet && viewed.library ? viewed : null;
 }

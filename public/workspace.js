@@ -324,7 +324,7 @@ export function createWorkspace({ dv, root, center, panels, saved, preset = DEFA
     pinOnTop,
     pinnedId: () => pinned.id,
     layout: () => api.toJSON(),
-    panels: () => [...P.values()].filter((p) => p.id !== EDITOR).map((p) => ({ id: p.id, title: p.title, icon: p.icon, open: !!panelOf(p.id), fixed: isFixed(p.id) })),
+    panels: () => [...P.values()].filter((p) => p.id !== EDITOR).map((p) => ({ id: p.id, title: p.title, icon: p.icon, open: !!panelOf(p.id), fixed: isFixed(p.id), el: p.el })),
     /**
      * Add a panel after start-up (🧩 plugins): { id, title, icon, area }. Returns its element. A panel with this id
      * restored from the saved layout keeps its place and gets the element now.

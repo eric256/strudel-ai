@@ -362,6 +362,41 @@ try {
     expect(await ev(() => strudelAI.ws.panels().every((x) => x.open)), 'a panel did not open');
   });
 
+  await step('every panel can reach all of its content when it is small (it scrolls, nothing is cut off)', async () => {
+    const ids = await ev(() => strudelAI.ws.panels().map((x) => x.id));
+    const stuck = [];
+    for (const id of ids) {
+      await ev((id) => { strudelAI.ws.open(id); strudelAI.ws.api.addFloatingGroup(strudelAI.ws.api.getPanel(id), { position: { left: 60, top: 80 }, width: 380, height: 220 }); }, id);
+      await p.waitForTimeout(250);
+      // an element below / right of the panel's box must sit in a box that scrolls (or be clipped inside a box
+      // that's itself reachable, like text with an ellipsis)
+      const bad = await ev((id) => {
+        const sec = strudelAI.ws.panels().find((x) => x.id === id)?.el;
+        const root = sec?.parentElement;
+        if (!root) return [];
+        const R = root.getBoundingClientRect(), out = [];
+        for (const el of sec.querySelectorAll('*')) {
+          const r = el.getBoundingClientRect();
+          if (r.width < 2 || r.height < 2) continue;
+          let oy = r.bottom > R.bottom + 2, ox = r.right > R.right + 2;
+          if (!oy && !ox) continue;
+          let a = el.parentElement, ok = false;
+          for (; a && a !== root; a = a.parentElement) {
+            const cs = getComputedStyle(a);
+            if (oy && /(auto|scroll)/.test(cs.overflowY) && a.scrollHeight > a.clientHeight + 1) { ok = true; break; }
+            if (ox && !oy && /(auto|scroll)/.test(cs.overflowX) && a.scrollWidth > a.clientWidth + 1) { ok = true; break; }
+            if (/(hidden|clip)/.test(cs.overflowY + cs.overflowX)) { const ar = a.getBoundingClientRect(); oy = ar.bottom > R.bottom + 2; ox = ar.right > R.right + 2; if (!oy && !ox) { ok = true; break; } }
+          }
+          if (!ok && !out.some((x) => x.contains(el))) out.push(el);
+        }
+        return out.slice(0, 3).map((el) => `${el.tagName.toLowerCase()}${el.id ? '#' + el.id : ''}.${String(el.className).split(' ')[0]}`);
+      }, id);
+      if (bad.length) stuck.push(`${id}: ${bad.join(', ')}`);
+      await ev((id) => strudelAI.ws.dock?.(id), id);
+    }
+    expect(!stuck.length, `cut off: ${stuck.join(' · ')}`);
+  });
+
   await step('keys play a note; a pad toggles its line into the code', async () => {
     await ev(() => { strudelAI.noteOn(60); });
     await p.waitForTimeout(200);
@@ -517,9 +552,11 @@ try {
     await ev(() => { const s = document.getElementById('chatTarget'); s.value = 'song'; s.dispatchEvent(new Event('change')); });
     // no song open: the message describes a new one (not a code change)
     const codeReqs = log.filter((x) => x.kind === 'code').length;
+    // (while a chat request is still finishing, Send is Stop: wait for the chat to be free)
+    await p.waitForFunction(() => !document.getElementById('send').classList.contains('stop'), null, { timeout: 20000 });
     await ev(() => { document.getElementById('input').value = 'a celtic jig with a fiddle'; document.getElementById('chat-form').requestSubmit(); });
     await p.waitForFunction(() => document.querySelectorAll('#editForm .se-sec').length >= 2 && !!strudelAI.activeSong(), null, { timeout: 40000 })
-      .catch(async () => { throw new Error(`no song opened in ✎ Edit song — last messages: ${await ev(() => [...document.querySelectorAll('#messages .msg, #consoleLog div')].slice(-8).map((m) => m.textContent.slice(0, 160)).join(' ⏎ '))}`); });
+      .catch(async () => { throw new Error(`no song opened in ✎ Edit song — mode ${await ev(() => `${strudelAI.currentMode()} target ${document.getElementById('chatTarget').value} · song ${strudelAI.activeSong()?.title || '-'} · edit panel ${JSON.stringify(strudelAI.ws.panels().find((x) => x.id === 'edit')?.open)} visible ${document.getElementById('editPanel').offsetParent != null} secs ${document.querySelectorAll('#editForm .se-sec').length}`)} — chat: ${await ev(() => [...document.querySelectorAll('#messages .msg')].slice(-5).map((m) => m.textContent.slice(0, 120)).join(' ⏎ '))}`); });
     expect(log.filter((x) => x.kind === 'code').length === codeReqs, 'Studio sent the message as a code change');
     const target = await ev(() => document.getElementById('chatTarget').value);
     expect(target === 'song', `the chat target after a new song: ${target}`);
