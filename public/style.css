@@ -916,6 +916,63 @@ body.hydra-behind .code-bar { background: color-mix(in srgb, var(--panel-2) 80%,
 .eq-gain { font: 10px var(--mono); color: var(--muted); min-height: 12px; }
 .eq-gain.on { color: var(--accent); }
 .eq-f { font: 600 10px var(--mono); color: var(--text); }
+/* 🔀 routing */
+.rt-wrap { flex: 1; min-height: 0; display: flex; background: var(--sunken); outline: none; }
+.rt { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.rt-canvas, .rt-bar { user-select: none; }
+.rt-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; padding: 5px 10px; font-size: 12px; color: var(--muted); border-bottom: 1px solid var(--line); }
+.rt-bar button { font-size: 11px; padding: 1px 7px; border-radius: 10px; }
+.rt-add, .rt-tpl { display: flex; flex-wrap: wrap; align-items: center; gap: 3px; }
+.rt-tpl select { font-size: 11px; }
+.rt-right { margin-left: auto; display: flex; gap: 8px; }
+.rt-main { flex: 1; min-height: 0; display: flex; }
+.rt-scroll { flex: 1; min-width: 0; overflow: auto; }
+.rt-canvas { position: relative; min-width: 100%; }
+.rt-wires { position: absolute; inset: 0; pointer-events: none; overflow: visible; }
+.rt-wire path { fill: none; }
+.rt-wire .line { stroke: var(--muted); stroke-width: 2; stroke-dasharray: 6 5; opacity: .8; }
+.rt-wire .hit { stroke: transparent; stroke-width: 12; pointer-events: stroke; cursor: pointer; }
+.rt-wire.k-part .line { stroke: color-mix(in srgb, var(--danger) 70%, var(--muted)); }
+.rt-wire.k-dyn .line { stroke: var(--accent-2); }
+.rt-wire.k-space .line { stroke: var(--accent); }
+.rt-wire.implicit .line { opacity: .3; }
+.rt-wire.sel .line { stroke: var(--warn); stroke-width: 3; opacity: 1; stroke-dasharray: none; }
+.rt-wire-temp { fill: none; stroke: var(--warn); stroke-width: 2; stroke-dasharray: 4 4; }
+.rt-card { position: absolute; width: 150px; height: 76px; box-sizing: border-box; display: flex; flex-direction: column; gap: 0; padding: 5px 10px; border-radius: 7px;
+  border: 1px solid var(--border); background: var(--raised); color: var(--muted); user-select: none; }
+.rt-card b { font-size: 14px; color: var(--text); line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rt-sub { font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rt-scope { width: 128px; height: 18px; margin-top: auto; color: var(--muted); }
+.rt-node { cursor: grab; }
+.rt-node.k-dyn { background: color-mix(in srgb, var(--accent-2) 22%, var(--panel)); border-color: color-mix(in srgb, var(--accent-2) 45%, var(--border)); }
+.rt-node.k-dyn .rt-sub, .rt-node.k-dyn .rt-scope { color: var(--accent-2); }
+.rt-node.k-space { background: color-mix(in srgb, var(--accent) 35%, var(--panel)); border-color: color-mix(in srgb, var(--accent) 60%, var(--border)); }
+.rt-node.k-space .rt-sub, .rt-node.k-space .rt-scope { color: color-mix(in srgb, var(--accent) 45%, var(--text)); }
+.rt-node.sel { outline: 2px solid var(--warn); outline-offset: 3px; }
+.rt-node.off { opacity: .45; }
+.rt-node.dead { border-style: dashed; border-color: var(--warn); }
+.rt-part { background: color-mix(in srgb, var(--c, var(--danger)) 30%, var(--panel)); border-color: color-mix(in srgb, var(--c, var(--danger)) 60%, var(--border)); cursor: default; }
+.rt-part .rt-sub, .rt-part .rt-scope { color: color-mix(in srgb, var(--c, var(--danger)) 70%, var(--text)); }
+.rt-part:not(.routed) .rt-sub { opacity: .7; }
+.rt-master { width: 140px; display: flex; flex-direction: column; }
+.rt-master .rt-scope { width: 118px; }
+.rt-mmeter { flex: 1; margin: 8px 0 6px; border: 1px solid var(--line); border-radius: 3px; background: var(--sunken); display: flex; align-items: flex-end; min-height: 40px; }
+.rt-mmeter i { display: block; width: 100%; height: 0; background: var(--accent-2); border-radius: 2px; transition: height .08s linear; }
+.rt-mmeter i.hot { background: var(--warn); }
+.rt-port { position: absolute; top: 50%; width: 11px; height: 11px; margin-top: -6px; border-radius: 50%; background: var(--muted); border: 2px solid var(--sunken); }
+.rt-port.out { right: -7px; cursor: crosshair; }
+.rt-port.out:hover { background: var(--warn); transform: scale(1.3); }
+.rt-port.in { left: -7px; }
+.rt-master .rt-port.in { top: 38px; }
+.rt-insp { flex: 0 0 230px; border-left: 1px solid var(--line); padding: 8px 10px; overflow: auto; font-size: 12px; display: flex; flex-direction: column; gap: 8px; }
+.rt-insp-head { display: flex; flex-direction: column; gap: 2px; }
+.rt-insp-head b { font-size: 14px; }
+.rt-knobs { display: flex; flex-wrap: wrap; gap: 6px 10px; --size: 34px; }
+.rt-insp-btns, .rt-insert { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+.rt-insp-btns button.on { color: var(--warn); border-color: var(--warn); }
+.rt-insert button { font-size: 11px; padding: 1px 7px; border-radius: 10px; }
+.rt-help p { margin: 0 0 6px; }
+@media (max-width: 700px) { .rt-main { flex-direction: column; } .rt-insp { flex-basis: auto; border-left: 0; border-top: 1px solid var(--line); } }
 /* 🎧 my taste */
 .mx-taste { display: flex; justify-content: center; gap: 2px; min-height: 16px; }
 .mx-taste button { padding: 0 4px; font-size: 11px; border: none; background: none; opacity: .55; }

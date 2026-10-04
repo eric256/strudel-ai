@@ -2,6 +2,20 @@
 
 The version is in `package.json`. Bump it when you release. Open pages also notice *any* redeploy through the build id, which is a hash of the app files, even if the version wasn't bumped.
 
+## 1.54.0
+- **🔀 Routing** (new panel, 🔀 Routing in the top bar): send parts through effect chains after their mixer faders, drawn as a graph from the parts to the master.
+  - **Nodes:** Split / Sum for parallel paths and buses, Comp (with live gain reduction), Sat, EQ, Filter, Verb, Delay and Gain. Each node has knobs, ⏻ bypass and a little scope.
+  - **Editing:** drag from **●** to wire, click a wire to insert a node or remove it, drag nodes, **tidy**, Delete.
+  - **Ready-made chains:** Parallel comp, Wet space, Clean, Dub echo and Drum bus.
+  - **routing on** gives an A / B comparison; dead ends are flagged.
+  - Kept by part name in the browser.
+  - **Code:** `lib/routing.js` (graph rules, templates, layout), `routing-audio.js` (Web Audio blocks), `features/routing.js` and `templates/routing.js`.
+  - Each mixer channel now ends in a *direct* path to the master that routing closes for the parts it takes.
+- **Tests and docs:**
+  - Unit tests for the graph (`test/routing.test.mjs`) and a smoke step: a template on the drums, sound at the master, clear.
+  - The Studio smoke step now says what the chat showed when no song opens.
+  - The feature tour has a 🔀 Routing shot.
+
 ## 1.53.0
 - **🎚 Mixer as a console:**
   - **Knobs** for H / M / L and pan (`<sa-knob>`, `public/ui/controls.js`): drag up / down (Shift: fine), scroll, arrow keys, double-click to centre.

@@ -59,6 +59,9 @@ You and the AI write one piece of code in the editor; 🎼 Make it a song grows 
 **🎚 Equalizer:** 7 bands on the master or any channel. The curve is drawn over the live spectrum, with presets such as Soft top for harsh synths.
 ![Equalizer](screenshots/16b-equalizer.png)
 
+**🔀 Routing:** parts through effect chains after their faders, as a graph to the master. Split / Sum for parallel paths and buses, Comp, Sat, EQ, Filter, Verb and Delay, each with a live scope. Here the drums share a bus with glue compression, and the lead has a 100 % wet reverb path summed under it.
+![Routing](screenshots/16c-routing.png)
+
 ## Visuals
 
 | 📊 Visualizer | 🌀 Hydra |

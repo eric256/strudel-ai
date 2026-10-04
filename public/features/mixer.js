@@ -82,11 +82,19 @@ function channelNodes(base) {
     geq[geq.length - 1].connect(pan);
     pan.connect(gain);
     gain.connect(an);
-    ctrl.output.connectToDestination(gain, [0, 1]);
-    orbit.__ch = { high: eq[0], mid: eq[1], low: eq[2], geq, pan, gain, an };
+    // straight to the master — unless 🔀 Routing takes the channel (it closes `direct` and wires `gain` itself)
+    const direct = new GainNode(ac, { gain: 1 });
+    gain.connect(direct);
+    ctrl.output.connectToDestination(direct, [0, 1]);
+    orbit.__ch = { high: eq[0], mid: eq[1], low: eq[2], geq, pan, gain, an, direct };
+    for (const f of channelHooks) f(base, orbit.__ch);
   }
   return orbit.__ch;
 }
+/** Called when a channel's nodes are made (🔀 Routing wires a new channel in). */
+export const channelHooks = new Set();
+/** A channel's nodes, if it has a bus yet (no new ones made). */
+export const channelIfAny = (base) => (mixer.orbits[base] != null ? sdController()?.nodes?.[mixer.orbits[base]]?.__ch || null : null);
 const anySolo = () => Object.values(mixer.ch).some((c) => c.solo);
 /** A solo section: its lead part steps forward, the others step back (on top of the faders). */
 const SOLO_LEAD = 1.15, SOLO_OTHERS = 0.45;
