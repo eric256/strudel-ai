@@ -2,6 +2,14 @@
 
 The version is in `package.json`. Bump it when you release. Open pages also notice *any* redeploy through the build id, which is a hash of the app files, even if the version wasn't bumped.
 
+## 1.51.1
+- **📸 Feature tour:** [docs/FEATURES.md](docs/FEATURES.md), with 28 screenshots:
+  - the three modes, the station, playlist, Now playing and Songs;
+  - the song editor with the arrangement playhead, and the part editor (staff, drums, chord tones);
+  - Jam, pads, keys, mixer, master, visualizer, Hydra and a floating panel;
+  - every settings page, and the light and synthwave themes.
+- **`npm run screenshots`** retakes them all: the app in a real browser, with a demo AI that writes a full song (`test/screenshots/screenshots.mjs`). Playwright is needed, as for the smoke test.
+
 ## 1.51.0
 - **✎ Edit song: a playhead line** moves across the arrangement grid with the song. It sits in the playing section's column, as far through it as the section has played, and is hidden when that song isn't playing.
 - **Fix: after looping a part in 🧩 Part editor, 🎶 Now playing lost the song** (no progress, no jumping) until the song was played again from 🎵 Songs.

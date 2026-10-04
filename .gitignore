@@ -5,3 +5,4 @@ certs/
 *.zip
 *.log
 .DS_Store
+.screenshots-data/

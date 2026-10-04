@@ -1,6 +1,6 @@
 {
   "name": "strudel-ai",
-  "version": "1.51.0",
+  "version": "1.51.1",
   "description": "Strudel live-coding REPL with an AI chat co-pilot (llama.cpp / OpenWebUI)",
   "main": "server.js",
   "type": "module",
@@ -8,7 +8,8 @@
     "start": "node server.js",
     "test": "node --test test/*.test.mjs",
     "smoke": "node test/smoke/smoke.mjs",
-    "check": "for f in server.js prompt.js public/*.js public/lib/*.js public/features/*.js public/templates/*.js public/plugins/*.js; do node --check $f || exit 1; done"
+    "check": "for f in server.js prompt.js public/*.js public/lib/*.js public/features/*.js public/templates/*.js public/plugins/*.js; do node --check $f || exit 1; done",
+    "screenshots": "node test/screenshots/screenshots.mjs"
   },
   "license": "AGPL-3.0-or-later",
   "dependencies": {

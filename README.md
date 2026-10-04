@@ -4,6 +4,8 @@
 [![Image](https://github.com/eric256/strudel-ai/actions/workflows/docker-publish.yml/badge.svg)](https://github.com/eric256/strudel-ai/pkgs/container/strudel-ai)
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](LICENSE)
 
+📸 **[Feature tour with screenshots](docs/FEATURES.md)**: every mode, editor, panel and setting.
+
 A Docker webserver that runs the [Strudel](https://strudel.cc) live-coding REPL next to an AI chat panel.
 Type what you want to hear ("dark techno at 128", "add a jazzy chord progression", "make the hats swing")
 and a local LLM rewrites the code, which is evaluated **immediately** and swaps into the music without stopping playback.
