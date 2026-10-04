@@ -3,7 +3,7 @@ import { signed } from '../lib/util.js';
 import { nothing, render } from '../html.js';
 import { T, onTemplatesChange } from '../templates/index.js';
 import { addToMySongs, download, favListRows, favOf, favorites, isMine, loadSongIntoSet, myListRows, mySongs, playSong, slug, songFromJSON, songToJSON, toggleFavorite } from './song-library.js';
-import { openSongEditor, renderSongEditor, songEdit } from './song-editor.js';
+import { openSongEditor, renderSongEditor, songEdit, updatePlayhead } from './song-editor.js';
 import { loadPads, padsState, setPadsFollow } from './pads.js';
 import { mp3, songMp3 } from './mp3.js';
 import { MASTER_STYLES } from '../master.js';
@@ -139,6 +139,28 @@ function stepTempo(st) {
   if (m) { const v = Number(m[2]) / (Number(m[3]) || 1); return Math.round(m[1] === 'm' ? v * b : v * 60 * b); }
   return st?.section?.bpm || st?.song?.sheet?.bpm || null;
 }
+/**
+ * Play a song from one of its sections (k: its place in the sheet): jump there if it's the one playing (or paused);
+ * otherwise play it again now, starting at that section. hold: stay on that section.
+ */
+export function playFromSection(sg, k, { hold = false } = {}) {
+  if (!sg) return;
+  const cur = queue.running && queue.songs[queue.current];
+  const root = (x) => x?.copyOf || x;
+  if (cur && engine.running && root(cur) === root(sg)) {
+    const b = cur.blocks?.find((x) => engine.steps.includes(x) && !x.fillStep && !x.gap && (x.secIndex ?? cur.sheet?.sections.indexOf(x.section)) === k);
+    if (b) { jumpTo(engine.steps.indexOf(b)); if (hold) setHold(true); return; }
+  }
+  sg.startAt = k;
+  const song = addToPlaylist(sg, { at: 'now' });
+  if (song !== sg) delete sg.startAt; // (a copy plays; the song itself keeps no hint — appendSong clears its own)
+  if (hold && song) {
+    let tries = 0;
+    const wait = setInterval(() => {
+      if (song.blocks?.some((x) => x.status === 'playing')) { clearInterval(wait); setHold(true); } else if (++tries > 150) clearInterval(wait);
+    }, 100);
+  }
+}
 /** How far the playing section is: { bar, bars, frac, left (seconds until the next section), hold } or null. */
 function sectionProgress(st) {
   if (st?.status !== 'playing' || st.startedAt == null || !isPlaying()) return null;
@@ -156,6 +178,7 @@ function sectionProgress(st) {
 // progress of the playing section in the song views (updated without re-rendering the lists;
 // renderSongs calls it right after it rebuilds a view, so the bar never blinks out)
 function updateSectionProgress() {
+  updatePlayhead(); // ✎ Edit song's arrangement follows the song too
   for (const el of $('nowSongView').querySelectorAll('.sv-left[data-i]')) { // (panels may be in another window)
     const st = engine.steps[Number(el.dataset.i)];
     const sum = el.closest('summary');
@@ -377,7 +400,14 @@ export function setup() {
   for (const id of ['nowSongView']) {
     $(id).addEventListener('click', (e) => {
       const go = e.target.closest('.jump[data-i]');
-      if (go) { e.preventDefault(); e.stopPropagation(); jumpTo(Number(go.dataset.i)); return; }
+      if (go) {
+        e.preventDefault(); e.stopPropagation();
+        const st = engine.steps[Number(go.dataset.i)];
+        // stopped (or another song took over): play this song again from that section
+        if (engine.running && st && queue.songs[queue.current] === st.song) jumpTo(Number(go.dataset.i));
+        else if (st?.song) playFromSection(st.song, st.secIndex ?? st.song.sheet?.sections.indexOf(st.section) ?? 0);
+        return;
+      }
       if (e.target.closest('.sv-hold')) { e.preventDefault(); setHold(!engine.hold); renderSongs(); return; }
       const sg = (queue.running && queue.songs[queue.current]) || nowSong;
       const act = e.target.closest('[data-act]')?.dataset.act;

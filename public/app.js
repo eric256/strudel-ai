@@ -21,7 +21,7 @@ import { master, masterChain, setup as setup_master_panel } from './features/mas
 import { keysState, noteOn, noteOff, setup as setup_keys } from './features/keys.js';
 import { padsState, loadPads, pads, padIsOn, savePads, padOnce, setPad, renderPads, setup as setup_pads } from './features/pads.js';
 import { playSong, mySongs, favorites, download, songToJSON, songFromJSON, loadFavorites, setup as setup_song_library } from './features/song-library.js';
-import { rawSheet, songEdit, editWhenWritten, setup as setup_song_editor } from './features/song-editor.js';
+import { rawSheet, songEdit, editWhenWritten, openSongEditor, setup as setup_song_editor } from './features/song-editor.js';
 import { songPads } from './features/song-pads.js';
 import { mp3TakeEnd, mp3, songMp3, setup as setup_mp3 } from './features/mp3.js';
 import { downloadDebugLog, debugContext } from './features/debug.js';
@@ -1111,6 +1111,8 @@ function skipBlocksBefore(i) {
 /** Manually switch to step i (on the next "switch on" boundary). */
 export function jumpTo(i) {
   if (!engine.running || !engine.steps[i]) return;
+  // paused: going to a section carries on from there
+  if (engine.paused) { engine.paused = null; mp3.paused = false; }
   // cancel a step that is armed but hasn't started yet
   for (const s of engine.steps) {
     if (s.status === 'armed' && s.startedAt !== undefined && nowCycle() < s.startedAt) {
@@ -1331,7 +1333,7 @@ function updateStepStates() {
 // ⏸ Pause / ▶ Resume (🎶 Now playing): stop the sound where the song is — section and bar — and pick up
 // there later. The resumed section is anchored so its bar `bar` plays first (sectionStart = −bar).
 // ---------------------------------------------------------------------------
-function pauseSong() {
+export function pauseSong() {
   if (!engine.running || engine.paused || !isPlaying()) return;
   const st = engine.steps.find((x) => x.status === 'playing');
   if (!st) return;
@@ -1349,7 +1351,7 @@ function pauseSong() {
   addMsg('info', `⏸ paused “${st.song?.title || 'song'}” at ${st.prompt || 'this section'}, bar ${bar + 1}/${len}`);
   songsChanged();
 }
-async function resumeSong() {
+export async function resumeSong() {
   const p = engine.paused;
   if (!p) return;
   engine.paused = null;
@@ -1771,7 +1773,7 @@ export function applyPadsReply(block) {
 
 setup_mp3(); // features/mp3.js
 // (features/debug.js)
-window.strudelAI = { player, setMode, currentMode, promoteJam, openPartEditor, bandFromSong, stationFromSong, plugins: pluginsState, sessionSongs, addToPlaylist, debugReport: () => debugReport(debugContext()), ws, mixer, mixerChannels, master, masterChain, getBands: () => bands, normalizeSheet, playSong, songMp3, loadPads, songPads, transposeProgression, sectionCode, getForms: () => songForms, getFavorites: () => favorites, loadFavorites, getPads: () => pads, mySongs, activeSong, songFromJSON, songToJSON, mp3, session, pads, padsState, keysState, noteOn, noteOff, setPad, docks, rec, replay, startReplay, recordingForShare, viz, checkScales, checkSounds, prepareCode, evaluateCode, dryRun, hum, transcribe, ensureSliders, engine, queue, setlist: engine, setl: queue };
+window.strudelAI = { player, setMode, currentMode, promoteJam, openPartEditor, openSongEditor: (sg) => openSongEditor(sg), bandFromSong, stationFromSong, plugins: pluginsState, sessionSongs, addToPlaylist, debugReport: () => debugReport(debugContext()), ws, mixer, mixerChannels, master, masterChain, getBands: () => bands, normalizeSheet, playSong, songMp3, loadPads, songPads, transposeProgression, sectionCode, getForms: () => songForms, getFavorites: () => favorites, loadFavorites, getPads: () => pads, mySongs, activeSong, songFromJSON, songToJSON, mp3, session, pads, padsState, keysState, noteOn, noteOff, setPad, docks, rec, replay, startReplay, recordingForShare, viz, checkScales, checkSounds, prepareCode, evaluateCode, dryRun, hum, transcribe, ensureSliders, engine, queue, setlist: engine, setl: queue };
 setup_modes(); // features/modes.js
 setup_promote(); // features/promote.js
 setup_part_editor(); // features/part-editor.js

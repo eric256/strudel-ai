@@ -10,10 +10,10 @@ import { signed } from '../lib/util.js';
 import { arrangeSong, carryLiveState, sectionAfterEdit, sectionCode } from '../lib/arrange.js';
 import { loadPads, padsState } from './pads.js';
 import { STYLE_NAMES } from '../master.js';
-import { $, atSectionStart, clog, engine, evaluateCode, fadeCycles, getCode, isPlaying, jumpTo, nextBoundary, queue, setHold, state, ws } from '../app.js';
+import { $, atSectionStart, clog, engine, evaluateCode, fadeCycles, getCode, isPlaying, jumpTo, nextBoundary, nowCycle, queue, setHold, state, ws } from '../app.js';
 import { normalizeSheet } from './bands.js';
 import { prepareCode } from './sound-check.js';
-import { songsChanged, renderSongs } from './song-lists.js';
+import { songsChanged, renderSongs, playFromSection } from './song-lists.js';
 import { syntaxError } from './llm.js';
 import { testLibrary } from './song-writer.js';
 import { nothing, render } from '../html.js';
@@ -83,6 +83,16 @@ export function linkedSongs(sg) {
 export async function refreshPlayingSection(song) {
   // the copy of the song that's playing (a song played again plays a copy)
   const sg = [song, ...linkedSongs(song)].find((x) => queue.songs[queue.current] === x);
+  // paused in this song: the paused section takes the new version, so ▶ carries on with the edit
+  const p = engine.paused;
+  if (sg && p?.step?.section && p.step.song === sg) {
+    const k = sectionAfterEdit(sg.sheet.sections, p.step.section.name, p.step.secIndex ?? -1, p.step.secNth ?? -1);
+    const sec = sg.sheet.sections[k];
+    if (!sec) return false;
+    p.code = carryLiveState(p.code, sectionCode(sg, sec, { fill: p.step.fillStep || false }));
+    Object.assign(p.step, { code: p.code, section: sec, secIndex: k, secNth: sg.sheet.sections.slice(0, k).filter((x) => x.name === sec.name).length });
+    return 'paused';
+  }
   if (!sg || !queue.running || state.pending || engine.paused || !isPlaying()) return false;
   const st = engine.steps.find((x) => x.status === 'playing' && x.song === sg);
   if (!st?.section) return false;
@@ -365,7 +375,8 @@ const edit = {
     const live = [sg, ...linkedSongs(sg)].find((x) => queue.running && queue.songs[queue.current] === x);
     const playing = !!live;
     const now = playing && await refreshPlayingSection(live); // the section playing switches over on the next bar
-    openDraft(sg, { sel: draft.sel, open: draft.open, msg: `✓ applied${now ? ' — you hear it from the next bar' : playing ? ' — from the next section' : ''}${isMine(sg) ? ' and saved' : ' (📁 Save to My songs to keep it)'}` });
+    const when = now === 'paused' ? ' — ▶ in 🎶 Now playing carries on with it' : now ? ' — you hear it from the next bar' : playing ? ' — from the next section' : '';
+    openDraft(sg, { sel: draft.sel, open: draft.open, msg: `✓ applied${when}${isMine(sg) ? ' and saved' : ' (📁 Save to My songs to keep it)'}` });
     songsChanged();
     renderSongs();
     renderSongEditor();
@@ -373,13 +384,39 @@ const edit = {
   revert() { openDraft(draft.sg, { sel: draft.sel, open: draft.open, msg: '↺ back to the song as it is' }); renderSongEditor(); },
   close() { ws.close('edit'); songEdit.sg = null; draft = null; songsChanged(); renderSongs(); },
   play() { playSong(draft.sg); },
-  jump(i) { const k = stepOf(i); if (k >= 0) jumpTo(k); },
-  loop(i) { const k = stepOf(i); if (k >= 0) { jumpTo(k); setHold(true); } },
+  jump(i) { const k = stepOf(i); if (k >= 0 && engine.running) jumpTo(k); else playFromSection(draft.sg, i); },
+  loop(i) { const k = stepOf(i); if (k >= 0 && engine.running) { jumpTo(k); setHold(true); } else playFromSection(draft.sg, i, { hold: true }); },
 };
 /** The engine step of section i of the song being edited (when it's playing and the draft matches it). */
 function stepOf(i) {
   const songs = [draft.sg, ...linkedSongs(draft.sg)];
   return engine.steps.findIndex((st) => songs.includes(st.song) && st.section === st.song.sheet.sections[i] && !st.fillStep && st.status !== 'done');
+}
+
+/**
+ * The arrangement's playhead: a line over the grid at the place the song being edited has reached (its section's
+ * column, as far through it as the section has played). Hidden while that song isn't playing. Called every frame.
+ */
+export function updatePlayhead() {
+  const line = $('editForm').querySelector('.se-playhead');
+  if (!line) return;
+  const sg = draft?.sg;
+  const songs = sg ? [sg, ...linkedSongs(sg)] : [];
+  const st = sg && queue.running && isPlaying() && songs.includes(queue.songs[queue.current])
+    ? engine.steps.find((x) => x.status === 'playing' && songs.includes(x.song)) : null;
+  const k = st && !st.gap ? st.secIndex ?? draft.raw.sections.findIndex((x) => x.name === st.section?.name) : -1;
+  const th = k >= 0 ? line.parentElement.querySelectorAll('.se-grid thead th')[k + 1] : null;
+  if (!th || st.startedAt == null) { line.hidden = true; return; }
+  // how far through the section: a fill is its last bar; holding a section loops its bars
+  const secBars = st.section?.bars || st.bars;
+  let pos = Math.max(0, nowCycle() - st.startedAt);
+  pos = engine.hold ? pos % st.bars : Math.min(pos, st.bars);
+  const frac = Math.min(1, ((st.fillStep ? secBars - st.bars : 0) + pos) / secBars);
+  const table = line.parentElement.querySelector('.se-grid');
+  line.hidden = false;
+  line.style.left = `${table.offsetLeft + th.offsetLeft + frac * th.offsetWidth}px`; // (a cell's offset is from its table)
+  line.style.top = `${table.offsetTop}px`;
+  line.style.height = `${table.offsetHeight}px`;
 }
 
 /** The ✎ Edit song editor (templates/song-editor.js) for the song being edited. */

@@ -69,7 +69,7 @@ export function songEditor(v, act) {
     </div>` : nothing}
 
     <div class="se-label">Arrangement <span class="muted small">which parts play in each section — click a cell: off → main → its variants; right-click: comes in / drops out / alternates</span></div>
-    <div class="se-grid-wrap"><table class="se-grid">
+    <div class="se-grid-wrap"><div class="se-playhead" hidden title="where the song is"></div><table class="se-grid">
       <thead><tr><th></th>${v.sections.map((s) => html`<th class=${s.selected ? 'on' : ''} @click=${() => act.selectSection(s.i)}>${s.name}</th>`)}</tr></thead>
       <tbody>${v.grid.parts.map((p, r) => html`<tr><th style="--c:${p.color}">${p.name}</th>${v.grid.rows[r].map((c, i) => html`<td>
         <button class="se-cell ${c.state}${v.sections[i]?.selected ? ' col' : ''}" style="--c:${p.color}" title=${c.title}
