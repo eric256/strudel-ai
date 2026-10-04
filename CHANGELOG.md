@@ -2,6 +2,26 @@
 
 The version is in `package.json`. Bump it when you release. Open pages also notice *any* redeploy through the build id, which is a hash of the app files, even if the version wasn't bumped.
 
+## 1.53.0
+- **🎚 Mixer as a console:**
+  - **Knobs** for H / M / L and pan (`<sa-knob>`, `public/ui/controls.js`): drag up / down (Shift: fine), scroll, arrow keys, double-click to centre.
+  - **Console faders** (`<sa-fader>`) with a dB scale, a metal cap and a dB taper (`lib/taper.js`): 0 dB at rest, +6 dB at the top (+3.5 on the master).
+  - **Clip LEDs** above each meter: amber within 3 dB of the top, red when the channel clipped; click to reset.
+  - **EQ** on each strip opens it in the new Equalizer.
+- **Level alerts:** **● HOT** / **● CLIP** in the status bar when the whole mix gets close to the top or clips (or the limiter works hard). It names the loudest channels, and clicking it opens the mixer. Clipping is also noted in the console.
+- **🎚 Equalizer** (new panel, 🎚 EQ in the top bar): 7 bands (60 Hz … 12 kHz, ±12 dB) on the master or any channel (`lib/eq.js`).
+  - A fader per band.
+  - The response curve over the live spectrum.
+  - Presets: Flat, Soft top, Warm, Bass boost, Bright, Presence, De-mud, Smile.
+- **🎛 Master as a node chain:** 🎚 EQ → Tone → Filter → Colour → Space → Echo → Dynamics → Output, in signal order, with knobs. **⏻** switches a node off (it goes neutral) to hear what it does.
+- **↺ Restart** in 🎶 Now playing: stops everything and plays the song again from its first section, fresh, in its own place in the playlist. For when something got stuck.
+- **Fix:** the mixer's clipping note in the console failed (`clog` was not imported).
+- **Tests and docs:**
+  - Unit tests for the fader taper, peak states, EQ bands / presets and master nodes (`test/mixing.test.mjs`).
+  - Smoke steps cover the console (knobs, fader drag, double-click reset), the Equalizer, master ⏻ and ↺ restart.
+  - `npm run check` also checks `public/ui/`.
+  - The feature tour has new mixer and master shots and a 🎚 Equalizer shot.
+
 ## 1.52.0
 - **🎧 My taste** (⚙ Settings): what you like and what you never want to hear, for the AI and enforced by the app. For example, never a harsh square wave again.
   - **Sounds I never want,** each with a softer stand-in (`lib/taste.js`). The AI is told in every request and they're left out of the sound guide.

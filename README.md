@@ -480,19 +480,30 @@ Fix attempts always work on the AI's own failed code (sent as *code to fix*), no
 
 **🎚 Mixer** opens a console with a channel for **every part of the song**, whether or not it plays in the current section. That's every part in the song sheet, plus any other labelled line in the code (your own parts, pad lines). It ends with the master.
 
-Each channel strip has:
+Each channel strip is laid out like a console channel:
 - **Name and state:** ● playing, *not in section* (the strip is dimmed, but its settings apply when the part comes in), or *muted in code*.
-- **EQ display:** the EQ curve drawn over the channel's live spectrum.
-- **EQ and pan:** H (high shelf at 4 kHz), M (mid peak at 1 kHz) and L (low shelf at 200 Hz), ±12 dB each, plus **P** (pan).
-- **M / S:** mute and solo the channel, for the whole song.
-- **Fader** (0 dB at the default position) with a **level meter** beside it: RMS level, a slowly falling peak line, and red at full scale.
+- **EQ display:** the channel's EQ curve drawn over its live spectrum.
+- **Knobs:** H (high shelf at 4 kHz), M (mid peak at 1 kHz) and L (low shelf at 200 Hz), ±12 dB each, plus **pan**. Drag up / down (Shift: fine), scroll or use the arrow keys while focused, and double-click to centre.
+- **M / S / EQ:** mute and solo the channel for the whole song; **EQ** opens it in the 🎚 Equalizer.
+- **Fader** with a dB scale (+6 … −40, ∞) and a metal cap. 0 dB is the rest position, and double-clicking it returns there.
+- **Meter and clip LED:** RMS level, a slowly falling peak line, red at full scale. The LED above it lights amber when the channel peaks within 3 dB of the top and red when it clips; click it to reset.
 
 How it works:
-- Every labelled part plays on its own Strudel *orbit* (output bus). The channel strip sits on that bus: EQ → pan → fader → speakers, and the meter and spectrum tap the fader's output.
+- Every labelled part plays on its own Strudel *orbit* (output bus). The channel strip sits on that bus: 3-band EQ → 7-band EQ → pan → fader → speakers, and the meter and spectrum tap the fader's output.
 - Mixer changes are instant and never touch the code. The code's own faders (`.postgain(slider(…))`) still work as a trim before the channel.
 - Settings are kept per part name in the browser, so `bass` keeps its fader, EQ, pan, mute and solo from section to section and song to song.
 - **flat EQ** resets every EQ and pan. **reset all** also resets faders, mutes and solos.
 - Anonymous `$:` lines share the default bus and don't get a channel: name them (e.g. `lead:`) to mix them.
+
+### Level alerts
+The status bar watches the whole mix. **● HOT** (amber) means it peaks within 3 dB of the top or the limiter is working hard; **● CLIP** (red, blinking) means it hits the top or the limiter takes more than 6 dB off. Hover it for how much and the loudest channels, and click it to open the mixer. Clipping is also noted in the 🖥 console (at most every 15 seconds).
+
+## 🎚 Equalizer
+**🎚 EQ** opens a 7-band equalizer for the master or any mixer channel (pick it under **on**, or press a strip's **EQ** button): a low shelf at 60 Hz, peaks at 150, 400 Hz, 1, 2.5 and 6 kHz, and a high shelf at 12 kHz, ±12 dB each.
+- The response curve is drawn over the live spectrum of what it's working on, with a dot per band.
+- Each band has its own fader; double-click one for 0 dB.
+- **Presets:** Flat, Soft top (tames harsh square waves and cymbals), Warm, Bass boost, Bright, Presence, De-mud and Smile.
+- It's remembered: the master's EQ in the browser, a channel's with that part's mixer settings.
 
 ## 🎛 Master (mastering style)
 Every song has a **master style**: post-processing on the whole mix, picked by the songwriter (or the band) and shown in the song's details as 🎛. Styles: clean, lo-fi, warm, acoustic (natural and open: a wooden room, gentle compression), pop, techno, house, edm, dnb, hiphop, synthwave, ambient, dub, cinematic, rock, chiptune and radio.
@@ -500,9 +511,11 @@ Every song has a **master style**: post-processing on the whole mix, picked by t
 The chain sits between Strudel's output and the master volume:
 EQ (low shelf 120 Hz · mid 1 kHz · high shelf 6 kHz) → DJ filter (low-pass ← off → high-pass, with resonance) → drive (tape-style saturation) → crush (bit reduction) → reverb and tempo-synced echo sends, vinyl hiss and crackle → stereo width → glue compressor with makeup gain → output level → limiter (−1 dB).
 
-**🎛 Master** opens the panel to play it live, like a mixer:
-- A vertical control for each of the 16 settings, grouped EQ, Filter, Color, Space, Echo, Dynamics and Output. A value in yellow differs from the style. Double-click a control to return it to the style's value.
-- **Output:** the mastered spectrum, the level meter and the glue / limiter gain reduction.
+**🎛 Master** shows the chain as nodes in signal order, like the effects of a part: 🎚 EQ → Tone → Filter → Colour → Space → Echo → Dynamics → Output.
+- **🎚 EQ:** a small picture of the master's 7-band EQ and its preset; **7 bands ↗** opens the 🎚 Equalizer.
+- **Each node** has knobs for its settings (16 in all). A knob in yellow differs from the style; double-click it to return to the style's value.
+- **⏻ on each node** switches it off: its effect goes neutral and the sound passes through (remembered). It's for hearing what one stage does.
+- **Output:** the mastered spectrum, the glue / limiter gain reduction, the level meter and its clip LED.
 - **style** loads a style. **↺ style** throws away your tweaks. **bypass** lets you hear the mix without it (A/B).
 - **follow song** (on by default): when a song starts, the master glides to its style and its own tweaks.
 - **💾 save to song** stores the style and your tweaks in the playing song (in its sheet as `master` / `masterParams`, kept in 📁 My songs, files and links).
@@ -593,6 +606,7 @@ The transport sits at the top of Now playing, which stays visible however small 
 | ⏸ | Pauses the song where it is (section and bar), and ▶ picks it up from that bar. The song's MP3 recording pauses too. Your own code just stops. |
 | ■ | Stops everything (**Ctrl+.**). |
 | ⏭ | Skips to the next song of the set or station. A song that isn't written yet plays as soon as it is. |
+| ↺ | **Restart:** stops everything and plays the song again from its first section, fresh (holds, section volume and solos reset, every section arranged anew). For when something got into a strange state: like pressing ▶ on the first block. |
 
 Next to the buttons, a line says what's happening: ▶ the song and section, ⏸ paused at bar n, ✎ writing, or ■ stopped.
 

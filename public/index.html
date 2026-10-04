@@ -25,6 +25,7 @@
       <button id="keysBtn" title="Show / hide the keyboard (play live, record a part)">🎹<span class="lbl"> Keys</span></button>
       <button id="padsBtn" title="Show / hide the 4×4 sound pad">🔲<span class="lbl"> Pads</span></button>
       <button id="mixerBtn" title="Mixer: every part with volume, 3-band EQ, mute and solo">🎚<span class="lbl"> Mixer</span></button>
+      <button id="eqBtn" title="Equalizer: 7 bands on the master or any channel, with presets (Soft top tames harsh highs)">🎚<span class="lbl"> EQ</span></button>
       <button id="masterBtn" title="Master: the mastering style on the whole mix (EQ, filter, drive, space, echo, glue) — live">🎛<span class="lbl"> Master</span></button>
       <button id="consoleBtn" title="Console: follow what the AI is writing, the checks and fixes, and any errors">🖥<span class="lbl"> Console</span></button>
       <span class="ws-menu-wrap"><button id="layoutBtn" title="Panels: open or close chat, songs, station, the playing song, visualizer, keys, pads and console — or reset the layout">▦<span class="lbl"> Panels</span></button>
@@ -211,6 +212,7 @@
             <button id="nowPause" title="Pause the song where it is — section and bar — and resume it from there with ▶">⏸</button>
             <button id="stop" title="Stop (Ctrl+.)">■</button>
             <button id="nextSong" title="Skip to the next song">⏭</button>
+            <button id="restartSong" title="Restart: stop everything and play this song again from its first section, fresh (when something got stuck)">↺</button>
           </div>
           <div id="nowLine" class="np-line muted small">stopped</div>
         </div>
@@ -327,6 +329,10 @@
         </div>
         <div id="mixerStrips" class="mx-strips"></div>
       </section>
+      <section id="eq-dock" class="panel dock">
+        <div class="viz-bar"><b>🎚 Equalizer</b><span class="muted small">7 bands (60 Hz … 12 kHz, ±12 dB) on the master or any channel — the line is the EQ, the colour the sound now</span></div>
+        <div id="eqBody" class="eq-wrap"></div>
+      </section>
       <section id="master-dock" class="panel dock">
         <div class="viz-bar">
           <b>🎛 Master</b>
@@ -359,6 +365,7 @@
     <span id="sbSong" class="sb-item" hidden></span>
     <button id="pending" class="pending" title="Click to cancel this pending change" hidden></button>
     <span class="sb-spacer"></span>
+    <button id="sbLevel" class="sb-level" hidden title=""></button>
     <button id="sbWarn" class="sb-warn" hidden title="">⚠</button>
     <span id="sbCost" class="sb-item" title="AI cost this session (Claude only — local models are free)"></span>
     <button id="mp3Btn" class="sb-mp3" title="Record what you hear to an MP3 file (click again to stop and save)">⏺ MP3</button>

@@ -1,3 +1,4 @@
+import './ui/controls.js'; // <sa-knob>, <sa-fader>
 import { dlog, debugReport, debugState } from './debuglog.js'; // first: it catches errors from everything after it
 import './theme.js'; // next: the saved theme applies before anything is drawn
 import { loadDockview, createWorkspace } from './workspace.js';
@@ -32,7 +33,7 @@ import { songForms, setup as setup_forms } from './features/forms.js';
 import { bands, normalizeSheet, setup as setup_bands } from './features/bands.js';
 import { stripPartVisuals } from './features/part-visuals.js';
 import { stopSet, repairSong, startPlaylist, jumpToSong } from './features/song-writer.js';
-import { songsChanged, nowSong, viewedSong, setup as setup_song_lists } from './features/song-lists.js';
+import { songsChanged, nowSong, viewedSong, playFromSection, setup as setup_song_lists } from './features/song-lists.js';
 import { setup as setup_stations } from './features/stations.js';
 import { addToPlaylist, sessionSongs, setup as setup_playlist } from './features/playlist.js';
 import { setup as setup_themes } from './features/themes.js';
@@ -40,6 +41,7 @@ import { pluginsState, setup as setup_plugins } from './features/plugins.js';
 import { MODES, currentMode, savedLayout, saveLayout, setMode, setup as setup_modes } from './features/modes.js';
 import { bandFromSong, promoteJam, stationFromSong, setup as setup_promote } from './features/promote.js';
 import { openPartEditor, setup as setup_part_editor } from './features/part-editor.js';
+import { openEqualizer, setup as setup_equalizer } from './features/equalizer.js';
 import { getTaste, setTaste, avoidSound, likeSound, setup as setup_taste } from './features/taste.js';
 import { html, nothing, render, renderOptions } from './html.js';
 import { T } from './templates/index.js';
@@ -805,6 +807,7 @@ const PANELS = [
   { id: 'pads', title: 'Pads', icon: '🔲', el: $('pads-dock'), area: 'bottom' },
   { id: 'mixer', title: 'Mixer', icon: '🎚', el: $('mixer-dock'), area: 'bottom' },
   { id: 'master', title: 'Master', icon: '🎛', el: $('master-dock'), area: 'bottom' },
+  { id: 'eq', title: 'Equalizer', icon: '🎚', el: $('eq-dock'), area: 'bottom' },
   { id: 'console', title: 'Console', icon: '🖥', el: $('console-dock'), area: 'bottom' },
 ];
 export let ws;
@@ -1424,6 +1427,24 @@ function prevSong() {
 }
 $('nextSong').onclick = nextSong;
 $('prevSong').onclick = prevSong;
+/**
+ * ↺ Restart: when something got into a weird state — stop everything (the code, the playlist, a pause, a hold, a
+ * section's volume or solo) and play the song again from its first section, freshly arranged.
+ */
+export function restartSong() {
+  const sg = (queue.running && queue.songs[queue.current]) || nowSong;
+  if (!sg) { addMsg('info', '↺ nothing to restart — play a song first'); return; }
+  $('stop').onclick();
+  setHold(false);
+  setSectionLevel(1);
+  player.emit('transport', { state: 'stopped' }); // (the mixer drops a solo's lead)
+  const k = queue.songs.indexOf(sg);
+  if (k >= 0) startPlaylist({ at: k }); // its own place in the playlist, written fresh
+  else if (sg.sheet && sg.library) playFromSection(sg, 0);
+  else playSong(sg);
+  addMsg('info', `↺ “${sg.title}” from the top`);
+}
+$('restartSong').onclick = restartSong;
 /** The transport: which buttons apply now, and a one-line "what's playing". */
 function renderTransport() {
   const playing = isPlaying(), paused = !!engine.paused, running = queue.running;
@@ -1435,6 +1456,7 @@ function renderTransport() {
   $('stop').disabled = !playing && !running && !paused;
   $('nextSong').disabled = !running;
   $('prevSong').disabled = !running && !nowSong;
+  $('restartSong').disabled = !running && !nowSong;
   const st = engine.steps.find((x) => x.status === 'playing');
   const line = paused ? `⏸ paused · ${cur?.title || ''} · ${engine.paused.step.prompt || ''} bar ${engine.paused.bar + 1}`
     : cur && playing ? `▶ ${cur.title}${st?.prompt ? ` · ${st.prompt}` : ''}`
@@ -1610,6 +1632,7 @@ setup_settings(); // features/settings.js
 setup_themes(); // features/themes.js
 setup_mixer(); // features/mixer.js
 setup_master_panel(); // features/master-panel.js
+setup_equalizer(); // features/equalizer.js
 // ---------------------------------------------------------------------------
 // Status bar (bottom): bar.beat + tempo, the song / section playing, the pending
 // change, the recording, replay and update notices.
@@ -1774,7 +1797,7 @@ export function applyPadsReply(block) {
 
 setup_mp3(); // features/mp3.js
 // (features/debug.js)
-window.strudelAI = { player, setMode, currentMode, promoteJam, openPartEditor, getTaste, setTaste, avoidSound, likeSound, openSongEditor: (sg) => openSongEditor(sg), bandFromSong, stationFromSong, plugins: pluginsState, sessionSongs, addToPlaylist, debugReport: () => debugReport(debugContext()), ws, mixer, mixerChannels, master, masterChain, getBands: () => bands, normalizeSheet, playSong, songMp3, loadPads, songPads, transposeProgression, sectionCode, getForms: () => songForms, getFavorites: () => favorites, loadFavorites, getPads: () => pads, mySongs, activeSong, songFromJSON, songToJSON, mp3, session, pads, padsState, keysState, noteOn, noteOff, setPad, docks, rec, replay, startReplay, recordingForShare, viz, checkScales, checkSounds, prepareCode, evaluateCode, dryRun, hum, transcribe, ensureSliders, engine, queue, setlist: engine, setl: queue };
+window.strudelAI = { player, setMode, currentMode, promoteJam, openPartEditor, openEqualizer, restartSong, getTaste, setTaste, avoidSound, likeSound, openSongEditor: (sg) => openSongEditor(sg), bandFromSong, stationFromSong, plugins: pluginsState, sessionSongs, addToPlaylist, debugReport: () => debugReport(debugContext()), ws, mixer, mixerChannels, master, masterChain, getBands: () => bands, normalizeSheet, playSong, songMp3, loadPads, songPads, transposeProgression, sectionCode, getForms: () => songForms, getFavorites: () => favorites, loadFavorites, getPads: () => pads, mySongs, activeSong, songFromJSON, songToJSON, mp3, session, pads, padsState, keysState, noteOn, noteOff, setPad, docks, rec, replay, startReplay, recordingForShare, viz, checkScales, checkSounds, prepareCode, evaluateCode, dryRun, hum, transcribe, ensureSliders, engine, queue, setlist: engine, setl: queue };
 setup_modes(); // features/modes.js
 setup_promote(); // features/promote.js
 setup_part_editor(); // features/part-editor.js

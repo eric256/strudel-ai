@@ -565,7 +565,7 @@ main.ws { flex: 1; display: flex; min-height: 0; position: relative; overflow: h
 /* 🎚 mixer: a console — one channel strip per part of the song */
 .mx-strips { flex: 1; min-height: 0; display: flex; gap: 4px; padding: 6px 10px 8px; overflow: auto; align-items: stretch; background: var(--sunken); }
 .mx-strip {
-  flex: 0 0 86px; display: flex; flex-direction: column; align-items: stretch; gap: 4px; padding: 4px 5px 5px; min-height: 232px;
+  flex: 0 0 86px; display: flex; flex-direction: column; align-items: stretch; gap: 4px; padding: 4px 5px 5px; min-height: 320px;
   border: 1px solid var(--line); border-top: 3px solid var(--c, var(--accent)); border-radius: 5px;
   background: linear-gradient(var(--panel-2), var(--raised));
 }
@@ -578,18 +578,23 @@ main.ws { flex: 1; display: flex; min-height: 0; position: relative; overflow: h
 .mx-state { font: 9px/12px var(--mono); text-align: center; color: var(--muted); white-space: nowrap; overflow: hidden; }
 .mx-state .on { color: var(--accent-2); }
 .mx-state .cm { color: var(--danger); }
-.mx-eqviz { width: 100%; height: 40px; border: 1px solid var(--line); border-radius: 3px; background: var(--canvas); }
-.mx-eqs { display: flex; flex-direction: column; gap: 1px; }
-.mx-eqs label { display: flex; align-items: center; gap: 3px; font: 9px var(--mono); color: var(--muted); }
-.mx-h { flex: 1; width: 0; min-width: 0; height: 12px; margin: 0; accent-color: var(--c, var(--accent)); }
+.mx-eqviz { width: 100%; height: 30px; border: 1px solid var(--line); border-radius: 3px; background: var(--canvas); }
+.mx-knobs { display: grid; grid-template-columns: 1fr 1fr; justify-items: center; gap: 1px 0; min-height: 0; }
+.mx-knobs sa-knob { --size: 26px; }
+.mx-knobs.master-note { display: flex; align-items: center; justify-content: center; font-size: 10px; min-height: 76px; }
 .mx-ms { display: flex; gap: 3px; justify-content: center; min-height: 20px; }
 .mx-ms button { flex: 1; font: 700 11px var(--mono); padding: 1px 0; }
+.mx-ms button.eq { font-size: 9px; }
 .mx-ms .m.on { background: var(--danger-dim); border-color: var(--danger); color: var(--on-accent); }
 .mx-ms .s.on { background: var(--warn-dim); border-color: var(--warn); color: var(--on-accent); }
-.mx-fader { flex: 1 1 auto; display: flex; justify-content: center; gap: 6px; min-height: 90px; padding: 2px 0; }
+.mx-fader { flex: 1 1 auto; display: flex; justify-content: center; gap: 2px; min-height: 130px; padding: 2px 0; }
+.mx-fader sa-fader { height: auto; align-self: stretch; }
 .mx-v { writing-mode: vertical-lr; direction: rtl; margin: 0; accent-color: var(--c, var(--accent)); }
-.mx-vol { width: 22px; height: auto; }
-.mx-meter { width: 10px; height: 100%; border-radius: 2px; }
+.mx-meterbox { display: flex; flex-direction: column; gap: 3px; align-items: center; padding: 0 0 8px; }
+.mx-meter { width: 10px; flex: 1; min-height: 0; border-radius: 2px; }
+.mx-clip { width: 12px; height: 8px; min-height: 0; padding: 0; border-radius: 2px; border: 1px solid var(--border); background: var(--sunken); }
+.mx-clip.hot { background: var(--warn); border-color: var(--warn); box-shadow: 0 0 6px var(--warn); }
+.mx-clip.clip { background: var(--danger); border-color: var(--danger); box-shadow: 0 0 8px var(--danger); }
 .mx-val { font: 10px var(--mono); color: var(--muted); text-align: center; }
 .mx-empty { align-self: center; padding: 0 10px; max-width: 320px; }
 .now-transport { display: flex; gap: 8px; align-items: center; }
@@ -671,20 +676,29 @@ body.hydra-behind .code-bar { background: color-mix(in srgb, var(--panel-2) 80%,
 
 /* 🎛 Master: the mastering style, live */
 .ms-body { flex: 1; min-height: 0; display: flex; gap: 6px; padding: 6px 10px 8px; overflow: auto; align-items: stretch; background: var(--sunken); }
-.ms-mod { display: flex; flex-direction: column; gap: 4px; padding: 4px 6px 6px; border: 1px solid var(--line); border-top: 2px solid var(--accent); border-radius: 4px; background: linear-gradient(var(--raised), var(--panel)); flex-shrink: 0; }
-.ms-title { font: 600 11px/14px var(--mono); color: var(--muted); text-transform: uppercase; letter-spacing: .04em; white-space: nowrap; }
-.ms-ctls { flex: 1; display: flex; gap: 6px; min-height: 0; }
-.ms-ctl { display: flex; flex-direction: column; align-items: center; gap: 2px; width: 36px; min-height: 0; }
-.ms-v { flex: 1; width: 22px; min-height: 70px; }
-.ms-val { font: 10px var(--mono); color: var(--muted); white-space: nowrap; }
-.ms-val.changed { color: var(--warn); }
-.ms-lbl { font: 600 10px var(--mono); color: var(--text); }
-.ms-scope .ms-ctls { align-items: stretch; }
-.ms-spec { width: 220px; height: 100%; min-height: 70px; border: 1px solid var(--line); border-radius: 3px; background: var(--canvas); }
-.ms-meters { display: flex; gap: 3px; }
-.ms-meters canvas { height: 100%; min-height: 70px; border-radius: 2px; }
-.ms-gr-meter { width: 8px; }
-.ms-gr { text-transform: none; letter-spacing: 0; font-weight: 400; }
+.ms-chain { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 10px 0; }
+.ms-node { display: flex; flex-direction: column; gap: 4px; padding: 5px 7px 7px; border: 1px solid var(--line); border-top: 3px solid var(--accent); border-radius: 6px;
+  background: linear-gradient(var(--raised), var(--panel)); flex-shrink: 0; transition: opacity .15s, filter .15s; }
+.ms-node.off { opacity: .45; filter: grayscale(.8); border-top-color: var(--muted); }
+.ms-node-head { display: flex; align-items: center; gap: 5px; font: 600 11px/16px var(--mono); color: var(--text); white-space: nowrap; }
+.ms-pow { width: 20px; height: 20px; min-width: 0; padding: 0; border-radius: 50%; font-size: 11px; line-height: 1; color: var(--accent-2); border-color: var(--accent-2); }
+.ms-node.off .ms-pow { color: var(--muted); border-color: var(--line); }
+.ms-knobs { display: flex; gap: 2px; }
+.ms-knobs sa-knob { width: 46px; }
+.ms-knobs sa-knob.changed { --c: var(--warn); }
+/* the wires between the nodes: the signal flows left to right */
+.ms-wire { position: relative; align-self: flex-start; margin-top: 44px; width: 18px; height: 2px; background: var(--accent-dim); flex-shrink: 0; }
+.ms-wire::after { content: ''; position: absolute; right: -1px; top: -4px; border: 5px solid transparent; border-left: 6px solid var(--accent-dim); border-right: 0; }
+.ms-eqnode { border-top-color: var(--accent-2); align-items: center; }
+.ms-eqmini { width: 110px; height: 44px; border: 1px solid var(--line); border-radius: 3px; }
+.ms-eqname { font: 10px var(--mono); }
+.ms-openeq { font-size: 11px; padding: 1px 8px; }
+.ms-out-row { display: flex; gap: 4px; align-items: stretch; }
+.ms-spec { width: 150px; height: 70px; border: 1px solid var(--line); border-radius: 3px; background: var(--canvas); }
+.ms-gr-meter { width: 8px; height: 70px; border-radius: 2px; }
+.ms-out-row .mx-meterbox { padding: 0; }
+.ms-out-row .mx-meter { height: 60px; flex: none; }
+.ms-gr { font: 10px var(--mono); }
 #masterBypass.on { color: var(--warn); }
 .master-chip { border-color: var(--accent); }
 .chip.bad { border-color: var(--danger); color: var(--danger); }
@@ -882,9 +896,30 @@ body.hydra-behind .code-bar { background: color-mix(in srgb, var(--panel-2) 80%,
 .pe-mini input { flex: 1; font: 12px var(--mono); }
 .pe-code summary { font: 600 11px var(--mono); color: var(--muted); cursor: pointer; }
 .pe-code textarea { width: 100%; font: 12px/1.45 var(--mono); resize: vertical; margin-top: 4px; }
+/* level alerts (status bar) */
+.sb-level { font: 700 11px var(--mono); padding: 0 8px; border-radius: 10px; border: 1px solid transparent; background: none; }
+.sb-level.hot { color: var(--warn); border-color: var(--warn); }
+.sb-level.clip { color: var(--on-accent); background: var(--danger); border-color: var(--danger); animation: sb-blink .6s steps(2) infinite; }
+@keyframes sb-blink { 50% { opacity: .55; } }
+/* 🎚 equalizer */
+.eq-wrap { flex: 1; min-height: 0; overflow: auto; background: var(--sunken); }
+.eq { display: flex; flex-direction: column; gap: 6px; padding: 6px 10px 10px; }
+.eq-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; font-size: 12px; color: var(--muted); }
+.eq-presets { display: flex; flex-wrap: wrap; gap: 4px; }
+.eq-presets button { font-size: 11px; padding: 2px 8px; border-radius: 12px; }
+.eq-presets button.on { background: var(--accent-soft); border-color: var(--accent); color: var(--text); }
+.eq-body { display: flex; flex-wrap: wrap; gap: 10px; align-items: stretch; }
+.eq-curve { flex: 1 1 360px; min-width: 260px; height: 170px; border: 1px solid var(--line); border-radius: 4px; }
+.eq-bands { display: flex; gap: 2px; padding: 4px 6px; border-radius: 6px; background: var(--raised); border: 1px solid var(--line); }
+.eq-band { display: flex; flex-direction: column; align-items: center; gap: 2px; }
+.eq-band sa-fader { --fader-h: 140px; width: 46px; }
+.eq-gain { font: 10px var(--mono); color: var(--muted); min-height: 12px; }
+.eq-gain.on { color: var(--accent); }
+.eq-f { font: 600 10px var(--mono); color: var(--text); }
 /* 🎧 my taste */
-.mx-taste { display: flex; justify-content: center; gap: 2px; min-height: 20px; }
+.mx-taste { display: flex; justify-content: center; gap: 2px; min-height: 16px; }
 .mx-taste button { padding: 0 4px; font-size: 11px; border: none; background: none; opacity: .55; }
+.mx-taste button[data-mx="eq"] { font: 700 9px var(--mono); opacity: .8; }
 .mx-taste button:hover, .mx-taste button.on { opacity: 1; }
 .taste { display: flex; flex-direction: column; gap: 8px; }
 .taste-rows { display: flex; flex-direction: column; gap: 4px; }

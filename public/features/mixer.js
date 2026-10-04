@@ -6,6 +6,10 @@
 // Settings are kept per part name, so they apply whenever that part plays — this section, the next, the next song.
 // Nothing here touches the code; the code's own faders (.postgain) still work as a trim.
 // (split out of app.js: start-up code runs in setup(), called from app.js)
+import { master } from './master-panel.js';
+import { EQ_BANDS, normEq } from '../lib/eq.js';
+import { peakState } from '../lib/taper.js';
+import { openEqualizer } from './equalizer.js';
 import { stringArgs } from '../lib/partcode.js';
 import { splitLibrary } from '../lib/library.js';
 import { getTaste, avoidSound, likeSound } from './taste.js';
@@ -13,7 +17,7 @@ import { parseLabel, patternLines } from '../lib/labels.js';
 import { vizColor } from './visualizer.js';
 import { onceAFrame } from '../lib/events.js';
 import { audioCtx } from './hum-ui.js';
-import { $, cps, docks, getCode, isPlaying, load, player, queue, save, scheduler, setSectionLevel, setupDock, ws } from '../app.js';
+import { $, clog, cps, docks, getCode, isPlaying, load, player, queue, save, scheduler, setSectionLevel, setupDock, ws } from '../app.js';
 import { nowSong } from './song-lists.js';
 import { currentMode } from './modes.js';
 import { render } from '../html.js';
@@ -23,7 +27,11 @@ let saveMixer;
 const MX_BANDS = [['high', 'highshelf', 4000], ['mid', 'peaking', 1000], ['low', 'lowshelf', 200]];
 const MX_DEFAULT = { vol: 1, pan: 0, high: 0, mid: 0, low: 0, mute: false, solo: false };
 export const mixer = { ch: {}, orbits: {}, nextOrbit: 2, key: '', dragging: false };
-const chOf = (base) => (mixer.ch[base] ||= { ...MX_DEFAULT });
+export const chOf = (base) => (mixer.ch[base] ||= { ...MX_DEFAULT });
+/** A channel's 🎚 Equalizer bands (dB): set, saved, heard at once. */
+export function setChannelEq(base, gains) { chOf(base).geq = normEq(gains); saveMixer(); applyChannel(base); }
+/** A channel's analyser (its sound after the strip), or null while it hasn't played. */
+export const channelAnalyser = (base) => (mixer.orbits[base] != null ? sdController()?.nodes?.[mixer.orbits[base]]?.__ch?.an || null : null);
 /** Every labelled part gets its own orbit ("$:" lines share the default one). */
 function mixerOrbit(base) {
   if (!base || base === '$') return null;
@@ -63,15 +71,19 @@ function channelNodes(base) {
     const pan = new StereoPannerNode(ac, { pan: 0 });
     const gain = new GainNode(ac, { gain: 1 });
     const an = new AnalyserNode(ac, { fftSize: 1024, smoothingTimeConstant: 0.6 });
+    // the 🎚 Equalizer's 7 bands after the strip's quick EQ
+    const geq = EQ_BANDS.map((b) => new BiquadFilterNode(ac, { type: b.type, frequency: b.f, Q: b.q || 0.7, gain: 0 }));
     try { orbit.output.disconnect(); } catch {}
     orbit.output.connect(eq[0]);
     eq[0].connect(eq[1]);
     eq[1].connect(eq[2]);
-    eq[2].connect(pan);
+    eq[2].connect(geq[0]);
+    for (let i = 1; i < geq.length; i++) geq[i - 1].connect(geq[i]);
+    geq[geq.length - 1].connect(pan);
     pan.connect(gain);
     gain.connect(an);
     ctrl.output.connectToDestination(gain, [0, 1]);
-    orbit.__ch = { high: eq[0], mid: eq[1], low: eq[2], pan, gain, an };
+    orbit.__ch = { high: eq[0], mid: eq[1], low: eq[2], geq, pan, gain, an };
   }
   return orbit.__ch;
 }
@@ -92,6 +104,8 @@ function applyChannel(base, ramp = 0.015) {
   const c = chOf(base);
   const t = nodes.gain.context.currentTime;
   for (const [b] of MX_BANDS) nodes[b].gain.setTargetAtTime(Number(c[b]) || 0, t, 0.02);
+  const geq = normEq(c.geq);
+  nodes.geq.forEach((n, i) => n.gain.setTargetAtTime(geq[i], t, 0.02));
   nodes.pan.pan.setTargetAtTime(Number(c.pan) || 0, t, 0.02);
   nodes.gain.gain.setTargetAtTime(audible(base) ? Number(c.vol) * sectionGain(base) : 0, t, ramp);
 }
@@ -254,8 +268,59 @@ function drawMixer() {
       }
     }
     const m = el.querySelector('.mx-meter');
-    if (m) drawMeter(m, an && isPlaying() ? levelOf(an, buf) : { rms: 0, peak: 0 });
+    const lvl = an && isPlaying() ? levelOf(an, buf) : { rms: 0, peak: 0 };
+    if (m) drawMeter(m, lvl);
+    // the clip LED: amber near the top (for a moment), red once it clipped (until clicked)
+    const led = el.querySelector('.mx-clip');
+    if (led) {
+      const st = peakState(lvl.peak);
+      if (st === 'clip') el.__clip = true;
+      if (st === 'hot') el.__hot = performance.now();
+      const hot = !el.__clip && el.__hot && performance.now() - el.__hot < 400;
+      led.classList.toggle('clip', !!el.__clip);
+      led.classList.toggle('hot', !!hot);
+    }
   }
+}
+
+/**
+ * Level alerts: while music plays, the final output is watched — ● HOT in the status bar when it peaks near the top
+ * (or the limiter works hard), ● CLIP when it hits the top (or the limiter squashes it by more than 6 dB), with the
+ * loudest channels named. It stays lit a moment after the last peak; click it for the 🎚 mixer.
+ */
+const levelWatch = { state: '', until: 0, logged: 0, buf: null };
+export function checkLevels() {
+  const btn = $('sbLevel');
+  if (!btn) return;
+  const now = performance.now();
+  const an = isPlaying() ? masterAnalyser() : null;
+  if (an) {
+    const buf = levelWatch.buf?.length === an.fftSize ? levelWatch.buf : (levelWatch.buf = new Float32Array(an.fftSize));
+    const peak = levelOf(an, buf).peak;
+    const limit = master.chain && isPlaying() ? master.chain.reduction().limit : 0;
+    let st = peakState(peak);
+    if (limit < -6) st = 'clip'; else if (limit < -2 && !st) st = 'hot';
+    if (st && (st === 'clip' || levelWatch.state !== 'clip' || now > levelWatch.until)) {
+      // which channels are loudest
+      const loud = Object.keys(mixer.orbits).map((base) => {
+        const a = channelAnalyser(base);
+        return a ? { base, peak: levelOf(a, buf.length === a.fftSize ? buf : new Float32Array(a.fftSize)).peak } : null;
+      }).filter((x) => x && x.peak > 0.5).sort((a, b) => b.peak - a.peak).slice(0, 3);
+      levelWatch.state = st;
+      levelWatch.until = now + 2500;
+      const who = loud.length ? ` — loudest: ${loud.map((x) => `${x.base} (${(20 * Math.log10(x.peak)).toFixed(1)} dB)`).join(', ')}` : '';
+      btn.title = (st === 'clip'
+        ? `Clipping: the mix hits the top${limit < -6 ? ` (the limiter takes ${(-limit).toFixed(1)} dB off)` : ''}. Pull down the master or the loudest channel, or lower 🎛 Master → Output.`
+        : 'Running hot: close to the top. A little less level keeps it clean.') + who + ' (click for the 🎚 mixer)';
+      if (st === 'clip' && now - levelWatch.logged > 15000) { levelWatch.logged = now; clog('warn', `🔴 clipping${who}`); }
+    }
+  }
+  const show = levelWatch.state && now < levelWatch.until ? levelWatch.state : '';
+  if (!show) levelWatch.state = '';
+  btn.hidden = !show;
+  btn.className = `sb-level ${show}`;
+  const text = show === 'clip' ? '● CLIP' : show === 'hot' ? '● HOT' : '';
+  if (btn.textContent !== text) btn.textContent = text;
 }
 
 function setChannel(base, k, v) {
@@ -297,8 +362,10 @@ export function setup() {
     for (const e of ['section', 'song', 'mode']) player.on(e, soon);
     onTemplatesChange(soon);
     setInterval(renderMixerPanel, 1000);
+    setInterval(checkLevels, 150);
+    $('sbLevel').onclick = () => ws.open('mixer');
   }
-  $('mixerStrips').addEventListener('pointerdown', (e) => { if (e.target.matches('input[type=range]')) mixer.dragging = true; });
+  $('mixerStrips').addEventListener('pointerdown', (e) => { if (e.target.matches('input[type=range], sa-knob, sa-fader')) mixer.dragging = true; });
   window.addEventListener('pointerup', () => { if (mixer.dragging) { mixer.dragging = false; mixer.key = ''; } });
   $('mixerStrips').addEventListener('input', (e) => {
     const t = e.target, base = t.closest('.mx-strip')?.dataset.base;
@@ -311,7 +378,7 @@ export function setup() {
   });
   $('mixerStrips').addEventListener('dblclick', (e) => {
     const t = e.target;
-    if (!t.matches('input[type=range]')) return;
+    if (!t.matches('input[type=range]')) return; // (knobs and faders reset themselves)
     t.value = t.dataset.k === 'vol' || t.dataset.k === 'master' ? 1 : 0;
     t.dispatchEvent(new Event('input', { bubbles: true }));
     mixer.key = '';
@@ -320,6 +387,9 @@ export function setup() {
     const b = e.target.closest('button[data-mx]');
     const base = b?.closest('.mx-strip')?.dataset.base;
     if (!base) return;
+    // the clip LED: click to reset it; EQ: this channel in the 🎚 Equalizer
+    if (b.dataset.mx === 'clip') { b.closest('.mx-strip').__clip = false; b.classList.remove('clip', 'hot'); return; }
+    if (b.dataset.mx === 'eq') { openEqualizer(base === '__master' ? 'master' : base); return; }
     // 🎧 👍 / 👎 its sound (your taste)
     if (b.dataset.mx === 'like' || b.dataset.mx === 'dislike') {
       const sound = mixerChannels().find((x) => x.base === base)?.sound;
