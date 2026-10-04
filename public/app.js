@@ -39,6 +39,7 @@ import { setup as setup_themes } from './features/themes.js';
 import { pluginsState, setup as setup_plugins } from './features/plugins.js';
 import { MODES, currentMode, savedLayout, saveLayout, setMode, setup as setup_modes } from './features/modes.js';
 import { bandFromSong, promoteJam, stationFromSong, setup as setup_promote } from './features/promote.js';
+import { openPartEditor, setup as setup_part_editor } from './features/part-editor.js';
 import { html, nothing, render, renderOptions } from './html.js';
 import { T } from './templates/index.js';
 // Strudel AI — browser app
@@ -796,6 +797,7 @@ const PANELS = [
   { id: 'playlist', title: 'Playlist', icon: '📃', el: $('playlistPanel'), area: 'right' },
   { id: 'song', title: 'Now playing', icon: '🎶', el: $('songPanel'), area: 'right' },
   { id: 'edit', title: 'Edit song', icon: '✎', el: $('editPanel'), area: 'right' },
+  { id: 'part', title: 'Part editor', icon: '🧩', el: $('partPanel'), area: 'bottom' },
   { id: 'viz', title: 'Visualizer', icon: '📊', el: $('viz-dock'), area: 'bottom' },
   { id: 'hydra', title: 'Hydra', icon: '🌀', el: $('hydra-dock'), area: 'bottom' },
   { id: 'keys', title: 'Keys', icon: '🎹', el: $('keys-dock'), area: 'bottom' },
@@ -1769,8 +1771,9 @@ export function applyPadsReply(block) {
 
 setup_mp3(); // features/mp3.js
 // (features/debug.js)
-window.strudelAI = { player, setMode, currentMode, promoteJam, bandFromSong, stationFromSong, plugins: pluginsState, sessionSongs, addToPlaylist, debugReport: () => debugReport(debugContext()), ws, mixer, mixerChannels, master, masterChain, getBands: () => bands, normalizeSheet, playSong, songMp3, loadPads, songPads, transposeProgression, sectionCode, getForms: () => songForms, getFavorites: () => favorites, loadFavorites, getPads: () => pads, mySongs, activeSong, songFromJSON, songToJSON, mp3, session, pads, padsState, keysState, noteOn, noteOff, setPad, docks, rec, replay, startReplay, recordingForShare, viz, checkScales, checkSounds, prepareCode, evaluateCode, dryRun, hum, transcribe, ensureSliders, engine, queue, setlist: engine, setl: queue };
+window.strudelAI = { player, setMode, currentMode, promoteJam, openPartEditor, bandFromSong, stationFromSong, plugins: pluginsState, sessionSongs, addToPlaylist, debugReport: () => debugReport(debugContext()), ws, mixer, mixerChannels, master, masterChain, getBands: () => bands, normalizeSheet, playSong, songMp3, loadPads, songPads, transposeProgression, sectionCode, getForms: () => songForms, getFavorites: () => favorites, loadFavorites, getPads: () => pads, mySongs, activeSong, songFromJSON, songToJSON, mp3, session, pads, padsState, keysState, noteOn, noteOff, setPad, docks, rec, replay, startReplay, recordingForShare, viz, checkScales, checkSounds, prepareCode, evaluateCode, dryRun, hum, transcribe, ensureSliders, engine, queue, setlist: engine, setl: queue };
 setup_modes(); // features/modes.js
 setup_promote(); // features/promote.js
+setup_part_editor(); // features/part-editor.js
 // 🧩 plugins last: everything they can add to is ready (features/plugins.js)
 setup_plugins();

@@ -21,6 +21,7 @@ import { splitLibrary, joinLibrary, renameDef, stubDef } from '../lib/library.js
 import { BAND_ROLES } from '../lib/bands.js';
 import { vizColor } from './visualizer.js';
 import { playSong } from './song-library.js';
+import { openPartEditor, renderPartEditor } from './part-editor.js';
 import { T } from '../templates/index.js';
 // --- editing a song: re-arranged by the app (no AI), live if it's playing
 export function rawSheet(sh) {
@@ -171,6 +172,18 @@ function openDraft(sg, keep = null) {
   draft.sel = Math.min(draft.sel, draft.raw.sections.length - 1);
 }
 function changed(msg = '') { draft.dirty = true; draft.msg = msg; draft.bad = false; renderSongEditor(); }
+/** The draft ✎ Edit song works on (the 🧩 part editor edits the same draft), or null. */
+export const currentDraft = () => draft;
+/** Change one part definition in the draft (from the 🧩 part editor). */
+export function setDraftDef(id, code, msg = '') {
+  const d = draft?.defs.find((x) => x.id === id);
+  if (!d || d.code === code) return;
+  d.code = code;
+  changed(msg);
+}
+/** ✓ apply / ↺ revert the draft (the 🧩 part editor has the same buttons). */
+export const applyDraft = () => edit.apply();
+export const revertDraft = () => edit.revert();
 const partOf = (name) => draft.raw.parts.find((p) => p.name === name);
 const defsOf = (name) => draft.defs.filter((d) => d.id.startsWith(`${name}_`));
 const ensureDef = (part, variant) => {
@@ -322,6 +335,7 @@ const edit = {
     for (const sec of draft.raw.sections) sec.play = sec.play.filter((str) => parsePlay(str).part !== part.name);
     changed();
   },
+  editPart(name) { openPartEditor(name); },
   togglePart(i) { const n = draft.raw.parts[i].name; if (!draft.open.delete(n)) draft.open.add(n); renderSongEditor(); },
   def(id, code) {
     const d = draft.defs.find((x) => x.id === id);
@@ -371,7 +385,7 @@ function stepOf(i) {
 /** The ✎ Edit song editor (templates/song-editor.js) for the song being edited. */
 export function renderSongEditor() {
   const sg = songEdit.sg;
-  if (!sg?.sheet || !sg.library) { draft = null; render(nothing, $('editForm')); return; }
+  if (!sg?.sheet || !sg.library) { draft = null; render(nothing, $('editForm')); renderPartEditor(); return; }
   if (draft?.sg !== sg) openDraft(sg);
   const r = draft.raw;
   const playing = queue.running && [sg, ...linkedSongs(sg)].includes(queue.songs[queue.current]);
@@ -398,6 +412,7 @@ export function renderSongEditor() {
     parts: r.parts.map((p, i) => ({ i, name: p.name, role: p.role, sound: p.sound, variants: p.variants.join(', '), color: vizColor(p.name), open: draft.open.has(p.name), defs: defsOf(p.name) })),
     roles: BAND_ROLES,
   }, edit), $('editForm'));
+  renderPartEditor(); // the 🧩 part editor shows the same draft
 }
 
 /** Start-up: the statements that ran here when this was part of app.js (called from app.js at the same point). */

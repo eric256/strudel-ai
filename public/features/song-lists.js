@@ -156,7 +156,7 @@ function sectionProgress(st) {
 // progress of the playing section in the song views (updated without re-rendering the lists;
 // renderSongs calls it right after it rebuilds a view, so the bar never blinks out)
 function updateSectionProgress() {
-  for (const el of ['nowSongView', 'editSongView'].flatMap((id) => [...$(id).querySelectorAll('.sv-left[data-i]')])) { // (panels may be in another window)
+  for (const el of $('nowSongView').querySelectorAll('.sv-left[data-i]')) { // (panels may be in another window)
     const st = engine.steps[Number(el.dataset.i)];
     const sum = el.closest('summary');
     if (engine.paused && engine.paused.step === st) {
@@ -225,7 +225,8 @@ export function renderSongs() {
   if ($('editForm').__sg !== ed) { $('editForm').__sg = ed; renderSongEditor(); }
   void setView;
   // (the views keep their DOM between renders, so opened sections stay open)
-  for (const [id, sg, live] of [['editSongView', ed, !!(queue.running && queue.songs[queue.current] === ed)], ['nowSongView', playingSong, nowLive]]) {
+  // (✎ Edit song doesn't repeat the song's sections: they're in 🎶 Now playing)
+  for (const [id, sg, live] of [['nowSongView', playingSong, nowLive]]) {
     const el = $(id);
     el.hidden = !sg;
     const note = id === 'nowSongView' && sg && !live ? (sg === preparing ? '✎ being written — plays when ready' : '■ stopped') : '';
@@ -373,12 +374,12 @@ export function setup() {
     const act = e.target.closest('[data-act]');
     if (act && songEdit.sg) songAction(act.dataset.act, songEdit.sg, act, $('editForm'));
   });
-  for (const id of ['editSongView', 'nowSongView']) {
+  for (const id of ['nowSongView']) {
     $(id).addEventListener('click', (e) => {
       const go = e.target.closest('.jump[data-i]');
       if (go) { e.preventDefault(); e.stopPropagation(); jumpTo(Number(go.dataset.i)); return; }
       if (e.target.closest('.sv-hold')) { e.preventDefault(); setHold(!engine.hold); renderSongs(); return; }
-      const sg = id === 'nowSongView' ? (queue.running && queue.songs[queue.current]) || nowSong : songEdit.sg;
+      const sg = (queue.running && queue.songs[queue.current]) || nowSong;
       const act = e.target.closest('[data-act]')?.dataset.act;
       if (act && sg) { songAction(act, sg, e.target.closest('[data-act]'), $(id)); return; }
       if (e.target.closest('.sv-copy') && sg?.shareUrl) {

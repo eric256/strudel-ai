@@ -14,7 +14,7 @@ import { html, nothing, repeat } from '../html.js';
  * act: { field(k, v), selectSection(i), sectionField(i, k, v), moveSection(i, d), dupSection(i), delSection(i), addSection(),
  *        dragSection(i), dropSection(i), cell(part, i), cellEnter(part, i), chordName(old, name), chords(name, text),
  *        addChords(), delChords(name), partField(i, k, v), addPart(), delPart(i), togglePart(i), def(id, code),
- *        ask(part, text), apply(), revert(), close(), play(), jump(i), loop(i) }
+ *        ask(part, text), editPart(part), apply(), revert(), close(), play(), jump(i), loop(i) }
  */
 export function songEditor(v, act) {
   const num = (val, k, attrs = {}) => html`<input type="number" class="se-num" .value=${String(val ?? '')} min=${attrs.min ?? nothing} max=${attrs.max ?? nothing} placeholder=${attrs.placeholder ?? nothing} @change=${(e) => act[attrs.on || 'field'](...(attrs.args || []), k, e.target.value)} />`;
@@ -87,6 +87,7 @@ export function songEditor(v, act) {
     <div class="se-parts">${repeat(v.parts, (p) => p.i, (p) => html`<div class="se-part${p.open ? ' open' : ''}" style="--c:${p.color}">
       <div class="se-prow">
         <button class="se-toggle" title=${p.open ? 'Hide its code' : 'Show its code'} @click=${() => act.togglePart(p.i)}>${p.open ? '▾' : '▸'}</button>
+        <button class="se-pedit" title="Open it in the 🧩 part editor: loop it, shape its effects, change its notes on a staff" @click=${() => act.editPart(p.name)}>🧩 edit</button>
         <input class="se-pname" .value=${p.name} title="name" @change=${(e) => act.partField(p.i, 'name', e.target.value)} />
         <select title="role" @change=${(e) => act.partField(p.i, 'role', e.target.value)}>${v.roles.map((r) => html`<option ?selected=${r === p.role}>${r}</option>`)}</select>
         <input class="se-psound" .value=${p.sound} title="sound" @change=${(e) => act.partField(p.i, 'sound', e.target.value)} />
