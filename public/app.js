@@ -42,6 +42,7 @@ import { MODES, currentMode, savedLayout, saveLayout, setMode, setup as setup_mo
 import { bandFromSong, promoteJam, stationFromSong, setup as setup_promote } from './features/promote.js';
 import { openPartEditor, setup as setup_part_editor } from './features/part-editor.js';
 import { openEqualizer, setup as setup_equalizer } from './features/equalizer.js';
+import { routing, applyRouting, setup as setup_routing } from './features/routing.js';
 import { getTaste, setTaste, avoidSound, likeSound, setup as setup_taste } from './features/taste.js';
 import { html, nothing, render, renderOptions } from './html.js';
 import { T } from './templates/index.js';
@@ -808,6 +809,7 @@ const PANELS = [
   { id: 'mixer', title: 'Mixer', icon: '🎚', el: $('mixer-dock'), area: 'bottom' },
   { id: 'master', title: 'Master', icon: '🎛', el: $('master-dock'), area: 'bottom' },
   { id: 'eq', title: 'Equalizer', icon: '🎚', el: $('eq-dock'), area: 'bottom' },
+  { id: 'route', title: 'Routing', icon: '🔀', el: $('route-dock'), area: 'bottom' },
   { id: 'console', title: 'Console', icon: '🖥', el: $('console-dock'), area: 'bottom' },
 ];
 export let ws;
@@ -1633,6 +1635,7 @@ setup_themes(); // features/themes.js
 setup_mixer(); // features/mixer.js
 setup_master_panel(); // features/master-panel.js
 setup_equalizer(); // features/equalizer.js
+setup_routing(); // features/routing.js
 // ---------------------------------------------------------------------------
 // Status bar (bottom): bar.beat + tempo, the song / section playing, the pending
 // change, the recording, replay and update notices.
@@ -1797,7 +1800,7 @@ export function applyPadsReply(block) {
 
 setup_mp3(); // features/mp3.js
 // (features/debug.js)
-window.strudelAI = { player, setMode, currentMode, promoteJam, openPartEditor, openEqualizer, restartSong, getTaste, setTaste, avoidSound, likeSound, openSongEditor: (sg) => openSongEditor(sg), bandFromSong, stationFromSong, plugins: pluginsState, sessionSongs, addToPlaylist, debugReport: () => debugReport(debugContext()), ws, mixer, mixerChannels, master, masterChain, getBands: () => bands, normalizeSheet, playSong, songMp3, loadPads, songPads, transposeProgression, sectionCode, getForms: () => songForms, getFavorites: () => favorites, loadFavorites, getPads: () => pads, mySongs, activeSong, songFromJSON, songToJSON, mp3, session, pads, padsState, keysState, noteOn, noteOff, setPad, docks, rec, replay, startReplay, recordingForShare, viz, checkScales, checkSounds, prepareCode, evaluateCode, dryRun, hum, transcribe, ensureSliders, engine, queue, setlist: engine, setl: queue };
+window.strudelAI = { player, routing, applyRouting, setMode, currentMode, promoteJam, openPartEditor, openEqualizer, restartSong, getTaste, setTaste, avoidSound, likeSound, openSongEditor: (sg) => openSongEditor(sg), bandFromSong, stationFromSong, plugins: pluginsState, sessionSongs, addToPlaylist, debugReport: () => debugReport(debugContext()), ws, mixer, mixerChannels, master, masterChain, getBands: () => bands, normalizeSheet, playSong, songMp3, loadPads, songPads, transposeProgression, sectionCode, getForms: () => songForms, getFavorites: () => favorites, loadFavorites, getPads: () => pads, mySongs, activeSong, songFromJSON, songToJSON, mp3, session, pads, padsState, keysState, noteOn, noteOff, setPad, docks, rec, replay, startReplay, recordingForShare, viz, checkScales, checkSounds, prepareCode, evaluateCode, dryRun, hum, transcribe, ensureSliders, engine, queue, setlist: engine, setl: queue };
 setup_modes(); // features/modes.js
 setup_promote(); // features/promote.js
 setup_part_editor(); // features/part-editor.js

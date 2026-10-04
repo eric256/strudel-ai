@@ -208,6 +208,14 @@ await p.waitForTimeout(500);
 await ev(() => [...document.querySelectorAll('#eqBody .eq-presets button')].find((b) => /Soft/.test(b.textContent))?.click());
 await big('eq', '16b-equalizer', 1000, 360);
 await ev(() => [...document.querySelectorAll('#eqBody .eq-presets button')].find((b) => /Flat/.test(b.textContent))?.click());
+// 🔀 Routing: the drums on a bus, the lead with a wet reverb path
+await open('route');
+await p.waitForTimeout(500);
+const tpl = (part, re) => ev(([part, re]) => { const s = document.querySelector('#routeBody .rt-tpl select'); if (part) { s.value = part; s.dispatchEvent(new Event('change')); } [...document.querySelectorAll('#routeBody .rt-tpl button')].find((b) => new RegExp(re).test(b.textContent))?.click(); }, [part, re]);
+await tpl(null, 'Drum bus');
+await tpl('lead', 'Wet space');
+await big('route', '16c-routing', 1440, 800);
+await ev(() => [...document.querySelectorAll('#routeBody .rt-right button')].find((b) => b.textContent === 'clear')?.click());
 await open('viz');
 await ev(() => { const s = document.getElementById('vizMode'); s.value = 'dashboard'; s.dispatchEvent(new Event('change')); });
 await p.waitForTimeout(1500);

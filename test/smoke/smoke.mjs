@@ -160,6 +160,23 @@ try {
     expect(peak > 0.01, `no sound through the master (peak ${peak})`);
   });
 
+  await step('🔀 routing: a parallel-comp chain on drums takes it off the direct path, the sound still reaches the master; clear puts it back', async () => {
+    await ev(() => strudelAI.ws.open('route'));
+    await p.waitForFunction(() => document.querySelectorAll('#routeBody .rt-part').length >= 4, null, { timeout: 5000 });
+    await ev(() => { const s = document.querySelector('#routeBody .rt-tpl select'); s.value = 'drums'; s.dispatchEvent(new Event('change')); [...document.querySelectorAll('#routeBody .rt-tpl button')].find((b) => /Parallel/.test(b.textContent)).click(); });
+    await p.waitForTimeout(300);
+    const r = await ev(async () => {
+      const L = strudelAI.routing.live, b = new Float32Array(2048);
+      let x = 0;
+      for (let i = 0; i < 15; i++) { strudelAI.masterChain().analyser.getFloatTimeDomainData(b); for (const v of b) x = Math.max(x, Math.abs(v)); await new Promise((r) => setTimeout(r, 100)); }
+      return { closed: L?.closed, blocks: Object.keys(L?.blocks || {}).length, nodes: document.querySelectorAll('#routeBody .rt-node').length, peak: x };
+    });
+    expect(r.closed?.includes('drums') && r.blocks === 4 && r.nodes === 4, JSON.stringify(r));
+    expect(r.peak > 0.01, `no sound through the master (peak ${r.peak})`);
+    await ev(() => [...document.querySelectorAll('#routeBody .rt-right button')].find((b) => b.textContent === 'clear').click());
+    expect(await ev(() => !strudelAI.routing.live && strudelAI.routing.graph.nodes.length === 0), 'clear left routing');
+  });
+
   await step('🎛 master nodes: ⏻ switches a node off (its effect goes neutral) and on again', async () => {
     await ev(() => document.querySelector('#masterBody .ms-pow[data-node="Space"]').click());
     const off = await ev(() => ({ off: strudelAI.master.off.includes('Space'), cls: document.querySelector('#masterBody .ms-node[data-group="Space"]').classList.contains('off') }));
@@ -493,7 +510,8 @@ try {
     // no song open: the message describes a new one (not a code change)
     const codeReqs = log.filter((x) => x.kind === 'code').length;
     await ev(() => { document.getElementById('input').value = 'a celtic jig with a fiddle'; document.getElementById('chat-form').requestSubmit(); });
-    await p.waitForFunction(() => document.querySelectorAll('#editForm .se-sec').length >= 2 && !!strudelAI.activeSong(), null, { timeout: 40000 });
+    await p.waitForFunction(() => document.querySelectorAll('#editForm .se-sec').length >= 2 && !!strudelAI.activeSong(), null, { timeout: 40000 })
+      .catch(async () => { throw new Error(`no song opened in ✎ Edit song — last messages: ${await ev(() => [...document.querySelectorAll('#messages .msg, #consoleLog div')].slice(-8).map((m) => m.textContent.slice(0, 160)).join(' ⏎ '))}`); });
     expect(log.filter((x) => x.kind === 'code').length === codeReqs, 'Studio sent the message as a code change');
     const target = await ev(() => document.getElementById('chatTarget').value);
     expect(target === 'song', `the chat target after a new song: ${target}`);

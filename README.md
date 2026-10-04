@@ -505,6 +505,29 @@ The status bar watches the whole mix. **● HOT** (amber) means it peaks within 
 - **Presets:** Flat, Soft top (tames harsh square waves and cymbals), Warm, Bass boost, Bright, Presence, De-mud and Smile.
 - It's remembered: the master's EQ in the browser, a channel's with that part's mixer settings.
 
+## 🔀 Routing
+**🔀 Routing** sends parts through chains of effects after their mixer faders, the way a studio console routes channels through outboard gear and buses. It's drawn as a graph: the parts on the left, the master on the right, effect nodes wired in between. Each card has a little scope of its sound now.
+
+- **Wiring:** drag from a part's or node's **●** to a node or to the master. A part you wire stops going straight to the master; one with no wires goes straight there (the faint line).
+- **Nodes:**
+  - **Split** sends the sound down several paths at once; **Sum** adds paths back together. Wire several parts into one Sum to make a bus.
+  - **Comp** (threshold, ratio, attack, release, makeup; its card shows the gain reduction live), **Sat** (drive, mix), **EQ** (low / mid / high), **Filter** (high-pass, low-pass), **Verb** (size, mix), **Delay** (time, feedback, mix) and **Gain**.
+- **Editing:**
+  - Click a node for its knobs, ⏻ (bypass) and ✕ remove. Removing a node joins what fed it to what it fed.
+  - Click a wire to insert a node into it or remove it. **＋** adds a node after the selected node or into the selected wire.
+  - Drag a node to move it; **tidy** lays the graph out again. Delete removes the selection, Esc unselects.
+- **Ready-made chains** for the part picked in the bar:
+  - **Parallel comp:** New York compression, a squashed, driven copy under the dry sound.
+  - **Wet space:** comp, then a 100 % wet reverb path summed under the dry sound.
+  - **Clean:** high-pass, EQ, gentle comp.
+  - **Dub echo:** a filtered echo path.
+  - **Drum bus:** every drum part into one Sum with glue compression and saturation.
+- **routing on** switches it all off and on to compare (A / B); **clear** removes it.
+- A node that never reaches the master is outlined in amber (⚠): you won't hear what goes into it.
+- Kept in the browser by part name, like the mixer, so `drums` keeps its chain from song to song.
+
+How it works: each part's channel strip ends in its fader, then a *direct* path to the master. Routing closes that path and wires the fader's output into Web Audio nodes (`DynamicsCompressorNode`, `WaveShaperNode`, biquads, `ConvolverNode`, `DelayNode`). Their sum goes into the master chain, so 🎛 Master and the master volume still apply. Node changes are instant; adding or removing nodes rebuilds the graph. The graph rules (no loops, values in range, templates, layout) are in `lib/routing.js` and the audio blocks in `routing-audio.js`.
+
 ## 🎛 Master (mastering style)
 Every song has a **master style**: post-processing on the whole mix, picked by the songwriter (or the band) and shown in the song's details as 🎛. Styles: clean, lo-fi, warm, acoustic (natural and open: a wooden room, gentle compression), pop, techno, house, edm, dnb, hiphop, synthwave, ambient, dub, cinematic, rock, chiptune and radio.
 
@@ -581,7 +604,7 @@ To write one, see **[PLUGINS.md](PLUGINS.md)**.
 
 ## Panels and layout
 
-Every part of the app is a panel in [dockview](https://dockview.dev): the code editor ⌨, Chat 💬, Songs 🎵, Station 📻, Playlist 📃, **Now playing** 🎶, Visualizer 📊, Hydra 🌀, Keys 🎹, Pads 🔲, Mixer 🎚, Master 🎛 and Console 🖥.
+Every part of the app is a panel in [dockview](https://dockview.dev): the code editor ⌨, Chat 💬, Songs 🎵, Station 📻, Playlist 📃, **Now playing** 🎶, Visualizer 📊, Hydra 🌀, Keys 🎹, Pads 🔲, Mixer 🎚, Equalizer 🎚, Routing 🔀, Master 🎛 and Console 🖥.
 
 - **Tabs and splits:** drag a tab onto another group to tab it there, or onto any edge of any group to split it. Splits can nest as deeply as you like, and you drag the bars between groups to resize them. A panel you open joins the group its kind already lives in (the tools go below the code, the song panels go on the right).
 - **The buttons at the right of each panel header** act on the panel showing in that group:
