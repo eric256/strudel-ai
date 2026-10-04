@@ -2,6 +2,18 @@
 
 The version is in `package.json`. Bump it when you release. Open pages also notice *any* redeploy through the build id, which is a hash of the app files, even if the version wasn't bumped.
 
+## 1.54.2
+- **Fix: panels whose content was cut off with no scroll bar.** 🧩 Part editor is the one you saw; an audit of every panel found the same in 💬 Chat, 📊 Visualizer, 🌀 Hydra, 🔲 Pads and 🔀 Routing when they're small (or floating, or in a short window).
+  - Every panel now scrolls when what's in it is taller than its box.
+  - Panels with their own scrolling list (chat messages, console, playlist, mixer …) still scroll that list, so the chat box stays put.
+  - The docked-panel minimum height left over from the old layout is gone.
+  - The 🔀 Routing inspector scrolls on its own.
+  - ⚙ Settings pages were checked too and were fine.
+- **Fix: 🎼 Studio with no song open could edit a song that was only highlighted in 🎵 Songs**, instead of writing the new song you described. In Studio, the chat now works on the song in ✎ Edit song (or the one playing), and otherwise writes a new one.
+- **Tests:**
+  - A smoke step shrinks every panel and checks that all its content can still be reached.
+  - The Studio step waits for the chat to be free before sending, and says what it saw when it fails.
+
 ## 1.54.1
 - **🔀 Routing, easier to build:**
   - **Click a part, then ＋ an effect:** part → effect → master. The new effect is selected, so the next **＋** goes in after it. ＋ on any selected node or wire inserts into the middle. With nothing selected, ＋ adds after the part in the bar.
