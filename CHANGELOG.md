@@ -2,6 +2,19 @@
 
 The version is in `package.json`. Bump it when you release. Open pages also notice *any* redeploy through the build id, which is a hash of the app files, even if the version wasn't bumped.
 
+## 1.54.1
+- **🔀 Routing, easier to build:**
+  - **Click a part, then ＋ an effect:** part → effect → master. The new effect is selected, so the next **＋** goes in after it. ＋ on any selected node or wire inserts into the middle. With nothing selected, ＋ adds after the part in the bar.
+  - **Split has two outputs and Sum two inputs.** A new Split comes with its Sum (part → Split ⇒ both paths → Sum → on), and ＋ on the Split puts the effect on its second path. Templates and earlier saves get their ports automatically.
+  - **Parts** can be selected (＋ add after it, ✕ unroute) and moved.
+- **Fix: nodes that wouldn't move, or moved without the wires following.**
+  - The drag now captures the pointer on the panel, so it keeps working outside the canvas, on touch screens, and with the panel floating or popped out into its own window.
+  - Templates no longer reset nodes you placed by hand.
+- **Tests and docs:**
+  - Unit tests for ports, "select then ＋", Split with its Sum, and part pins.
+  - The smoke step builds a chain from a selected part.
+  - The README and feature tour are updated.
+
 ## 1.54.0
 - **🔀 Routing** (new panel, 🔀 Routing in the top bar): send parts through effect chains after their mixer faders, drawn as a graph from the parts to the master.
   - **Nodes:** Split / Sum for parallel paths and buses, Comp (with live gain reduction), Sat, EQ, Filter, Verb, Delay and Gain. Each node has knobs, ⏻ bypass and a little scope.

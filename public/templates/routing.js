@@ -5,24 +5,26 @@ import { html, svg } from '../html.js';
 
 /**
  * v: { on, w, h,
- *      parts: [{ id, base, color, x, y, routed }],
- *      nodes: [{ id, type, label, kind, title, summary, x, y, off, dead, unfed, selected }],
+ *      parts: [{ id, base, color, x, y, routed, selected }],
+ *      nodes: [{ id, type, label, kind, title, summary, x, y, off, dead, unfed, selected, ins, outs }],  (ins / outs: ports, 1 or 2)
  *      master: { x, y, h, db },
- *      wires: [{ from, to, d, kind, selected, implicit }], drag: { d } | null,
+ *      wires: [{ from, to, fp, tp, d, kind, selected, implicit }], drag: { d } | null,
  *      sel: null | { node: { id, label, title, off, controls: [{ key, label, min, max, step, value, unit }] } }
- *                | { edge: { from, to, fromLabel, toLabel } },
+ *                | { part: { base, routed } } | { edge: { from, to, fromLabel, toLabel } },
  *      add: [{ type, label, title }], templates: [{ key, label, title }], targets: [string], target, parts: … }
  * act: { toggle(on), add(type), template(key), target(part), tidy(), clear(), remove(), off(), insert(type) }
  */
 export function routing(v, act) {
-  const port = (id, dir) => html`<span class="rt-port ${dir}" data-port=${dir} data-id=${id} title=${dir === 'out' ? 'Drag to a node (or the master) to wire it' : 'Input'}></span>`;
-  const part = (p) => html`<div class="rt-card rt-part${p.routed ? ' routed' : ''}" data-id=${p.id} data-in="0" style="left:${p.x}px;top:${p.y}px;--c:${p.color}"
-      title="${p.base}: after its 🎚 mixer fader${p.routed ? '' : ' — straight to the master (drag from ● to route it)'}">
-      <b>${p.base}</b><span class="rt-sub" data-id=${p.id}>${p.routed ? 'routed' : 'direct'}</span><canvas class="rt-scope" data-id=${p.id} width="128" height="18"></canvas>${port(p.id, 'out')}</div>`;
+  // ports: data-k is the port number (a Split's two outputs, a Sum's two inputs)
+  const ports = (id, dir, count) => [...Array(count).keys()].map((k) => html`<span class="rt-port ${dir}${count > 1 ? ` p${k}` : ''}" data-port=${dir} data-id=${id} data-k=${k}
+      title=${dir === 'out' ? `${count > 1 ? `Path ${k + 1}: ` : ''}drag to a node (or the master) to wire it` : count > 1 ? `Input ${k + 1}` : 'Input'}></span>`);
+  const part = (p) => html`<div class="rt-card rt-part${p.routed ? ' routed' : ''}${p.selected ? ' sel' : ''}" data-id=${p.id} data-in="0" data-drag="1" style="left:${p.x}px;top:${p.y}px;--c:${p.color}"
+      title="${p.base}: after its 🎚 mixer fader${p.routed ? '' : ' — straight to the master'}. Click it, then ＋ an effect; drag to move it">
+      <b>${p.base}</b><span class="rt-sub" data-id=${p.id}>${p.routed ? 'routed' : 'direct'}</span><canvas class="rt-scope" data-id=${p.id} width="128" height="18"></canvas>${ports(p.id, 'out', 1)}</div>`;
   const node = (n) => html`<div class="rt-card rt-node k-${n.kind}${n.selected ? ' sel' : ''}${n.off ? ' off' : ''}${n.dead ? ' dead' : ''}" data-id=${n.id} data-in="1" data-drag="1"
       style="left:${n.x}px;top:${n.y}px" title="${n.title}${n.dead ? ' — ⚠ not wired to the master: you won’t hear it' : n.unfed ? ' — nothing goes in yet' : ''}">
-      ${port(n.id, 'in')}<b>${n.label}${n.off ? ' ⏻' : ''}${n.dead ? ' ⚠' : ''}</b><span class="rt-sub" data-id=${n.id}>${n.summary}</span>
-      <canvas class="rt-scope" data-id=${n.id} width="128" height="18"></canvas>${port(n.id, 'out')}</div>`;
+      ${ports(n.id, 'in', n.ins)}<b>${n.label}${n.off ? ' ⏻' : ''}${n.dead ? ' ⚠' : ''}</b><span class="rt-sub" data-id=${n.id}>${n.summary}</span>
+      <canvas class="rt-scope" data-id=${n.id} width="128" height="18"></canvas>${ports(n.id, 'out', n.outs)}</div>`;
   const sel = v.sel;
   return html`<div class="rt">
     <div class="rt-bar">
@@ -38,11 +40,11 @@ export function routing(v, act) {
     <div class="rt-main">
       <div class="rt-scroll"><div class="rt-canvas" style="width:${v.w}px;height:${v.h}px">
         <svg class="rt-wires" width=${v.w} height=${v.h}>${v.wires.map((w) => svg`<g class="rt-wire k-${w.kind}${w.selected ? ' sel' : ''}${w.implicit ? ' implicit' : ''}">
-            <path class="hit" d=${w.d} data-from=${w.from} data-to=${w.to}></path><path class="line" d=${w.d}></path></g>`)}
+            <path class="hit" d=${w.d} data-from=${w.from} data-to=${w.to} data-fp=${w.fp || 0} data-tp=${w.tp || 0}></path><path class="line" d=${w.d}></path></g>`)}
           ${v.drag ? svg`<path class="rt-wire-temp" d=${v.drag.d}></path>` : ''}</svg>
         ${v.parts.map(part)}${v.nodes.map(node)}
         <div class="rt-card rt-master" data-id="master" data-in="1" style="left:${v.master.x}px;top:${v.master.y}px;height:${v.master.h}px" title="The master: on to 🎛 Master (double-click to open it)">
-          ${port('master', 'in')}<b>Master</b><span class="rt-sub" data-id="master">${v.master.db}</span>
+          ${ports('master', 'in', 1)}<b>Master</b><span class="rt-sub" data-id="master">${v.master.db}</span>
           <div class="rt-mmeter"><i></i></div><canvas class="rt-scope" data-id="master" width="128" height="18"></canvas></div>
       </div></div>
       <div class="rt-insp">${sel?.node ? html`
@@ -51,13 +53,17 @@ export function routing(v, act) {
               title="${c.label}${c.unit ? ` (${c.unit})` : ''} — double-click: default"></sa-knob>`) : html`<span class="muted small">no settings: it ${sel.node.label === 'Split' ? 'copies the sound to every wire out' : 'adds what comes in'}</span>`}</div>
           <div class="rt-insp-btns"><button class=${sel.node.off ? 'on' : ''} title="Bypass: the sound passes through untouched" @click=${act.off}>⏻ ${sel.node.off ? 'off' : 'on'}</button>
             <button title="Remove it (what fed it then feeds what it fed)" @click=${act.remove}>✕ remove</button></div>`
+        : sel?.part ? html`
+          <div class="rt-insp-head"><b>${sel.part.base}</b><span class="muted small">${sel.part.routed ? 'routed through the nodes it’s wired to' : 'straight to the master'}</span></div>
+          <div class="rt-insert">＋ add after it: ${v.add.map((a) => html`<button title=${a.title} @click=${() => act.add(a.type)}>${a.label}</button>`)}</div>
+          ${sel.part.routed ? html`<div class="rt-insp-btns"><button title="Take its routing out: straight to the master again" @click=${act.remove}>✕ unroute</button></div>` : ''}`
         : sel?.edge ? html`
           <div class="rt-insp-head"><b>Wire</b><span class="muted small">${sel.edge.fromLabel} → ${sel.edge.toLabel}</span></div>
           <div class="rt-insert">insert: ${v.add.map((a) => html`<button title=${a.title} @click=${() => act.insert(a.type)}>${a.label}</button>`)}</div>
           <div class="rt-insp-btns"><button @click=${act.remove}>✕ remove wire</button></div>`
         : html`<div class="muted small rt-help">
-          <p>Each part comes out of its 🎚 mixer fader on the left. Drag from a <b>●</b> to a node or the master to wire it; a part you wire stops going straight to the master.</p>
-          <p><b>＋</b> adds a node (after the selected node, or into the selected wire). <b>Split</b> sends the sound down parallel paths, <b>Sum</b> adds them back — wire several parts into one Sum for a bus.</p>
+          <p>Each part comes out of its 🎚 mixer fader on the left. <b>Click a part, then ＋ an effect:</b> it goes part → effect → master. Click that effect and ＋ another: it goes in after it.</p>
+          <p><b>Split</b> comes with its <b>Sum</b>: two parallel paths (the second is the one ＋ adds to). Wire several parts into one Sum for a bus. Drag from a <b>●</b> to wire by hand.</p>
           <p>Click a node for its knobs, a wire to insert into or remove it. Delete removes the selection. Or start from a ready-made chain for a part.</p></div>`}</div>
     </div>
   </div>`;

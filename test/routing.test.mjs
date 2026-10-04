@@ -4,7 +4,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   NODE_TYPES, SINK, TEMPLATES, addNode, canConnect, connect, deadEnds, defaultParams, layoutGraph, nodeSummary,
-  normGraph, reaches, removeEdge, removeNode, routedParts, srcId, unfed, unroutePart,
+  normGraph, reaches, removeEdge, removeNode, routedParts, srcId, unfed, unroutePart, freeInput,
 } from '../public/lib/routing.js';
 
 const empty = { nodes: [], edges: [] };
@@ -50,7 +50,7 @@ test('removeNode heals the chain; removeEdge; dead ends and unfed nodes are foun
   g = removeNode(g, 'n1');
   const key = (es) => es.map((e) => `${e.from}>${e.to}`).sort();
   assert.deepEqual(key(g.edges), ['n2>master', 'src:drums>n2']);
-  g = removeEdge(g, 'n2', SINK);
+  g = removeEdge(g, { from: 'n2', to: SINK });
   assert.deepEqual(deadEnds(g), ['n2']);
   const lone = addNode(empty, 'sum').graph;
   assert.deepEqual(unfed(lone), ['n1']);
@@ -82,7 +82,7 @@ test('templates: parallel comp splits and sums; a drum bus sums every drum part;
 test('summaries say what a node does', () => {
   const g = TEMPLATES.nycomp.build(empty, ['drums']);
   const by = (t) => g.nodes.find((n) => n.type === t);
-  assert.equal(nodeSummary(g, by('split')), '2 paths');
+  assert.equal(nodeSummary(g, by('split')), '2 of 2 paths');
   assert.equal(nodeSummary(g, by('sum')), '2 in · summing');
   assert.equal(nodeSummary(g, by('comp'), { gr: -16.94 }), 'GR 16.9 dB');
   assert.equal(nodeSummary(g, by('sat')), 'Drive 4 dB');
@@ -102,4 +102,60 @@ test('layout: parts on the left in order, a chain on its part\'s row, split path
   // a node you moved stays where you put it
   const moved = { ...g, nodes: g.nodes.map((n) => (n.id === 'n2' ? { ...n, x: 333, y: 444 } : n)) };
   assert.deepEqual(layoutGraph(normGraph(moved), ['drums']).n2, { x: 333, y: 444 });
+});
+
+test('ports: a Split has two outputs and a Sum two inputs; templates and old saves get them spread', () => {
+  const g = TEMPLATES.nycomp.build(empty, ['drums']); // split n1, comp n2, sat n3, sum n4
+  const e = (from, to) => g.edges.find((x) => x.from === from && x.to === to);
+  assert.equal(e('n1', 'n4').fp, undefined, 'the dry path on the first output');
+  assert.equal(e('n1', 'n2').fp, 1, 'the comp path on the second');
+  assert.equal(e('n1', 'n4').tp, undefined);
+  assert.equal(e('n3', 'n4').tp, 1, 'into the second input of the sum');
+  // ports only where they exist
+  const bad = normGraph({ nodes: [{ id: 'a', type: 'comp' }], edges: [{ from: 'src:x', to: 'a', fp: 1, tp: 1 }, { from: 'a', to: 'master', fp: 1 }] });
+  assert.deepEqual(bad.edges, [{ from: 'src:x', to: 'a' }, { from: 'a', to: 'master' }]);
+  // the same two nodes wired twice on different ports is fine; the same ports twice isn't
+  let s = addNode(addNode(empty, 'split').graph, 'sum').graph;
+  s = connect(s, 'n1', 'n2', { fp: 0, tp: 0 });
+  s = connect(s, 'n1', 'n2', { fp: 1, tp: 1 });
+  s = connect(s, 'n1', 'n2', { fp: 1, tp: 1 });
+  assert.equal(s.edges.length, 2);
+  assert.equal(freeInput(addNode(empty, 'sum').graph, 'n1'), 0);
+});
+
+test('select a part, add an effect: it goes part → effect → master; select that and add another: inserted after it', () => {
+  let { graph: g, id } = addNode(empty, 'comp', { after: srcId('bass') });
+  assert.deepEqual(g.edges, [{ from: 'src:bass', to: id }, { from: id, to: 'master' }]);
+  ({ graph: g } = addNode(g, 'sat', { after: id }));
+  assert.deepEqual(g.edges.map((e) => `${e.from}>${e.to}`), ['src:bass>n1', 'n1>n2', 'n2>master']);
+  // and after the part again: in front of the chain
+  ({ graph: g } = addNode(g, 'eq', { after: srcId('bass') }));
+  assert.ok(reaches(g, 'src:bass', 'n3') && reaches(g, 'n3', 'n1') && !g.edges.some((e) => e.from === 'src:bass' && e.to === 'n1'));
+});
+
+test('a new Split comes with its Sum; an effect added after the Split goes on its second path into the Sum', () => {
+  let { graph: g, id: split } = addNode(empty, 'split', { after: srcId('drums') });
+  const sum = g.nodes.find((n) => n.type === 'sum').id;
+  const keys = (gr) => gr.edges.map((e) => `${e.from}:${e.fp || 0}>${e.to}:${e.tp || 0}`).sort();
+  assert.deepEqual(keys(g), [`${split}:0>${sum}:0`, `${split}:1>${sum}:1`, `${sum}:0>master:0`, `src:drums:0>${split}:0`].sort());
+  let comp;
+  ({ graph: g, id: comp } = addNode(g, 'comp', { after: split }));
+  assert.deepEqual(keys(g), [`${split}:0>${sum}:0`, `${split}:1>${comp}:0`, `${comp}:0>${sum}:1`, `${sum}:0>master:0`, `src:drums:0>${split}:0`].sort());
+  // after the comp: between it and the sum's second input
+  let sat;
+  ({ graph: g, id: sat } = addNode(g, 'sat', { after: comp }));
+  assert.ok(g.edges.some((e) => e.from === sat && e.to === sum && e.tp === 1));
+  // a split into a wire: from → split ⇒ sum → to
+  const w = addNode(addNode(empty, 'comp', { after: srcId('lead') }).graph, 'split', { onEdge: { from: 'n1', to: 'master' } }).graph;
+  assert.ok(reaches(w, 'n1', 'n2') && reaches(w, 'n2', 'n3') && w.edges.some((e) => e.from === 'n3' && e.to === 'master'));
+  // with the second path wired by hand, the next effect still goes on it
+  ({ graph: g } = addNode(g, 'verb', { after: split }));
+  assert.ok(g.edges.some((e) => e.from === split && e.fp === 1 && g.nodes.find((n) => n.id === e.to).type === 'verb'));
+});
+
+test('parts you move keep their place (pins), through templates too', () => {
+  const g = normGraph({ nodes: [], edges: [], pins: { 'src:drums': { x: 40, y: 300 }, nope: { x: 1, y: 1 } } });
+  assert.deepEqual(g.pins, { 'src:drums': { x: 40, y: 300 } });
+  assert.deepEqual(layoutGraph(g, ['drums', 'bass'])['src:drums'], { x: 40, y: 300 });
+  assert.deepEqual(TEMPLATES.nycomp.build(g, ['drums']).pins, g.pins);
 });

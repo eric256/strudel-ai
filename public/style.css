@@ -920,6 +920,7 @@ body.hydra-behind .code-bar { background: color-mix(in srgb, var(--panel-2) 80%,
 .rt-wrap { flex: 1; min-height: 0; display: flex; background: var(--sunken); outline: none; }
 .rt { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 .rt-canvas, .rt-bar { user-select: none; }
+.rt-card, .rt-port { touch-action: none; } /* (a drag isn't taken over by scrolling) */
 .rt-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; padding: 5px 10px; font-size: 12px; color: var(--muted); border-bottom: 1px solid var(--line); }
 .rt-bar button { font-size: 11px; padding: 1px 7px; border-radius: 10px; }
 .rt-add, .rt-tpl { display: flex; flex-wrap: wrap; align-items: center; gap: 3px; }
@@ -948,10 +949,10 @@ body.hydra-behind .code-bar { background: color-mix(in srgb, var(--panel-2) 80%,
 .rt-node.k-dyn .rt-sub, .rt-node.k-dyn .rt-scope { color: var(--accent-2); }
 .rt-node.k-space { background: color-mix(in srgb, var(--accent) 35%, var(--panel)); border-color: color-mix(in srgb, var(--accent) 60%, var(--border)); }
 .rt-node.k-space .rt-sub, .rt-node.k-space .rt-scope { color: color-mix(in srgb, var(--accent) 45%, var(--text)); }
-.rt-node.sel { outline: 2px solid var(--warn); outline-offset: 3px; }
+.rt-node.sel, .rt-part.sel { outline: 2px solid var(--warn); outline-offset: 3px; }
 .rt-node.off { opacity: .45; }
 .rt-node.dead { border-style: dashed; border-color: var(--warn); }
-.rt-part { background: color-mix(in srgb, var(--c, var(--danger)) 30%, var(--panel)); border-color: color-mix(in srgb, var(--c, var(--danger)) 60%, var(--border)); cursor: default; }
+.rt-part { background: color-mix(in srgb, var(--c, var(--danger)) 30%, var(--panel)); border-color: color-mix(in srgb, var(--c, var(--danger)) 60%, var(--border)); cursor: grab; }
 .rt-part .rt-sub, .rt-part .rt-scope { color: color-mix(in srgb, var(--c, var(--danger)) 70%, var(--text)); }
 .rt-part:not(.routed) .rt-sub { opacity: .7; }
 .rt-master { width: 140px; display: flex; flex-direction: column; }
@@ -960,7 +961,11 @@ body.hydra-behind .code-bar { background: color-mix(in srgb, var(--panel-2) 80%,
 .rt-mmeter i { display: block; width: 100%; height: 0; background: var(--accent-2); border-radius: 2px; transition: height .08s linear; }
 .rt-mmeter i.hot { background: var(--warn); }
 .rt-port { position: absolute; top: 50%; width: 11px; height: 11px; margin-top: -6px; border-radius: 50%; background: var(--muted); border: 2px solid var(--sunken); }
+.rt-port.p0 { top: 30%; }
+.rt-port.p1 { top: 70%; }
+.rt-port::after { content: ''; position: absolute; inset: -6px; border-radius: 50%; } /* (a bigger target than the dot) */
 .rt-port.out { right: -7px; cursor: crosshair; }
+.rt-port.in:hover { background: var(--warn); }
 .rt-port.out:hover { background: var(--warn); transform: scale(1.3); }
 .rt-port.in { left: -7px; }
 .rt-master .rt-port.in { top: 38px; }
