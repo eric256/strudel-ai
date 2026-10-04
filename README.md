@@ -285,6 +285,22 @@ A song's sheet and sections show in two places only:
   - **↺ revert** throws your changes away. A song played again is a copy, and an edit applies to every copy of it.
   - Songs in My songs are saved; for other songs, 📁 Save to My songs keeps the edit.
   - Closing the panel ends editing.
+  - The song's sections and progress are in 🎶 Now playing; the editor doesn't repeat them.
+- **🧩 Part editor:** **🧩 edit** on a part in ✎ Edit song opens it in its own panel. It edits the same draft, so ✓ apply there or here puts the changes into the song.
+  - **Variant** picks which version of the part you edit (main, alt1, fill …), with the sections each one plays in. **Section** picks whose chords it loops over.
+  - **▶ loop** plays the part over and over, **solo** or with the rest of that section. Every change plays as you make it. Looping stops the song.
+  - **Effects:**
+    - The methods on the whole part (gain, velocity, pan, low-/high-pass and resonance, vowel, envelope, note length, reverb, delay, shape, distort, crush, coarse, phaser, speed, vibrato) as sliders. Pitch filters use a log scale.
+    - A value that's a live slider in the song (◉) stays one.
+    - **＋ effect** adds one before the part's gain; × takes one off.
+  - **Notes:** each mini-notation pattern in the part's code, in the editor that fits it:
+    - **Staff:** melodies, in scale degrees (`n("0 2 4").scale(…)`) or note names (`note("c4 eb4")`), on a treble or bass staff with accidentals, stems and flags.
+      - Click the staff to put a note at that step and pitch, or move the one there. Right-click removes it.
+      - ▲▼ or the arrows move the selected note by a scale step, 8va / 8vb or Shift+arrows by an octave. ½ / ×2 or − / + change its length, and Delete makes it a rest.
+    - **Grid:** drums (`s("bd ~ sd ~")`, one row per sound, ＋ sound for a new row), chord tones (`n("0 1 2").chord(…)`), sample hits (`.n("<3 4>")`) and rhythms (`struct("x ~ x")`). Click a cell to add or remove a hit.
+    - **Level bars:** velocity and gain patterns. Click a column at a height to set it; right-click clears it.
+    - **For every pattern:** steps per bar sets the grid, and ＋ bar / − bar add (a copy of the last) or remove bars, one per cycle with `<…>`. The pattern is also shown **as text** to edit directly.
+    - **Read-only notation:** patterns using notation the editor can't change (euclid `(3,8)`, `?`, `{…}`, `.`, alternation inside a step) are shown as text only. The part's whole **code** is below.
 
 **🔗 Link** shares a whole written song: its sheet, its parts code and every arranged section. Opening the link puts it in the Songs panel (This session), ready to play exactly as written, with no AI calls. When the playlist runs out (without loop or a station), the music stops after the last section.
 

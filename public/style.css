@@ -815,6 +815,72 @@ body.hydra-behind .code-bar { background: color-mix(in srgb, var(--panel-2) 80%,
 .se-tunes { display: flex; flex-wrap: wrap; gap: 6px 14px; }
 .se-tunes label { display: flex; align-items: center; gap: 4px; font-size: 12px; color: var(--muted); flex: 1 1 260px; }
 .se-tune { flex: 1; font-family: var(--mono); font-size: 12px; }
+/* 🧩 part editor */
+.se-pedit { font-size: 12px; padding: 1px 8px; }
+.pe { display: flex; flex-direction: column; gap: 8px; padding: 8px 10px 16px; }
+.pe-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; border-left: 3px solid var(--c); padding-left: 8px; }
+.pe-head .spacer { flex: 1; }
+.pe-name { font-size: 15px; color: var(--c); }
+.pe-play { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
+.pe-solo { display: flex; align-items: center; gap: 4px; font-size: 12px; color: var(--muted); }
+.pe-row { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; }
+.pe-row .se-label { margin: 0 6px 0 0; min-width: 58px; }
+.pe-chip { font-size: 12px; padding: 2px 8px; border-radius: 12px; border: 1px solid var(--border); background: var(--raised); }
+.pe-chip small { color: var(--muted); font-size: 10px; }
+.pe-chip.uses { border-color: color-mix(in srgb, var(--c) 60%, var(--border)); }
+.pe-chip.on { border-color: var(--accent); background: var(--accent-soft); color: var(--text); }
+.pe-fx { display: flex; flex-wrap: wrap; gap: 8px; align-items: flex-start; }
+.pe-fxgroup { flex: 1 1 240px; max-width: 380px; padding: 6px 8px; border-radius: 6px; background: var(--sunken); display: flex; flex-direction: column; gap: 3px; }
+.pe-fxname { font: 600 10px var(--mono); text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+.pe-fxrow { display: grid; grid-template-columns: 96px 1fr 62px 24px 16px; align-items: center; gap: 6px; font-size: 12px; }
+.pe-fxrow:has(.pe-text) { grid-template-columns: 96px 1fr 16px; }
+.pe-fxrow input[type=range] { width: 100%; accent-color: var(--c); }
+.pe-num { width: 62px; font-size: 12px; }
+.pe-text { font: 12px var(--mono); width: 100%; }
+.pe-del { padding: 0 4px; }
+.pe-addfx { align-self: flex-start; font-size: 12px; }
+.pe-notes { display: flex; flex-direction: column; gap: 6px; }
+.pe-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; }
+.pe-tools button { font-size: 12px; padding: 2px 8px; min-width: 30px; }
+.pe-sep { width: 10px; }
+.pe-staff { display: flex; overflow-x: auto; padding: 4px 0; border-radius: 6px; background: var(--sunken); outline: none; }
+.pe-staff:focus-visible { box-shadow: 0 0 0 2px var(--accent-dim); }
+.pe-bar { flex: none; cursor: crosshair; }
+.pe-col { fill: transparent; }
+.pe-col.beat { fill: color-mix(in srgb, var(--text) 4%, transparent); }
+.pe-col:hover { fill: color-mix(in srgb, var(--accent) 12%, transparent); }
+.pe-line, .pe-barline { stroke: var(--muted); stroke-width: 1; }
+.pe-barline { stroke-width: 1.5; }
+.pe-clef { fill: var(--text); font-family: 'Noto Music', 'Bravura', 'Segoe UI Symbol', 'Apple Symbols', serif; }
+.pe-rest { fill: var(--faint); }
+.pe-note { pointer-events: none; }
+.pe-dur { fill: color-mix(in srgb, var(--c) 18%, transparent); }
+.pe-head { fill: var(--text); stroke: var(--text); stroke-width: 1.4; }
+.pe-head.hollow { fill: var(--sunken); }
+.pe-stem, .pe-flag { stroke: var(--text); stroke-width: 1.4; fill: none; }
+.pe-acc { fill: var(--text); font-size: 14px; }
+.pe-note.sel .pe-head, .pe-note.sel .pe-stem, .pe-note.sel .pe-flag { stroke: var(--accent); }
+.pe-note.sel .pe-head:not(.hollow), .pe-note.sel .pe-acc { fill: var(--accent); }
+.pe-note.sel .pe-dur { fill: color-mix(in srgb, var(--accent) 25%, transparent); }
+.pe-gridwrap { overflow-x: auto; border-radius: 6px; background: var(--sunken); padding: 4px; }
+.pe-grid { border-collapse: collapse; }
+.pe-grid th { font: 11px var(--mono); color: var(--muted); text-align: right; padding: 0 6px; white-space: nowrap; }
+.pe-grid td { padding: 1px; }
+.pe-grid td.barstart { border-left: 2px solid var(--border); padding-left: 3px; }
+.pe-cell { width: 18px; height: 18px; padding: 0; border-radius: 3px; border: 1px solid var(--border); background: var(--raised); }
+.pe-grid td.beat .pe-cell { border-color: var(--muted); }
+.pe-cell.on { background: var(--c); border-color: var(--c); }
+.pe-cell.held { background: color-mix(in srgb, var(--c) 30%, transparent); }
+.pe-addrow input { width: 90px; font-size: 11px; }
+.pe-levels { display: flex; gap: 8px; overflow-x: auto; padding: 4px; border-radius: 6px; background: var(--sunken); }
+.pe-lbar { display: flex; gap: 2px; }
+.pe-lcol { width: 14px; display: flex; align-items: flex-end; background: var(--raised); border-radius: 2px; cursor: ns-resize; }
+.pe-lval { width: 100%; background: var(--c); border-radius: 2px; }
+.pe-lval.held { opacity: .4; }
+.pe-mini { display: flex; align-items: center; gap: 6px; }
+.pe-mini input { flex: 1; font: 12px var(--mono); }
+.pe-code summary { font: 600 11px var(--mono); color: var(--muted); cursor: pointer; }
+.pe-code textarea { width: 100%; font: 12px/1.45 var(--mono); resize: vertical; margin-top: 4px; }
 /* ⌨ Jam only: 🎼 Make it a song */
 .jam-only { display: none; }
 body[data-mode="jam"] .jam-only { display: inline-flex; margin-left: auto; }

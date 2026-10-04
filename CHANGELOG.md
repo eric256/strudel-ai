@@ -2,6 +2,26 @@
 
 The version is in `package.json`. Bump it when you release. Open pages also notice *any* redeploy through the build id, which is a hash of the app files, even if the version wasn't bumped.
 
+## 1.50.0
+- **🧩 Part editor:** a new panel for one part of the song. Open it with **🧩 edit** on a part in ✎ Edit song; it edits the same draft as the song editor.
+  - **Variants and sections:** pick the variant (with the sections it plays in) and the section whose chords it loops over.
+  - **▶ loop:** plays the part solo or with the rest of the section. Every change plays as you make it.
+  - **Effects:**
+    - The part's effects as sliders, with a log scale for the filters, plus ＋ effect and ×.
+    - Live sliders in the song stay sliders.
+    - Values round to the effect's step.
+  - **Notes on a staff:**
+    - **What it shows:** scale-degree and note-name melodies on a treble or bass staff, with accidentals, ledger lines, stems, flags, note lengths and rests.
+    - **Editing:** click to place or move a note, right-click to remove it. Arrows and buttons move a note by a step or an octave, change its length, or make it a rest.
+  - **Grids** for drums, chord tones, sample hits and rhythms, and **level bars** for velocity.
+  - **Steps per bar, bars:** a steps-per-bar choice, ＋ / − bar, and the pattern as text.
+- **New libraries** (pure, unit-tested):
+  - `lib/mini-edit.js`: mini-notation ⇄ bars of notes, for the editable subset; anything else stays read-only.
+  - `lib/partcode.js`: a part's effects and note patterns, read and written in place.
+  - `lib/staff.js`: degrees and note names ⇄ MIDI ⇄ staff positions.
+- **✎ Edit song** no longer repeats the song's sections below the editor; 🎶 Now playing has them.
+- **Tests:** unit tests for the three libraries (round-trips, edits, effects, patterns, pitches). Smoke: open the hook in the part editor, move a note on the staff and with ↓, add reverb, loop it alone, and ✓ apply it into the song.
+
 ## 1.49.1
 - **Fix: 🎶 Now playing lost its place after a chat edit to a song that repeats section names** (A, B, A).
   - **Cause:** the edited song went on from the first section with the playing one's name, so in the second A it jumped back and replayed the sections after the first A.

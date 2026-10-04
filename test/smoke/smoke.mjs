@@ -488,6 +488,50 @@ try {
     await ev(() => document.getElementById('stop').click());
   });
 
+  await step('🧩 part editor: a part opens from ✎ Edit song; notes on the staff, an effect, ▶ loop on its own, ✓ apply into the song', async () => {
+    expect(!(await ev(() => document.getElementById('editSongView'))), '✎ Edit song still shows the song view (it is in 🎶 Now playing)');
+    await ev(() => strudelAI.setMode('studio'));
+    if (!(await ev(() => !!strudelAI.activeSong()))) {
+      await ev(() => { document.getElementById('input').value = 'a dark synth tune'; document.getElementById('chat-form').requestSubmit(); });
+      await p.waitForFunction(() => document.querySelectorAll('#editForm .se-sec').length >= 2 && !!strudelAI.activeSong(), null, { timeout: 40000 });
+    }
+    await p.waitForFunction(() => document.querySelectorAll('#editForm .se-part').length >= 2, null, { timeout: 10000 });
+    await ev(() => { const row = [...document.querySelectorAll('#editForm .se-part')].find((r) => r.querySelector('.se-pname').value === 'hook'); row.querySelector('.se-pedit').click(); });
+    await p.waitForSelector('#partForm .pe-bar', { timeout: 5000 });
+    const code = () => ev(() => document.querySelector('#partForm .pe-code textarea').value);
+    const before = await code();
+    const notes = await ev(() => document.querySelectorAll('#partForm .pe-note').length);
+    expect(/n\("[^"]+"\)\.scale/.test(before) && notes >= 2, `the hook on the staff: ${notes} notes, ${before}`);
+    // click the staff: the second step, high up (a note there moves)
+    const box = await p.locator('#partForm .pe-bar').first().boundingBox();
+    const steps = await ev(() => Number(document.querySelector('#partForm .pe-tools select').value));
+    const cw = steps <= 4 ? 48 : steps <= 8 ? 32 : steps <= 16 ? 22 : 14;
+    await p.mouse.click(box.x + 44 + cw * 1.5, box.y + 92 - 5 * 8);
+    await p.waitForTimeout(200);
+    const moved = await code();
+    expect(moved !== before && /n\("[^"]+"\)/.test(moved), `the staff click didn't change the notes: ${moved}`);
+    await ev(() => document.querySelector('#partForm .pe-staff').focus());
+    await p.keyboard.press('ArrowDown');
+    await p.waitForTimeout(100);
+    expect((await code()) !== moved, '↓ didn\'t move the selected note');
+    // an effect
+    await ev(() => { const s = document.querySelector('#partForm .pe-addfx'); s.value = 'room'; s.dispatchEvent(new Event('change')); });
+    expect(/\.room\(slider\(/.test(await code()), 'no reverb added');
+    // loop it on its own: only its line plays
+    await ev(() => document.querySelector('#partForm .pe-play').click());
+    await p.waitForFunction(() => document.querySelector('strudel-editor').editor.repl.scheduler.started, null, { timeout: 10000 });
+    const lines = await ev(() => document.querySelector('strudel-editor').editor.code.split('\n').filter((l) => /^\w+:/.test(l)).map((l) => l.split(':')[0]));
+    expect(lines.join() === 'hook', `the loop plays: ${lines}`);
+    // ✓ apply: the song has the new hook
+    const final = await code();
+    await ev(() => document.querySelector('#partForm .se-apply').click());
+    await p.waitForFunction(() => /applied/.test(document.querySelector('#editForm .se-msg')?.textContent || ''), null, { timeout: 15000 });
+    const lib = await ev(() => strudelAI.activeSong().library);
+    expect(lib.includes(final.trim().split('\n')[0].slice(0, 60)) && /hook_main[^\n]*\.room\(/.test(lib), `the song's parts don't have the edit: ${lib}`);
+    await ev(() => document.querySelector('#partForm .pe-stop')?.click());
+    await ev(() => document.getElementById('stop').click());
+  });
+
   await step('⬆ promotion: a jam becomes a song (opened in 🎼 Studio); the song becomes a 🎸 band and a 📻 station', async () => {
     await ev(() => strudelAI.setMode('jam'));
     await ev(() => document.querySelector('strudel-editor').editor.setCode('setcpm(124/4)\nkick: s("bd*4")\nhats: s("hh*8").gain(0.4)\nbass: note("a1 ~ a1 c2").s("sawtooth")'));
