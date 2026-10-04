@@ -173,6 +173,14 @@ try {
     });
     expect(r.closed?.includes('drums') && r.blocks === 4 && r.nodes === 4, JSON.stringify(r));
     expect(r.peak > 0.01, `no sound through the master (peak ${r.peak})`);
+    // click a part, ＋ an effect: part → effect → master; ＋ Split comes with its Sum (two outputs, two inputs)
+    await ev(() => [...document.querySelectorAll('#routeBody .rt-right button')].find((b) => b.textContent === 'clear').click());
+    const add = (t) => ev((t) => [...document.querySelectorAll('#routeBody .rt-add button')].find((b) => b.textContent === t).click(), t);
+    await p.locator('#routeBody .rt-part[data-id="src:bass"]').click();
+    await add('Comp');
+    await add('Split');
+    const g = await ev(() => ({ e: strudelAI.routing.graph.edges.map((e) => `${e.from}${e.fp ? '.1' : ''}>${e.to}${e.tp ? '.1' : ''}`).sort().join(' '), outs: document.querySelectorAll('#routeBody .rt-node[data-id="n2"] .rt-port.out').length, ins: document.querySelectorAll('#routeBody .rt-node[data-id="n3"] .rt-port.in').length }));
+    expect(g.e === 'n1>n2 n2.1>n3.1 n2>n3 n3>master src:bass>n1' && g.outs === 2 && g.ins === 2, JSON.stringify(g));
     await ev(() => [...document.querySelectorAll('#routeBody .rt-right button')].find((b) => b.textContent === 'clear').click());
     expect(await ev(() => !strudelAI.routing.live && strudelAI.routing.graph.nodes.length === 0), 'clear left routing');
   });

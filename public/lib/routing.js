@@ -35,7 +35,19 @@ const clamp = (v, [min, max, step, def]) => {
   return Math.round(s * 10000) / 10000;
 };
 
-/** A clean, safe graph: known types, values in range, unique ids, edges only between real nodes, and no loops. */
+// Ports: a Split has two outputs (fp: 0 | 1), a Sum two inputs (tp: 0 | 1). Both are visual (each output of a
+// Split carries the same sound; a Sum adds everything that comes in), so a path's place is clear on the canvas.
+export const outPorts = (type) => (type === 'split' ? 2 : 1);
+export const inPorts = (type) => (type === 'sum' ? 2 : 1);
+const typeOf = (nodes, id) => nodes.find((n) => n.id === id)?.type;
+export const edgeKey = (e) => `${e.from}:${e.fp || 0}>${e.to}:${e.tp || 0}`;
+const sameEdge = (a, b) => a.from === b.from && a.to === b.to && (a.fp || 0) === (b.fp || 0) && (a.tp || 0) === (b.tp || 0);
+
+/**
+ * A clean, safe graph: known types, values in range, unique ids, edges only between real nodes, ports that exist,
+ * and no loops. A Split with every wire on one output spreads them over both (same for a Sum's inputs), so graphs
+ * written without ports (templates, older saves) get them. `pins`: where you put the parts' cards.
+ */
 export function normGraph(g) {
   const nodes = [];
   for (const n of Array.isArray(g?.nodes) ? g.nodes : []) {
@@ -53,11 +65,22 @@ export function normGraph(g) {
   for (const e of Array.isArray(g?.edges) ? g.edges : []) {
     const from = String(e?.from || ''), to = String(e?.to || '');
     if (!ok(from) || !ok(to) || from === to || from === SINK || partOf(to) != null) continue;
-    if (edges.some((x) => x.from === from && x.to === to)) continue;
+    const edge = { from, to };
+    if (e.fp === 1 && typeOf(nodes, from) === 'split') edge.fp = 1;
+    if (e.tp === 1 && typeOf(nodes, to) === 'sum') edge.tp = 1;
+    if (edges.some((x) => sameEdge(x, edge))) continue;
     if (reaches({ edges }, to, from)) continue; // would close a loop
-    edges.push({ from, to });
+    edges.push(edge);
   }
-  return { nodes, edges };
+  for (const n of nodes) {
+    if (n.type === 'split') { const outs = edges.filter((e) => e.from === n.id); if (outs.length > 1 && !outs.some((e) => e.fp)) outs.slice(1).forEach((e) => { e.fp = 1; }); }
+    if (n.type === 'sum') { const ins = edges.filter((e) => e.to === n.id); if (ins.length > 1 && !ins.some((e) => e.tp)) ins.slice(1).forEach((e) => { e.tp = 1; }); }
+  }
+  const out = { nodes, edges };
+  const pins = {};
+  for (const [id, p] of Object.entries(g?.pins || {})) if (partOf(id) != null && Number.isFinite(p?.x) && Number.isFinite(p?.y)) pins[id] = { x: Math.round(p.x), y: Math.round(p.y) };
+  if (Object.keys(pins).length) out.pins = pins;
+  return out;
 }
 
 /** Is there a path a → … → b? */
@@ -71,8 +94,8 @@ export function reaches(g, a, b) {
   return false;
 }
 /** Can this edge be added? (not from the master, not into a part, not twice, no loop) */
-export const canConnect = (g, from, to) => from !== to && from !== SINK && partOf(to) == null
-  && !g.edges.some((e) => e.from === from && e.to === to) && !reaches(g, to, from);
+export const canConnect = (g, from, to, { fp = 0, tp = 0 } = {}) => from !== to && from !== SINK && partOf(to) == null
+  && !g.edges.some((e) => sameEdge(e, { from, to, fp, tp })) && !reaches(g, to, from);
 
 /** The parts that are routed (have an edge from their source): the others go straight to the master. */
 export const routedParts = (g) => [...new Set(g.edges.map((e) => partOf(e.from)).filter((p) => p != null))];
@@ -81,33 +104,66 @@ export const deadEnds = (g) => g.nodes.filter((n) => !reaches(g, n.id, SINK)).ma
 /** Nodes nothing flows into (they make no sound). */
 export const unfed = (g) => g.nodes.filter((n) => !g.edges.some((e) => e.to === n.id)).map((n) => n.id);
 
-export const newId = (g) => { let k = 1; while (g.nodes.some((n) => n.id === `n${k}`)) k++; return `n${k}`; };
+export const newId = (g, taken = []) => { let k = 1; while (g.nodes.some((n) => n.id === `n${k}`) || taken.includes(`n${k}`)) k++; return `n${k}`; };
+/** A Sum's free input (0 if both are taken). */
+export const freeInput = (g, sum) => (g.edges.some((e) => e.to === sum && !e.tp) ? (g.edges.some((e) => e.to === sum && e.tp === 1) ? 0 : 1) : 0);
 
-/** Add a node; on an edge (insert it there), after a node (between it and what it fed), or on its own. */
+/**
+ * Add a node:
+ *  - into a wire (onEdge): from → new → to;
+ *  - after a node or a part (after): between it and what it fed (a part going straight to the master: through the
+ *    new node to the master). After a Split it goes on its second path (the one you process), keeping the first;
+ *  - on its own (neither).
+ * A new Split comes with its Sum: in → Split ⇒ both paths → Sum → out, ready for an effect on one path.
+ */
 export function addNode(g, type, { onEdge = null, after = null, x, y } = {}) {
   const id = newId(g);
-  const node = { id, type, params: defaultParams(type), ...(Number.isFinite(x) ? { x, y } : {}) };
-  let edges = g.edges;
+  const nodes = [...g.nodes, { id, type, params: defaultParams(type), ...(Number.isFinite(x) ? { x, y } : {}) }];
+  let edges = [...g.edges];
+  // where the new node's input comes from, and where its output goes
+  let ins = [], outs = [];
   if (onEdge) {
-    edges = edges.filter((e) => !(e.from === onEdge.from && e.to === onEdge.to)).concat([{ from: onEdge.from, to: id }, { from: id, to: onEdge.to }]);
+    edges = edges.filter((e) => !sameEdge(e, onEdge));
+    ins = [{ from: onEdge.from, fp: onEdge.fp || 0 }];
+    outs = [{ to: onEdge.to, tp: onEdge.tp || 0 }];
   } else if (after) {
-    const outs = edges.filter((e) => e.from === after);
-    // a part going straight to the master: through the new node to the master
-    const targets = outs.length ? outs.map((e) => e.to) : [SINK];
-    edges = edges.filter((e) => e.from !== after).concat([{ from: after, to: id }], targets.map((t) => ({ from: id, to: t })));
+    let mine = edges.filter((e) => e.from === after);
+    if (typeOf(g.nodes, after) === 'split') {
+      const second = mine.filter((e) => e.fp === 1);
+      if (second.length) mine = second;
+      else {
+        // its second path is free: the new node takes it, and goes where the first path goes (a Sum's free input)
+        const first = mine.filter((e) => !e.fp);
+        ins = [{ from: after, fp: 1 }];
+        outs = first.length ? first.map((e) => ({ to: e.to, tp: typeOf(g.nodes, e.to) === 'sum' ? freeInput(g, e.to) : 0 })) : [{ to: SINK, tp: 0 }];
+        mine = null;
+      }
+    }
+    if (mine) {
+      edges = edges.filter((e) => !mine.includes(e));
+      ins = [{ from: after, fp: mine[0]?.fp || 0 }];
+      outs = mine.length ? mine.map((e) => ({ to: e.to, tp: e.tp || 0 })) : [{ to: SINK, tp: 0 }];
+    }
   }
-  return { graph: normGraph({ nodes: [...g.nodes, node], edges }), id };
+  if (type === 'split' && (ins.length || outs.length)) {
+    const sum = newId({ nodes }, [id]);
+    nodes.push({ id: sum, type: 'sum', params: {} });
+    edges.push(...ins.map((i) => ({ from: i.from, fp: i.fp, to: id })), { from: id, to: sum }, { from: id, fp: 1, to: sum, tp: 1 }, ...outs.map((o) => ({ from: sum, to: o.to, tp: o.tp })));
+  } else {
+    edges.push(...ins.map((i) => ({ from: i.from, fp: i.fp, to: id })), ...outs.map((o) => ({ from: id, to: o.to, tp: o.tp })));
+  }
+  return { graph: normGraph({ ...g, nodes, edges }), id };
 }
-/** Remove a node and heal the chain: what fed it now feeds what it fed. */
+/** Remove a node and heal the chain: what fed it now feeds what it fed (once per pair). */
 export function removeNode(g, id) {
-  const ins = g.edges.filter((e) => e.to === id).map((e) => e.from);
-  const outs = g.edges.filter((e) => e.from === id).map((e) => e.to);
+  const ins = g.edges.filter((e) => e.to === id);
+  const outs = g.edges.filter((e) => e.from === id);
   const edges = g.edges.filter((e) => e.from !== id && e.to !== id);
-  for (const a of ins) for (const b of outs) edges.push({ from: a, to: b });
-  return normGraph({ nodes: g.nodes.filter((n) => n.id !== id), edges });
+  for (const a of ins) for (const b of outs) if (!edges.some((e) => e.from === a.from && e.to === b.to)) edges.push({ from: a.from, fp: a.fp, to: b.to, tp: b.tp });
+  return normGraph({ ...g, nodes: g.nodes.filter((n) => n.id !== id), edges });
 }
-export const removeEdge = (g, from, to) => normGraph({ nodes: g.nodes, edges: g.edges.filter((e) => !(e.from === from && e.to === to)) });
-export const connect = (g, from, to) => (canConnect(g, from, to) ? normGraph({ nodes: g.nodes, edges: [...g.edges, { from, to }] }) : g);
+export const removeEdge = (g, edge) => normGraph({ ...g, edges: g.edges.filter((e) => !sameEdge(e, edge)) });
+export const connect = (g, from, to, ports = {}) => (canConnect(g, from, to, ports) ? normGraph({ ...g, edges: [...g.edges, { from, to, fp: ports.fp || 0, tp: ports.tp || 0 }] }) : g);
 /** Take a part's routing out: the nodes only it feeds go too, and it goes straight to the master again. */
 export function unroutePart(g, part) {
   const src = srcId(part);
@@ -116,7 +172,7 @@ export function unroutePart(g, part) {
   const fromOthers = new Set();
   for (const o of others) for (const n of g.nodes) if (reaches(g, o, n.id)) fromOthers.add(n.id);
   for (const n of g.nodes) if (reaches(g, src, n.id) && !fromOthers.has(n.id)) mine.add(n.id);
-  return normGraph({ nodes: g.nodes.filter((n) => !mine.has(n.id)), edges: g.edges.filter((e) => e.from !== src && !mine.has(e.from) && !mine.has(e.to)) });
+  return normGraph({ ...g, nodes: g.nodes.filter((n) => !mine.has(n.id)), edges: g.edges.filter((e) => e.from !== src && !mine.has(e.from) && !mine.has(e.to)) });
 }
 
 /** The line under a node's name: what it's doing (live readouts come from the audio: gr = gain reduction). */
@@ -124,7 +180,7 @@ export function nodeSummary(g, n, live = {}) {
   const p = n.params || {};
   const pct = (v) => `${Math.round(v * 100)}%`;
   switch (n.type) {
-    case 'split': return `${g.edges.filter((e) => e.from === n.id).length} paths`;
+    case 'split': return `${new Set(g.edges.filter((e) => e.from === n.id).map((e) => e.fp || 0)).size} of 2 paths`;
     case 'sum': return `${g.edges.filter((e) => e.to === n.id).length} in · summing`;
     case 'gain': return `${p.db > 0 ? '+' : ''}${p.db} dB`;
     case 'comp': return live.gr != null ? `GR ${Math.abs(live.gr).toFixed(1)} dB` : `${p.ratio}:1 at ${p.thresh} dB`;
@@ -139,19 +195,18 @@ export function nodeSummary(g, n, live = {}) {
 
 /**
  * Where everything goes on the canvas: parts in a column on the left (in the mixer's order), the master on the
- * right, each node a column after the furthest node feeding it. A part's chain stays on its row; a split's extra
- * paths go on new rows below. Nodes you've placed by hand (x, y) stay put.
+ * right, each node a column after the furthest node feeding it. A part's chain stays on its row; a Split's second
+ * path goes on a new row below. Nodes and parts you've placed by hand stay put.
  */
 export function layoutGraph(g, parts, { colW = 190, rowH = 125, pad = 18 } = {}) {
   const depth = {};
-  const order = [];
+  const outsOf = (id) => g.edges.filter((e) => e.from === id).sort((a, b) => (a.fp || 0) - (b.fp || 0));
   // longest path from any part (no loops, so this terminates)
   const visit = (id, d) => {
     if (id === SINK) return;
     if (depth[id] != null && depth[id] >= d) return;
     depth[id] = d;
-    if (!order.includes(id)) order.push(id);
-    for (const e of g.edges) if (e.from === id) visit(e.to, d + 1);
+    for (const e of outsOf(id)) visit(e.to, d + 1);
   };
   for (const p of parts) visit(srcId(p), 0);
   for (const n of g.nodes) if (depth[n.id] == null) visit(n.id, 1);
@@ -161,7 +216,7 @@ export function layoutGraph(g, parts, { colW = 190, rowH = 125, pad = 18 } = {})
     if (id === SINK || row[id] != null) return;
     row[id] = r;
     let first = true;
-    for (const e of g.edges) if (e.from === id) { if (e.to === SINK || row[e.to] != null) continue; place(e.to, first ? r : next++); first = false; }
+    for (const e of outsOf(id)) { if (e.to === SINK || row[e.to] != null) continue; place(e.to, first ? r : next++); first = false; }
   };
   for (const p of parts) place(srcId(p), next++);
   for (const n of g.nodes) if (row[n.id] == null) place(n.id, next++);
@@ -169,13 +224,14 @@ export function layoutGraph(g, parts, { colW = 190, rowH = 125, pad = 18 } = {})
   const pos = {};
   for (const [id, d] of Object.entries(depth)) pos[id] = { x: pad + d * colW, y: pad + (row[id] ?? 0) * rowH };
   for (const n of g.nodes) if (Number.isFinite(n.x)) pos[n.id] = { x: n.x, y: n.y };
+  for (const [id, p] of Object.entries(g.pins || {})) if (pos[id]) pos[id] = { ...p };
   const maxX = Math.max(pad + cols * colW, ...Object.values(pos).map((p) => p.x + colW));
-  const rows = Math.max(next, 1);
-  pos[SINK] = { x: maxX, y: pad, h: Math.max(rows * rowH - 20, 200) };
+  const maxY = Math.max(next * rowH, ...Object.values(pos).map((p) => p.y + rowH));
+  pos[SINK] = { x: maxX, y: pad, h: Math.max(maxY - pad - 20, 200) };
   return pos;
 }
 /** Forget hand placement (tidy up). */
-export const unplace = (g) => ({ ...g, nodes: g.nodes.map(({ x, y, ...n }) => n) });
+export const unplace = (g) => ({ nodes: g.nodes.map(({ x, y, ...n }) => n), edges: g.edges });
 
 // ---- templates: a ready-made chain for one part (or a bus for several) ----
 const looksLike = (re) => (c) => re.test(c.role || '') || re.test(c.base);
@@ -236,7 +292,7 @@ export const TEMPLATES = {
   },
 };
 function chain(g, _part, fn) {
-  let graph = { nodes: [...g.nodes], edges: [...g.edges] };
+  const graph = { ...g, nodes: [...g.nodes], edges: [...g.edges] };
   const add = (type, params = {}) => { const id = newId(graph); graph.nodes.push({ id, type, params: { ...defaultParams(type), ...params } }); return id; };
   const link = (from, to) => graph.edges.push({ from, to });
   fn(add, link);

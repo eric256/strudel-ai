@@ -508,14 +508,16 @@ The status bar watches the whole mix. **● HOT** (amber) means it peaks within 
 ## 🔀 Routing
 **🔀 Routing** sends parts through chains of effects after their mixer faders, the way a studio console routes channels through outboard gear and buses. It's drawn as a graph: the parts on the left, the master on the right, effect nodes wired in between. Each card has a little scope of its sound now.
 
-- **Wiring:** drag from a part's or node's **●** to a node or to the master. A part you wire stops going straight to the master; one with no wires goes straight there (the faint line).
+- **Building a chain:** click a part, then **＋** an effect: it goes part → effect → master. The new effect is selected, so **＋** another and it goes in after it. Select any node (or a wire) and **＋** to insert into the middle. With nothing selected, **＋** adds after the part picked in the bar.
+- **Wiring by hand:** drag from a **●** to a node, an input or the master. A part you wire stops going straight to the master; one with no wires goes straight there (the faint line).
 - **Nodes:**
-  - **Split** sends the sound down several paths at once; **Sum** adds paths back together. Wire several parts into one Sum to make a bus.
+  - **Split** has two outputs (two parallel paths) and comes with its **Sum**, which has two inputs: part → Split ⇒ both paths → Sum → on. **＋** on a selected Split puts the effect on its second path (the one you process), keeping the first dry. Wire several parts into one Sum to make a bus.
   - **Comp** (threshold, ratio, attack, release, makeup; its card shows the gain reduction live), **Sat** (drive, mix), **EQ** (low / mid / high), **Filter** (high-pass, low-pass), **Verb** (size, mix), **Delay** (time, feedback, mix) and **Gain**.
 - **Editing:**
   - Click a node for its knobs, ⏻ (bypass) and ✕ remove. Removing a node joins what fed it to what it fed.
-  - Click a wire to insert a node into it or remove it. **＋** adds a node after the selected node or into the selected wire.
-  - Drag a node to move it; **tidy** lays the graph out again. Delete removes the selection, Esc unselects.
+  - Click a part for ＋ add after it and ✕ unroute.
+  - Click a wire to insert a node into it or remove it.
+  - Drag nodes and parts to move them; **tidy** lays the graph out again. Delete removes the selection, Esc unselects.
 - **Ready-made chains** for the part picked in the bar:
   - **Parallel comp:** New York compression, a squashed, driven copy under the dry sound.
   - **Wet space:** comp, then a 100 % wet reverb path summed under the dry sound.
