@@ -607,6 +607,37 @@ try {
     await ev(() => document.getElementById('stop').click());
   });
 
+  await step('🎧 my taste: an avoided sound is swapped everywhere (songs written, new code), harsh synths softened, 👎 in the mixer', async () => {
+    await ev(() => strudelAI.setMode('studio'));
+    if (!(await ev(() => !!strudelAI.activeSong()))) {
+      await ev(() => { document.getElementById('input').value = 'a dark synth tune'; document.getElementById('chat-form').requestSubmit(); });
+      await p.waitForFunction(() => !!strudelAI.activeSong(), null, { timeout: 40000 });
+    }
+    // the settings page
+    await ev(() => document.getElementById('settingsBtn').click());
+    await ev(() => document.querySelector('.settings-tabs button[data-sec="setMyTaste"]').click());
+    await ev(() => { const f = document.querySelector('#tasteForm .taste-add'); f.querySelector('.taste-sound-in').value = 'square'; f.querySelector('.taste-sound-in').dispatchEvent(new Event('input')); });
+    await ev(() => document.querySelector('#tasteForm .taste-add').requestSubmit());
+    await p.waitForFunction(() => strudelAI.getTaste().avoid.some((a) => a.sound === 'square' && a.instead === 'triangle'), null, { timeout: 5000 });
+    await ev(() => document.getElementById('settingsClose').click());
+    // the songs already written: no square left
+    await p.waitForFunction(() => !/"square"/.test(strudelAI.activeSong().library), null, { timeout: 15000 });
+    // new code from anywhere: swapped before it plays
+    const prep = await ev(async () => (await strudelAI.prepareCode('setcpm(30)\nlead: n("0 2").scale("A:minor").s("square").gain(slider(0.3, 0, 1))')).code);
+    expect(/s\("triangle"\)/.test(prep) && !/square/.test(prep), `new code kept the avoided sound: ${prep}`);
+    // soften: a harsh part (no filter of its own) gets a low-pass as it's arranged
+    await ev(() => strudelAI.setTaste({ avoid: [], soften: true, cutoff: 2600 }));
+    const soft = await ev(() => strudelAI.sectionCode({ title: 't', library: 'setcpm(30)\nconst lead_main = n("0").s("sawtooth")', sheet: { parts: [{ id: 'lead', role: 'melody' }], chords: { v: '<Am>' }, meter: '4/4' } }, { name: 'v', bars: 4, chords: 'v', play: [{ part: 'lead', variant: 'main' }] }));
+    expect(/^lead: lead_main\.lpf\(2600\)/m.test(soft), `not softened: ${soft}`);
+    // 👎 a channel in the mixer: its sound is avoided
+    await ev(() => { strudelAI.ws.open('mixer'); if (!strudelAI.queue.running) strudelAI.playSong(strudelAI.activeSong()); });
+    await p.waitForFunction(() => document.querySelector('#mixerStrips [data-mx="dislike"]'), null, { timeout: 15000 });
+    await ev(() => document.querySelector('#mixerStrips [data-mx="dislike"]').click());
+    await p.waitForFunction(() => strudelAI.getTaste().avoid.length === 1, null, { timeout: 5000 });
+    await ev(() => strudelAI.setTaste({}, { quiet: true }));
+    await ev(() => document.getElementById('stop').click());
+  });
+
   await step('no page errors', async () => expect(!errors.length, errors.join(' | ')));
 } finally {
   await browser.close();

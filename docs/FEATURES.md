@@ -73,6 +73,9 @@ Every panel docks, tabs, splits, floats, pops out into its own window or pins on
 | 🎼 Song forms | 📻 Stations | 🎨 Theme |
 | ![Song forms](screenshots/23-settings-forms.png) | ![Stations](screenshots/24-settings-stations.png) | ![Theme](screenshots/25-settings-themes.png) |
 
+**🎧 My taste:** sounds you never want, each with a softer stand-in. They're swapped out of everything before it plays, including songs already written, and the AI is told. Also: "soften harsh synths" (a low-pass on square / saw / pulse parts), the sounds you liked, and your taste in your own words. 👍 / 👎 on a 🎚 mixer channel adds to it while you listen.
+![My taste](screenshots/24b-settings-my-taste.png)
+
 **🧩 Plugins:** panels, buttons, settings pages, themes, bands, forms, stations, sounds, AI instructions and template overrides.
 ![Plugins](screenshots/26-settings-plugins.png)
 

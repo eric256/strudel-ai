@@ -21,6 +21,7 @@ export function mixerStrip(ch) {
       <canvas class="mx-eqviz" width="76" height="40" title="EQ curve over the channel's live spectrum"></canvas>
       <div class="mx-eqs">${ch.eq.map((e) => html`<label title=${e.title}><span>${e.band[0].toUpperCase()}</span>${slider('mx-h', e.band, -12, 12, 0.5, e.value, `${e.band}: ${e.value} dB`)}</label>`)}
         <label title="Pan — double-click: centre"><span>P</span>${slider('mx-h', 'pan', -1, 1, 0.05, ch.pan, `pan ${ch.pan}`)}</label></div>
+      ${ch.sound ? html`<div class="mx-taste"><button data-mx="like" class=${ch.liked ? 'on' : ''} title="I like ${ch.sound} — the AI uses it where it fits">👍</button><button data-mx="dislike" title="Never ${ch.sound} again — a softer sound plays instead (⚙ Settings → 🎧 My taste)">👎</button></div>` : html`<div class="mx-taste"></div>`}
       <div class="mx-ms"><button data-mx="mute" class="m${ch.mute ? ' on' : ''}" title="Mute this channel (whole song)">M</button><button data-mx="solo" class="s${ch.solo ? ' on' : ''}" title="Solo this channel (whole song)">S</button></div>
       <div class="mx-fader">${slider('mx-v mx-vol', 'vol', 0, 1.5, 0.01, ch.vol, 'Channel fader — double-click: 0 dB')}<canvas class="mx-meter" width="10" height="100"></canvas></div>
       <div class="mx-val" .textContent=${`${ch.db} dB`}></div>

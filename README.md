@@ -242,6 +242,16 @@ A form lists a song's sections with their lengths, e.g. `intro 4, verse 8, pre-c
 
   Sections are capped at 16 bars, and choruses at 4.
 
+### 🎧 My taste
+Tell the app what you like and what you never want to hear (⚙ Settings → 🎧 My taste). It's saved in this browser and included in 💾 Backup.
+- **Sounds I never want**, each with a stand-in (square → triangle by default; a drum machine with no stand-in is just avoided).
+  - **The AI is told** in every request: song sheets, parts, chat edits and jams. Avoided sounds aren't offered in the sound guide either.
+  - **The app makes sure:** every piece of code is checked before it plays, and an avoided sound in `s("…")`, `sound("…")` or `.bank("…")` is swapped for its stand-in. The console shows 🎧 for each swap.
+  - **Songs already written** are changed too: the playlist, this session and My songs. The song playing changes from the next bar.
+- **Soften harsh synths:** parts playing square, saw, pulse or similar synths, with no filter of their own, get a gentle low-pass (1500–6000 Hz, 3000 by default) as they're arranged.
+- **Sounds I like** and **my taste in my words** go to the AI with every song and change.
+- **While you listen:** 👍 / 👎 on a 🎚 mixer channel likes or bans the sound that part plays, and a ban takes effect right away.
+
 ### 🎸 Bands and the sound guide
 A band is a line-up of instruments (`role: sound — what it plays`) plus a master style.
 - **Built-in bands:** 44 of them, at least two per genre (e.g. trance: trance rig, psy rig; latin: bossa trio, latin jazz group, lounge duo; acoustic: acoustic duo, folk band, bluegrass pickers, celtic session, piano & strings). Each has its genres, meters, keys, its own sound, and core and optional (`+`) instruments.

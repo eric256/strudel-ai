@@ -6,6 +6,9 @@
 // Settings are kept per part name, so they apply whenever that part plays — this section, the next, the next song.
 // Nothing here touches the code; the code's own faders (.postgain) still work as a trim.
 // (split out of app.js: start-up code runs in setup(), called from app.js)
+import { stringArgs } from '../lib/partcode.js';
+import { splitLibrary } from '../lib/library.js';
+import { getTaste, avoidSound, likeSound } from './taste.js';
 import { parseLabel, patternLines } from '../lib/labels.js';
 import { vizColor } from './visualizer.js';
 import { onceAFrame } from '../lib/events.js';
@@ -126,12 +129,20 @@ export function mixerChannels() {
   const sg = currentMode() === 'jam' ? null : queue.running ? queue.songs[queue.current] : nowSong;
   const out = [];
   const add = (base, extra = {}) => { if (base && base !== '$' && !out.some((x) => x.base === base)) out.push({ base, ...extra }); };
-  for (const p of sg?.sheet?.parts || []) add(p.id, { role: p.role, sound: p.sound, song: true });
+  // a song part's sound: what its code plays (its main version), else the sheet's
+  const defSound = (id) => {
+    const def = sg?.library && splitLibrary(sg.library).defs.find((d) => d.id === `${id}_main`);
+    return def ? (stringArgs(def.code, ['s', 'sound'])[0]?.value.match(/[A-Za-z_][\w]*/) || [])[0] : null;
+  };
+  for (const p of sg?.sheet?.parts || []) add(p.id, { role: p.role, sound: defSound(p.id) || p.sound, song: true });
   for (const r of rows) add(r.base);
+  const lines = code.split('\n');
   for (const ch of out) {
     const r = rows.find((x) => x.base === ch.base);
     ch.inSection = !!r;
     ch.codeMuted = !!r?.muted;
+    // its sound: the song part's, else the first sound in its line of code (s("square …")) — for 👍 / 👎
+    if (!ch.sound && r) ch.sound = (stringArgs(lines[r.line] || '', ['s', 'sound'])[0]?.value.match(/[A-Za-z_][\w]*/) || [])[0] || '';
   }
   return out;
 }
@@ -151,6 +162,7 @@ function renderMixerPanel() {
       state: !ch.inSection ? 'absent' : ch.codeMuted ? 'code-muted' : 'playing', silenced: !audible(ch.base),
       eq: MX_BANDS.map(([b]) => ({ band: b, title: `${b} ${EQ_TITLE[b]} — double-click: 0 dB`, value: Number(c[b]) || 0 })),
       pan: Number(c.pan) || 0, mute: !!c.mute, solo: !!c.solo, vol: c.vol, db: dbText(c.vol),
+      sound: ch.sound || '', liked: !!ch.sound && getTaste().liked.includes(ch.sound),
     };
   };
   const gain = $('masterGain').value;
@@ -308,6 +320,14 @@ export function setup() {
     const b = e.target.closest('button[data-mx]');
     const base = b?.closest('.mx-strip')?.dataset.base;
     if (!base) return;
+    // 🎧 👍 / 👎 its sound (your taste)
+    if (b.dataset.mx === 'like' || b.dataset.mx === 'dislike') {
+      const sound = mixerChannels().find((x) => x.base === base)?.sound;
+      if (sound) (b.dataset.mx === 'like' ? likeSound : avoidSound)(sound);
+      mixer.key = '';
+      renderMixerPanel();
+      return;
+    }
     const c = chOf(base);
     if (b.dataset.mx === 'mute') { c.mute = !c.mute; if (c.mute) c.solo = false; }
     else { c.solo = !c.solo; if (c.solo) c.mute = false; }
