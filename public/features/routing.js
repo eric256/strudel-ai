@@ -18,11 +18,11 @@ import { masterChain } from './master-panel.js';
 import { vizColor } from './visualizer.js';
 import { themeColor } from '../theme.js';
 
-const W = 150, H = 76; // a card (style.css .rt-card)
 export const routing = {
   graph: { nodes: [], edges: [] }, on: true, sel: null, target: '',
   live: null,       // the audio: { ctrl, bus, blocks: { id: block }, wired: [[a, b]], closed: [part] }
-  pos: {}, drag: null, raf: 0, hist: {},
+  df: null,         // the canvas (Drawflow)
+  raf: 0, hist: {},
 };
 const saveRouting = () => save({ routing: { graph: routing.graph, on: routing.on } });
 
@@ -87,19 +87,13 @@ function setParam(id, key, value) {
   if (sub) sub.textContent = nodeSummary(routing.graph, nn);
 }
 
-// ---- the panel ----
+// ---- the panel: the toolbar and inspector (lit), the canvas (Drawflow) ----
+// The graph (lib/routing.js) is the truth; Drawflow only shows it. Every change of the graph redraws the canvas from
+// it, and what you do on the canvas (wire, move, select, remove) comes back through Drawflow's events, is checked
+// against the graph's rules, and redraws — so a wire that isn't allowed (a loop, into a part) just doesn't stay.
 const label = (id) => (id === SINK ? 'master' : partOf(id) ?? (routing.graph.nodes.find((n) => n.id === id) ? NODE_TYPES[routing.graph.nodes.find((n) => n.id === id).type].label : id));
-const wireD = (a, b) => { const mx = (a.x + b.x) / 2; return `M${a.x},${a.y} C${mx},${a.y} ${mx},${b.y} ${b.x},${b.y}`; };
 const typeOfId = (id) => routing.graph.nodes.find((n) => n.id === id)?.type;
-// a port's height on its card: one port in the middle, two at a third and two thirds
-const portY = (count, k) => (count > 1 ? (k ? 0.7 : 0.3) : 0.5) * H;
-const outPt = (id, fp = 0) => { const p = routing.pos[id]; return p && { x: p.x + W, y: p.y + portY(partOf(id) != null ? 1 : outPorts(typeOfId(id)), fp) }; };
-const inPt = (id, fromY, tp = 0) => {
-  const p = routing.pos[id];
-  if (!p) return null;
-  if (id === SINK) return { x: p.x, y: Math.min(p.y + p.h - 16, Math.max(p.y + 40, fromY)) };
-  return { x: p.x, y: p.y + portY(inPorts(typeOfId(id)), tp) };
-};
+const COL = 194, ROW = 98; // the auto layout's grid (a card is 150 × 76, style.css)
 
 const act = {
   toggle(on) { routing.on = on; applyRouting(); saveRouting(); renderRouting(); },
@@ -107,7 +101,7 @@ const act = {
     // after the selected part or node, into the selected wire — nothing selected: after the part picked in the bar
     const s = routing.sel;
     const part = routing.target || mixerChannels()[0]?.base;
-    const opts = s?.edge ? { onEdge: s.edge } : s?.node ? { after: s.node } : part ? { after: srcId(part) } : {};
+    const opts = s?.edge ? { onEdge: s.edge } : s?.node && s.node !== SINK ? { after: s.node } : part ? { after: srcId(part) } : {};
     const { graph, id } = addNode(routing.graph, type, opts);
     routing.sel = { node: id };
     setGraph(graph);
@@ -128,7 +122,8 @@ const act = {
     const s = routing.sel;
     if (!s) return;
     routing.sel = null;
-    if (s.node && partOf(s.node) != null) setGraph(unroutePart(routing.graph, partOf(s.node)));
+    if (s.node === SINK) renderRouting();
+    else if (s.node && partOf(s.node) != null) setGraph(unroutePart(routing.graph, partOf(s.node)));
     else if (s.node) setGraph(removeNode(routing.graph, s.node));
     else if (s.edge) setGraph(removeEdge(routing.graph, s.edge));
   },
@@ -140,45 +135,33 @@ const act = {
     saveRouting();
     renderRouting();
   },
+  zoom(dir) {
+    const df = routing.df;
+    if (!df) return;
+    if (dir > 0) df.zoom_in();
+    else if (dir < 0) df.zoom_out();
+    else { df.zoom = 1; df.canvas_x = 0; df.canvas_y = 0; df.zoom_refresh(); }
+  },
 };
 const flash = (msg) => addMsg('info', `🔀 ${msg}`);
+
+/** The parts on the canvas: every mixer channel, and parts the graph routes that aren't playing now. */
+function partsNow() {
+  const parts = mixerChannels().map((c) => c.base);
+  for (const p of routedParts(routing.graph)) if (!parts.includes(p)) parts.push(p);
+  return parts;
+}
 
 export function renderRouting() {
   const el = $('routeBody');
   if (!el || !docks.route?.on) return;
   const g = routing.graph;
   const chans = mixerChannels();
-  // parts in the graph that aren't playing now still show (their routing waits for them)
-  const parts = [...chans.map((c) => c.base)];
-  for (const p of routedParts(g)) if (!parts.includes(p)) parts.push(p);
-  routing.pos = layoutGraph(g, parts, { colW: W + 44, rowH: H + 16 });
-  if (routing.drag?.node && routing.drag.moved) routing.pos[routing.drag.node] = { x: routing.drag.x, y: routing.drag.y };
-  const routed = routedParts(g), dead = deadEnds(g), dry = unfed(g);
   const s = routing.sel;
-  const wires = [];
-  const kindOf = (id) => (partOf(id) != null ? 'part' : NODE_TYPES[g.nodes.find((n) => n.id === id)?.type]?.kind || 'route');
-  for (const e of g.edges) {
-    const a = outPt(e.from, e.fp), b = a && inPt(e.to, a.y, e.tp);
-    if (a && b) wires.push({ from: e.from, to: e.to, fp: e.fp || 0, tp: e.tp || 0, d: wireD(a, b), kind: kindOf(e.from), selected: !!s?.edge && edgeKey(s.edge) === edgeKey(e) });
-  }
-  for (const p of parts) if (!routed.includes(p) || !routing.on) {
-    const a = outPt(srcId(p)), b = a && inPt(SINK, a.y);
-    if (a && b) wires.push({ from: srcId(p), to: SINK, d: wireD(a, b), kind: 'part', implicit: true });
-  }
-  const m = routing.pos[SINK];
-  const maxX = Math.max(...Object.values(routing.pos).map((p) => p.x + W)) + 20;
-  const maxY = Math.max(...Object.values(routing.pos).map((p) => p.y + (p.h || H))) + 20;
+  const routed = routedParts(g);
   const selNode = s?.node && g.nodes.find((n) => n.id === s.node);
   const view = {
-    on: routing.on, w: maxX, h: maxY,
-    parts: parts.map((p) => ({ id: srcId(p), base: p, color: vizColor(p), routed: routing.on && routed.includes(p), selected: s?.node === srcId(p), ...routing.pos[srcId(p)] })),
-    nodes: g.nodes.map((n) => ({ ins: inPorts(n.type), outs: outPorts(n.type),
-      id: n.id, type: n.type, label: NODE_TYPES[n.type].label, kind: NODE_TYPES[n.type].kind, title: NODE_TYPES[n.type].title,
-      summary: nodeSummary(g, n), off: !!n.off, dead: dead.includes(n.id), unfed: dry.includes(n.id), selected: s?.node === n.id, ...routing.pos[n.id],
-    })),
-    master: { ...m, db: masterDb() },
-    wires,
-    drag: routing.drag?.wire ? { d: wireD(routing.drag.from, routing.drag.to) } : null,
+    on: routing.on,
     sel: selNode ? {
       node: {
         id: selNode.id, label: NODE_TYPES[selNode.type].label, title: NODE_TYPES[selNode.type].title, off: !!selNode.off,
@@ -192,92 +175,142 @@ export function renderRouting() {
     target: routing.target || chans[0]?.base || '',
   };
   render(T.routing(view, act), el);
+  syncCanvas(el.querySelector('.rt-df'));
 }
 function masterDb() {
   const v = Number($('masterGain')?.value ?? 1);
   return v <= 0.0001 ? '-∞ dB' : `${(20 * Math.log10(v)).toFixed(1)} dB`;
 }
 
-// ---- pointer: drag nodes and parts, drag wires, select ----
-// The pointer is captured by the panel, so a drag keeps going outside it and works the same when the panel is
-// floating or popped out into its own window (that window's document and frames, not this one's).
+// ---- the canvas (Drawflow) ----
 const body = () => $('routeBody');
 const winOf = () => body()?.ownerDocument.defaultView || window;
-function canvasPt(e) {
-  const r = body().querySelector('.rt-canvas').getBoundingClientRect();
-  return { x: e.clientX - r.left, y: e.clientY - r.top };
-}
-let frame = 0;
-const rerender = () => { if (!frame) frame = winOf().requestAnimationFrame(() => { frame = 0; renderRouting(); }); };
-function capture(e) { try { body().setPointerCapture(e.pointerId); } catch {} }
-function onDown(e) {
-  if (e.button !== 0 || e.target.closest('.rt-insp, .rt-bar')) return;
-  body().focus({ preventScroll: true }); // (for Delete / Esc)
-  const port = e.target.closest('.rt-port[data-port="out"]');
-  if (port) {
-    e.preventDefault();
-    const from = port.dataset.id, fp = Number(port.dataset.k) || 0;
-    routing.drag = { wire: true, id: from, fp, from: outPt(from, fp), to: canvasPt(e) };
-    capture(e);
-    rerender();
-    return;
-  }
-  const card = e.target.closest('.rt-card[data-drag]');
-  if (card) {
-    e.preventDefault(); // (no text selection while dragging)
-    const id = card.dataset.id, p = routing.pos[id], pt = canvasPt(e);
-    routing.drag = { node: id, dx: pt.x - p.x, dy: pt.y - p.y, x: p.x, y: p.y, x0: e.clientX, y0: e.clientY, moved: false };
-    capture(e);
-    return;
-  }
-  const hit = e.target.closest('path.hit');
-  if (hit) {
-    const d = hit.dataset;
-    routing.sel = { edge: { from: d.from, to: d.to, fp: Number(d.fp) || 0, tp: Number(d.tp) || 0 } };
+const port = (cls) => (/_2$/.test(cls || '') ? 1 : 0); // output_2 / input_2: a Split's second path, a Sum's second input
+const df = { ids: {}, model: {}, key: '', syncing: false };
+
+function makeEditor(box) {
+  const editor = new globalThis.Drawflow(box);
+  Object.assign(editor, { reroute: false, curvature: 0.45, zoom_min: 0.4, zoom_max: 1.6, force_first_input: true });
+  // the keys are ours: Delete removes what's selected through the graph's rules (a removed node heals its chain)
+  editor.key = (e) => {
+    if (e.target.closest?.('input, select, textarea')) return;
+    if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); act.remove(); }
+    if (e.key === 'Escape') { routing.sel = null; renderRouting(); }
+  };
+  editor.start();
+  const m = (id) => df.model[id];
+  editor.on('nodeSelected', (id) => {
+    if (df.syncing) return;
+    routing.sel = { node: m(id) };
+    if (partOf(m(id)) != null) routing.target = partOf(m(id));
     renderRouting();
-    return;
-  }
-  if (e.target.closest('.rt-canvas') && !e.target.closest('.rt-card')) { routing.sel = null; renderRouting(); }
-}
-function onMove(e) {
-  const d = routing.drag;
-  if (!d) return;
-  if (d.wire) { d.to = canvasPt(e); rerender(); return; }
-  if (!d.moved && Math.hypot(e.clientX - d.x0, e.clientY - d.y0) < 4) return;
-  d.moved = true;
-  const pt = canvasPt(e);
-  d.x = Math.max(0, Math.round(pt.x - d.dx));
-  d.y = Math.max(0, Math.round(pt.y - d.dy));
-  rerender();
-}
-function onUp(e) {
-  const d = routing.drag;
-  if (!d) return;
-  routing.drag = null;
-  try { body().releasePointerCapture(e.pointerId); } catch {}
-  if (e.type === 'pointercancel') { renderRouting(); return; }
-  if (d.wire) {
-    // dropped on an input port (a Sum's first or second), or anywhere on a card (a Sum: its free input)
-    const at = body().ownerDocument.elementFromPoint(e.clientX, e.clientY);
-    const port = at?.closest('.rt-port[data-port="in"]');
-    const to = (port || at?.closest('.rt-card[data-in="1"]'))?.dataset.id;
-    const tp = port ? Number(port.dataset.k) || 0 : typeOfId(to) === 'sum' ? freeInput(routing.graph, to) : 0;
-    if (to && canConnect(routing.graph, d.id, to, { fp: d.fp, tp })) {
-      // wiring a part that went straight to the master: it now goes here instead
-      setGraph(connect(routing.graph, d.id, to, { fp: d.fp, tp }));
-    } else renderRouting();
-    return;
-  }
-  if (d.moved) {
-    if (partOf(d.node) != null) routing.graph = { ...routing.graph, pins: { ...routing.graph.pins, [d.node]: { x: d.x, y: d.y } } };
-    else { const n = routing.graph.nodes.find((x) => x.id === d.node); if (n) { n.x = d.x; n.y = d.y; } }
-    routing.graph = normGraph(routing.graph);
+  });
+  editor.on('connectionSelected', (c) => {
+    if (df.syncing) return;
+    routing.sel = { edge: { from: m(c.output_id), to: m(c.input_id), fp: port(c.output_class), tp: port(c.input_class) } };
+    renderRouting();
+  });
+  for (const ev of ['nodeUnselected', 'connectionUnselected']) editor.on(ev, () => { if (!df.syncing && routing.sel) { routing.sel = null; renderRouting(); } });
+  editor.on('connectionCreated', (c) => {
+    if (df.syncing) return;
+    const from = m(c.output_id), to = m(c.input_id), fp = port(c.output_class);
+    let tp = port(c.input_class);
+    // dropped on a Sum whose first input is taken: its free one
+    if (typeOfId(to) === 'sum' && routing.graph.edges.some((e) => e.to === to && (e.tp || 0) === tp)) tp = freeInput(routing.graph, to);
+    if (canConnect(routing.graph, from, to, { fp, tp })) setGraphSoon(connect(routing.graph, from, to, { fp, tp }));
+    else { flash(partOf(to) != null ? 'a part has no input' : 'that would make a loop'); redrawSoon(); }
+  });
+  editor.on('connectionRemoved', (c) => { if (!df.syncing) setGraphSoon(removeEdge(routing.graph, { from: m(c.output_id), to: m(c.input_id), fp: port(c.output_class), tp: port(c.input_class) })); });
+  editor.on('nodeRemoved', (id) => {
+    if (df.syncing) return;
+    const mid = m(id);
+    routing.sel = null;
+    if (mid === SINK || partOf(mid) != null) redrawSoon(); // (the master and the parts always stay)
+    else setGraphSoon(removeNode(routing.graph, mid));
+  });
+  editor.on('nodeMoved', (id) => {
+    if (df.syncing) return;
+    const mid = m(id), n = editor.getNodeFromId(id);
+    if (!n || mid === SINK) return;
+    const at = { x: Math.round(n.pos_x), y: Math.round(n.pos_y) };
+    if (partOf(mid) != null) routing.graph = normGraph({ ...routing.graph, pins: { ...routing.graph.pins, [mid]: at } });
+    else { const node = routing.graph.nodes.find((x) => x.id === mid); if (node) Object.assign(node, at); routing.graph = normGraph(routing.graph); }
+    df.key = canvasKey(); // (it's already where it should be)
     saveRouting();
-  } else {
-    routing.sel = { node: d.node };
-    if (partOf(d.node) != null) routing.target = partOf(d.node);
-  }
-  renderRouting();
+  });
+  return editor;
+}
+// a change from inside one of Drawflow's events: let it finish first
+const setGraphSoon = (g) => setTimeout(() => setGraph(g));
+const redrawSoon = () => setTimeout(() => { df.key = ''; renderRouting(); });
+
+/**
+ * What the canvas shows: when this changes, it's redrawn. (Not the selection: Drawflow shows that itself, and a
+ * redraw in the middle of a click would pull the node out from under the drag.)
+ */
+function canvasKey() {
+  const g = routing.graph;
+  return JSON.stringify([routing.on, partsNow(), g.nodes.map((n) => [n.id, n.type, n.off, n.x, n.y]), g.edges, g.pins, deadEnds(g)]);
+}
+function syncCanvas(box) {
+  if (!box || typeof globalThis.Drawflow !== 'function') return;
+  if (!routing.df || routing.df.container !== box) { routing.df = makeEditor(box); df.key = ''; }
+  const key = canvasKey();
+  if (key === df.key) return;
+  df.key = key;
+  drawCanvas(routing.df);
+}
+function drawCanvas(editor) {
+  const g = routing.graph;
+  const parts = partsNow();
+  const pos = layoutGraph(g, parts, { colW: COL, rowH: ROW });
+  const routed = routedParts(g), dead = deadEnds(g), dry = unfed(g), s = routing.sel;
+  df.syncing = true;
+  try {
+    editor.clear();
+    df.ids = {};
+    df.model = {};
+    const put = (mid, ins, outs, cls, card, at) => {
+      const id = editor.addNode(mid, ins, outs, at.x, at.y, cls, {}, T.routingCard(card));
+      df.ids[mid] = id;
+      df.model[id] = mid;
+      const el = editor.container.querySelector(`#node-${id}`);
+      if (el) el.dataset.id = mid;
+      return el;
+    };
+    for (const p of parts) {
+      const el = put(srcId(p), 0, 1, `rt-card rt-part${routing.on && routed.includes(p) ? ' routed' : ''}`,
+        { id: srcId(p), label: p, sub: routing.on && routed.includes(p) ? 'routed' : 'direct', title: `${p}: after its 🎚 mixer fader. Click it, then ＋ an effect` }, pos[srcId(p)]);
+      el?.style.setProperty('--c', vizColor(p));
+    }
+    for (const n of g.nodes) {
+      const t = NODE_TYPES[n.type];
+      put(n.id, inPorts(n.type), outPorts(n.type), `rt-card rt-node k-${t.kind}${n.off ? ' off' : ''}${dead.includes(n.id) ? ' dead' : ''}`, {
+        id: n.id, label: `${t.label}${n.off ? ' ⏻' : ''}${dead.includes(n.id) ? ' ⚠' : ''}`, sub: nodeSummary(g, n),
+        title: `${t.title}${dead.includes(n.id) ? ' — ⚠ not wired to the master: you won’t hear it' : dry.includes(n.id) ? ' — nothing goes in yet' : ''}`,
+      }, pos[n.id]);
+    }
+    const mel = put(SINK, 1, 0, 'rt-card rt-master', { id: SINK, label: 'Master', sub: masterDb(), title: 'The master: on to 🎛 Master (double-click to open it)', master: true }, pos[SINK]);
+    if (mel) mel.style.height = `${pos[SINK].h}px`;
+    const wire = (e, cls = '') => {
+      const a = df.ids[e.from], b = df.ids[e.to];
+      if (a == null || b == null) return;
+      editor.addConnection(a, b, `output_${(e.fp || 0) + 1}`, `input_${(e.tp || 0) + 1}`);
+      const svgEl = editor.container.querySelector(`.connection.node_in_node-${b}.node_out_node-${a}.output_${(e.fp || 0) + 1}.input_${(e.tp || 0) + 1}`);
+      const kind = partOf(e.from) != null ? 'part' : NODE_TYPES[typeOfId(e.from)]?.kind || 'route';
+      svgEl?.classList.add(`k-${kind}`, ...cls.split(' ').filter(Boolean));
+      if (s?.edge && edgeKey(s.edge) === edgeKey(e)) svgEl?.querySelector('.main-path')?.classList.add('selected');
+    };
+    for (const e of g.edges) wire(e);
+    // parts going straight to the master: a faint wire (not part of the graph)
+    for (const p of parts) if (!routing.on || !routed.includes(p)) wire({ from: srcId(p), to: SINK }, 'implicit');
+    // the selection survives the redraw
+    if (s?.node && df.ids[s.node] != null) {
+      const el = editor.container.querySelector(`#node-${df.ids[s.node]}`);
+      el?.classList.add('selected');
+      editor.node_selected = el || null;
+    }
+  } finally { df.syncing = false; }
 }
 
 // ---- the scopes and live readouts ----
@@ -341,23 +374,19 @@ export function setup() {
     onHide: () => stopDraw(),
   });
   onTemplatesChange(() => renderRouting());
-  const body = $('routeBody');
-  body.addEventListener('pointerdown', onDown);
-  body.addEventListener('pointermove', onMove);
-  body.addEventListener('pointerup', onUp);
-  body.addEventListener('pointercancel', onUp);
-  body.addEventListener('input', (e) => { const k = e.target.dataset?.p; if (k && routing.sel?.node) setParam(routing.sel.node, k, Number(e.target.value)); });
-  body.addEventListener('dblclick', (e) => { if (e.target.closest('.rt-master')) ws.open('master'); });
-  body.tabIndex = -1;
-  body.addEventListener('keydown', (e) => {
-    if ((e.key === 'Delete' || e.key === 'Backspace') && routing.sel && !e.target.closest('input, select, textarea')) { e.preventDefault(); act.remove(); }
-    if (e.key === 'Escape') { routing.sel = null; renderRouting(); }
-  });
+  const bodyEl = $('routeBody');
+  bodyEl.addEventListener('input', (e) => { const k = e.target.dataset?.p; if (k && routing.sel?.node) setParam(routing.sel.node, k, Number(e.target.value)); });
+  bodyEl.addEventListener('dblclick', (e) => { if (e.target.closest('.rt-master')) ws.open('master'); });
+  // Drawflow follows the mouse only over its canvas: a drag let go outside it ends there too (in whichever window
+  // the panel is — floating or popped out)
+  const endDrag = (e) => { const ed = routing.df; if (ed && (ed.drag || ed.connection || ed.editor_selected) && !ed.container.contains(e.target)) ed.dragEnd(e); };
+  let watched = null;
+  setInterval(() => { const w = winOf(); if (w !== watched) { watched?.removeEventListener('mouseup', endDrag); w.addEventListener('mouseup', endDrag); watched = w; } }, 1000);
   // the audio engine can be rebuilt (and channels come and go): keep the graph wired, and the panel's parts current
   setInterval(() => {
     const ctrl = sdController();
     if (routing.on && routing.graph.edges.length && ctrl && (!routing.live || routing.live.ctrl !== ctrl || routing.live.bus.context !== ctxOf(ctrl))) applyRouting();
     else if (routing.live) for (const p of routedParts(routing.graph)) if (!routing.live.closed.includes(p) && channelIfAny(p)) { applyRouting(); break; }
-    if (docks.route?.on && !routing.drag) renderRouting();
+    if (docks.route?.on && !routing.df?.drag && !routing.df?.connection) renderRouting();
   }, 1500);
 }

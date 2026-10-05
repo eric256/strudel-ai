@@ -179,8 +179,16 @@ try {
     await p.locator('#routeBody .rt-part[data-id="src:bass"]').click();
     await add('Comp');
     await add('Split');
-    const g = await ev(() => ({ e: strudelAI.routing.graph.edges.map((e) => `${e.from}${e.fp ? '.1' : ''}>${e.to}${e.tp ? '.1' : ''}`).sort().join(' '), outs: document.querySelectorAll('#routeBody .rt-node[data-id="n2"] .rt-port.out').length, ins: document.querySelectorAll('#routeBody .rt-node[data-id="n3"] .rt-port.in').length }));
+    const g = await ev(() => ({ e: strudelAI.routing.graph.edges.map((e) => `${e.from}${e.fp ? '.1' : ''}>${e.to}${e.tp ? '.1' : ''}`).sort().join(' '), outs: document.querySelectorAll('#routeBody .rt-node[data-id="n2"] .output').length, ins: document.querySelectorAll('#routeBody .rt-node[data-id="n3"] .input').length }));
     expect(g.e === 'n1>n2 n2.1>n3.1 n2>n3 n3>master src:bass>n1' && g.outs === 2 && g.ins === 2, JSON.stringify(g));
+    // a node drags (and keeps its place); Delete on a selected node takes it out and joins its chain
+    const before = await p.locator('#routeBody .rt-node[data-id="n1"]').boundingBox();
+    await p.mouse.move(before.x + 60, before.y + 20); await p.mouse.down(); await p.mouse.move(before.x + 90, before.y + 140, { steps: 8 }); await p.mouse.up();
+    const after = await p.locator('#routeBody .rt-node[data-id="n1"]').boundingBox();
+    expect(Math.round(after.y - before.y) === 120 && await ev(() => Number.isFinite(strudelAI.routing.graph.nodes.find((n) => n.id === 'n1').x)), `drag: ${after.y - before.y}`);
+    await p.locator('#routeBody .rt-node[data-id="n1"]').click();
+    await p.keyboard.press('Delete');
+    await p.waitForFunction(() => !strudelAI.routing.graph.nodes.some((n) => n.id === 'n1') && strudelAI.routing.graph.edges.some((e) => e.from === 'src:bass' && e.to === 'n2'), null, { timeout: 3000 });
     await ev(() => [...document.querySelectorAll('#routeBody .rt-right button')].find((b) => b.textContent === 'clear').click());
     expect(await ev(() => !strudelAI.routing.live && strudelAI.routing.graph.nodes.length === 0), 'clear left routing');
   });

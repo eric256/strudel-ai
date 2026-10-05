@@ -2,6 +2,19 @@
 
 The version is in `package.json`. Bump it when you release. Open pages also notice *any* redeploy through the build id, which is a hash of the app files, even if the version wasn't bumped.
 
+## 1.55.0
+- **🔀 Routing's canvas is now [Drawflow](https://github.com/jerosoler/Drawflow)** instead of hand-made dragging and wiring. That clears up the odd behaviour with nodes.
+  - Dragging nodes, drawing wires and picking wires is Drawflow's well-worn code.
+  - **New: pan and zoom.** Drag the background to move around; Ctrl + wheel, pinch, or **− ⟲ ＋** in the bar to zoom.
+  - **Delete** removes the selected node or wire through the graph's rules, so a removed node still joins its chain. Right-click → ✕ does the same; the parts and the master can't be removed.
+  - **The graph (`lib/routing.js`) stays the truth:**
+    - Drawflow only shows it.
+    - A wire you draw is checked (no loops, nothing into a part, a Sum's free input) before it stays.
+    - Every change redraws the canvas from the graph.
+  - A drag that ends outside the canvas ends properly, docked, floating or popped out.
+  - Drawflow (plain script + CSS, about 50 KB) is served from `node_modules` like the other libraries, so there's still no build step. Its look is themed in `style.css`.
+- **Tests:** the routing smoke step also drags a node (it stays where it's dropped) and deletes one with the Delete key (its chain is joined).
+
 ## 1.54.2
 - **Fix: panels whose content was cut off with no scroll bar.** 🧩 Part editor is the one you saw; an audit of every panel found the same in 💬 Chat, 📊 Visualizer, 🌀 Hydra, 🔲 Pads and 🔀 Routing when they're small (or floating, or in a short window).
   - Every panel now scrolls when what's in it is taller than its box.
