@@ -2,6 +2,22 @@
 
 The version is in `package.json`. Bump it when you release. Open pages also notice *any* redeploy through the build id, which is a hash of the app files, even if the version wasn't bumped.
 
+## 1.60.0
+- **Polyphonic parts: voices and layers.** A part can play more than one line, or more than one sound, and still be one part (one mixer channel, one 🔀 Routing chain).
+  - **Voices:** the song sheet can give a melodic part `voices` — a harmony a third or sixth below, a third above, an octave below or above, or a counter-line. The part's code plays them together: `stack(n("line"), n("harmony")).scale(…).s(…)`.
+  - **Layers:** the sheet can give a part `layers` — 1–2 more sounds on the same notes, each with its own effects: `.layer(x => x.s("one"), x => x.s("two")…)`. Not on drums.
+  - **The songwriter** is told when to use them: voices where the genre harmonises its tunes (thirds in pop, soul, folk and big band; sixths in ballads and gospel; octaves in rock and synthwave), layers on the 1–2 parts that carry the song. **The parts writer** gets each part's voices and layers and how to write them.
+  - **When the AI leaves them out,** the app adds them: the harmony moved along the scale, a held counter-line, the layer sound.
+  - The song's part chips show ♫ voices / layers.
+- **🧩 Part editor:**
+  - **Chords on the staff:** Shift-click (or turn **chord** on) adds a note to the chord at that step. Right-click on a chord takes out the nearest note.
+  - **Voices:** every voice on one staff, each in its own colour. The voice selector picks the one you edit; the others show faded. **＋ voice** adds a harmony or a counter-line, **✕ voice** removes one.
+  - **Layers:** a row with the part's layer sounds. **＋ layer** adds a sound, × removes one.
+  - Voices inside a `stack(…)` read the stack's `.scale(…)`.
+- **Tests:**
+  - Unit tests for voices and layers: the sheet fields, harmony lines, adding and removing voices and layers, and the fallback that adds them.
+  - A smoke step checks a sheet's layer in the code, then adds a voice in the part editor (its colour, faded voices), a chord, a layer, loops it and takes the voice out.
+
 ## 1.59.0
 - **🔀 Routing: effects after the master mix.** The wires after the Master block are part of the graph now.
   - Click the **Master** (or Master FX) and **＋** an effect to put it on the whole mix. Click **Out** and **＋** to put one just before the speakers.

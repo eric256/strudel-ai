@@ -202,12 +202,15 @@ Encoding happens in the browser while you record (lamejs, 192 kbps stereo), so n
      - `drums.half` and `drums.fill`;
      - alternate lines such as `bass.alt1` or `keys.alt2`, a different figure on the same sound, so each section has something of its own;
      - `hook.harmony` (the hook a third above) for a last chorus;
+     - **voices** on a melodic part: its line plus a harmony a third or sixth below (or above, or an octave away) or a counter-line, written out and played together — where the genre harmonises its tunes (pop, soul, folk, big band, gospel …);
+     - **layers** on a part that carries the song: the same notes on 1–2 more sounds, each with its own effects (a saw lead over soft strings, a sub under a mid bass);
    - parts can come and go inside a section: `riff@in` enters halfway, `counter@out` drops out halfway, `riff@alt` plays 2 bars on and 2 off;
    - the **form**: the order and length of the sections, built on the planned song form but varied for this song (see below). Each section says which chords it uses and which parts play;
    - the **band**: its core instruments, any of its optional ones that suit the song, and 1–2 parts of the AI's own.
    - **Master:** the song is mastered in the band's style, with the band's own tweaks to it (its sound).
 2. **Parts.** The AI writes every part once, as a library of named patterns (`drums_main`, `bass_main` …).
    - Harmonic parts (bass, chords, pads, arpeggios) are functions of the chord progression, so each section can give them its own chords.
+   - A part with voices is a `stack(n("line"), n("harmony"))` under one `.scale(…)` and sound; a layered part has `.layer(x => x.s("one"), x => x.s("two")…)` in place of its `.s(…)`. Where the AI leaves them out, the app adds them (a harmony moved along the scale, a held counter-line to shape, the layer sound). Either way it's still **one part**: one mixer channel, one 🔀 Routing chain.
    - The library is test-played silently before it's used. If a part is missing or a sound, scale or chord doesn't exist, it goes back to the AI with the error (up to 3 tries).
 3. **Arrangement.** The app builds each section itself: the library, the section's chords, and one labelled group per part that plays.
    - **Repeats stay recognisable:** a chorus uses the same chords and parts every time, so the key and sounds can't drift. A later repeat may swap in an alternate line or add the harmony.
@@ -314,6 +317,9 @@ A song's sheet and sections show in two places only:
     - **Staff:** melodies, in scale degrees (`n("0 2 4").scale(…)`) or note names (`note("c4 eb4")`), on a treble or bass staff with accidentals, stems and flags.
       - Click the staff to put a note at that step and pitch, or move the one there. Right-click removes it.
       - ▲▼ or the arrows move the selected note by a scale step, 8va / 8vb or Shift+arrows by an octave. ½ / ×2 or − / + change its length, and Delete makes it a rest.
+      - **Chords:** Shift-click (or turn **chord** on) adds a note to the chord at that step. Right-click on a chord takes out the note nearest the click.
+      - **Voices:** a part that plays several lines (`stack(n(…), n(…))`) shows them all on one staff, each in its own colour. Pick the voice to edit; the others show faded under it. **＋ voice** adds a harmony of the voice you're on (a third or sixth below, a third above, an octave away) or a counter-line to shape; **✕ voice** takes one out.
+    - **Layers:** the part's sounds, if it has `.layer(…)`. **＋ layer** plays the same notes on another sound too (its own effects go inside its `x => x.s(…)` in the code); × takes one off.
     - **Grid:** drums (`s("bd ~ sd ~")`, one row per sound, ＋ sound for a new row), chord tones (`n("0 1 2").chord(…)`), sample hits (`.n("<3 4>")`) and rhythms (`struct("x ~ x")`). Click a cell to add or remove a hit.
     - **Level bars:** velocity and gain patterns. Click a column at a height to set it; right-click clears it.
     - **For every pattern:** steps per bar sets the grid, and ＋ bar / − bar add (a copy of the last) or remove bars, one per cycle with `<…>`. The pattern is also shown **as text** to edit directly.

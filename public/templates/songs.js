@@ -109,7 +109,7 @@ export function songSection(s) {
 
 /**
  * The song sheet. sheet: { form, sectionCount, bars, band, style, styleDesc, ownMix, bpm, meter, key, scale,
- *   chords: [[name, chords]], melody, hook, parts: [{ id, color, title, sound, tune }] }
+ *   chords: [[name, chords]], melody, hook, parts: [{ id, color, title, sound, tune, poly }] }
  */
 export function songSheet(sh) {
   return html`<div class="sv-grid">
@@ -119,7 +119,7 @@ export function songSheet(sh) {
       <span class="k">chords</span><span>${sh.chords.map(([k, v]) => html`<span class="chip"><b>${k}</b> ${v}</span> `)}</span>
       ${sh.melody ? html`<span class="k">melody</span><span><code>${sh.melody}</code></span>` : nothing}
       <span class="k">hook</span><span><code>${sh.hook}</code></span>
-      <span class="k">parts</span><span>${sh.parts.map((p) => html`<span class="chip part" style="--c:${p.color}" title=${p.title}><b>${p.id}</b> ${p.sound}${p.tune ? html` <small>♪ ${p.tune}</small>` : nothing}</span> `)}</span>
+      <span class="k">parts</span><span>${sh.parts.map((p) => html`<span class="chip part" style="--c:${p.color}" title=${p.title}><b>${p.id}</b> ${p.sound}${p.tune ? html` <small>♪ ${p.tune}</small>` : nothing}${p.poly ? html` <small>♫ ${p.poly}</small>` : nothing}</span> `)}</span>
     </div>`;
 }
 

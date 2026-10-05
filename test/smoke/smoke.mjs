@@ -745,6 +745,43 @@ try {
     await ev(() => document.getElementById('stop').click());
   });
 
+  await step('🧩 polyphonic parts: the sheet\'s layers are in the code; ＋ voice stacks a harmony (its own colour), chord notes, ＋ layer; it loops', async () => {
+    const lib = await ev(() => strudelAI.activeSong().library);
+    expect(/pad_main[^\n]*\.layer\(x => x\.s\("triangle"\), x => x\.s\("sine"\)/.test(lib), `the sheet's layer isn't in the pad's code: ${lib}`);
+    await ev(() => { const row = [...document.querySelectorAll('#editForm .se-part')].find((r) => r.querySelector('.se-pname').value === 'hook'); row.querySelector('.se-pedit').click(); });
+    await p.waitForSelector('#partForm .pe-addvoice', { timeout: 5000 });
+    const code = () => ev(() => document.querySelector('#partForm .pe-code textarea').value);
+    await ev(() => { const s = document.querySelector('#partForm .pe-addvoice'); s.value = 'third_below'; s.dispatchEvent(new Event('change')); });
+    await p.waitForFunction(() => document.querySelectorAll('#partForm .pe-voice').length === 2, null, { timeout: 5000 });
+    const two = await code();
+    expect(/stack\(n\("[^"]+"\), n\("[^"]+"\)\.velocity\(0\.7\)\)\.scale\(/.test(two), `no stacked voice: ${two}`);
+    const v = await ev(() => ({ ghosts: document.querySelectorAll('#partForm .pe-ghost').length, on: document.querySelector('#partForm .pe-voice.on')?.textContent.trim(), color: getComputedStyle(document.querySelector('#partForm .pe-bar .pe-head')).fill, style: document.querySelector('#partForm .pe-bar').getAttribute('style') }));
+    expect(v.ghosts > 0 && v.on === 'voice 2' && v.color === 'rgb(240, 160, 64)', `the voices on the staff (voice 2 in its colour): ${JSON.stringify(v)}`);
+    // Shift-click a note's step: a chord there
+    const box = await p.locator('#partForm .pe-bar').first().boundingBox();
+    await p.keyboard.down('Shift');
+    await p.mouse.click(box.x + 44 + 10, box.y + 92 - 5 * 10);
+    await p.keyboard.up('Shift');
+    await p.waitForTimeout(200);
+    const chord = await code();
+    expect(/n\("[^"]*\[[^"\]]*,[^"\]]*\][^"]*"\)\.velocity/.test(chord), `Shift-click didn't make a chord in voice 2: ${chord}`);
+    // ＋ layer
+    await ev(() => { const i = document.querySelector('#partForm .pe-addlayer'); i.value = 'sine'; i.dispatchEvent(new Event('change')); });
+    const layered = await code();
+    expect(/\.layer\(x => x\.s\("square"\), x => x\.s\("sine"\)\.velocity\(0\.6\)\)/.test(layered), `no layer: ${layered}`);
+    await ev(() => document.querySelector('#partForm .pe-play').click());
+    await p.waitForFunction(() => document.querySelector('strudel-editor').editor.repl.scheduler.started, null, { timeout: 10000 });
+    await p.waitForTimeout(600);
+    const msg = await ev(() => document.querySelector('#partForm .se-msg').textContent);
+    expect(!/⚠/.test(msg), `the stacked, layered hook doesn't play: ${msg}`);
+    await ev(() => document.querySelector('#partForm .pe-stop')?.click());
+    // ✕ voice: one line again; ↺ revert leaves the song as it was
+    await ev(() => [...document.querySelectorAll('#partForm .pe-voices button.link')].find((b) => /voice/.test(b.textContent)).click());
+    expect(!/stack\(/.test(await code()), 'the voice was not taken out');
+    await ev(() => [...document.querySelectorAll('#partForm .pe-head button.link')].find((b) => /revert/.test(b.textContent)).click());
+    await p.waitForTimeout(200);
+  });
+
   await step('⏸ paused song → 🧩 loop a part, fix it, ✓ apply → ▶ carries on with the fix (progress, jumps); ⏭ go when stopped plays it from there', async () => {
     await ev(() => strudelAI.setMode('studio'));
     await ev(() => { const sg = strudelAI.activeSong(); strudelAI.openSongEditor(sg); strudelAI.playSong(sg); });

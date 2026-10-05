@@ -9,9 +9,11 @@ const yOf = (step) => BOTTOM - step * HALF;
 /**
  * v: { part, variant, color, role, sound, variants: [{ name, on, used }], sections: [{ i, name, chords, on, uses }],
  *      solo, playing, dirty, msg, bad, effects: [{ group, items: [{ i, key, label, kind, value, min, max, step, log, unit }] }],
- *      addable: [{ key, label, group }], sources: [{ i, label, on }], src: (see noteEditor), code }
+ *      addable: [{ key, label, group }], sources: [{ i, label, on, color }], src: (see noteEditor), code,
+ *      voices: null | { options: [{ key, label }], canRemove }, layers: null | { list: [{ k, sound, text }], can } }
  * act: { variant, section, play, stop, solo, effect, effectText, addEffect, removeEffect, source, steps, staff, key,
- *        grid, level, bar, up, octave, length, rest, text, code, apply, revert, close }
+ *        grid, level, bar, up, octave, length, rest, chord, addVoice, removeVoice, addLayer, removeLayer, text, code,
+ *        apply, revert, close }
  */
 export function partEditor(v, act) {
   return html`<div class="pe" style="--c:${v.color}">
@@ -44,9 +46,18 @@ export function partEditor(v, act) {
         ${[...new Set(v.addable.map((a) => a.group))].map((grp) => html`<optgroup label=${grp}>${v.addable.filter((a) => a.group === grp).map((a) => html`<option value=${a.key}>${a.label}</option>`)}</optgroup>`)}
       </select>
     </div>
+    ${v.layers && (v.layers.can || v.layers.list.length) ? html`<div class="pe-row pe-layers">
+      <span class="se-label" title="The same notes on more sounds at once, each with its own effects (still one part, one mixer channel)">Layers</span>
+      ${v.layers.list.length ? v.layers.list.map((l) => html`<span class="pe-chip pe-layer" title=${l.text}>${l.sound}${v.layers.list.length > 1 ? html` <button class="link pe-del" title="Take this layer off" @click=${() => act.removeLayer(l.k)}>×</button>` : nothing}</span>`)
+        : html`<span class="muted small">one sound</span>`}
+      <input class="pe-addlayer" placeholder="＋ layer a sound…" title="Play the same notes on another sound too (e.g. gm_string_ensemble_1) — its own effects go inside its x => x.s(…) in the code" @change=${(e) => { if (e.target.value.trim()) act.addLayer(e.target.value); e.target.value = ''; }} />
+    </div>` : nothing}
 
     <div class="se-label">Notes <span class="muted small">${!v.sources.length ? 'this part has no patterns the note editor can change — edit its code below' : v.sources.length > 1 ? 'pick what to edit' : v.src?.label || ''}</span></div>
-    ${v.sources.length > 1 ? html`<div class="pe-row">${v.sources.map((s) => html`<button class="pe-chip${s.on ? ' on' : ''}" @click=${() => act.source(s.i)}>${s.label}</button>`)}</div>` : nothing}
+    ${v.sources.length > 1 || v.voices ? html`<div class="pe-row pe-voices">${v.sources.length > 1 ? v.sources.map((s) => html`<button class="pe-chip${s.on ? ' on' : ''}${s.color ? ' pe-voice' : ''}" style=${s.color ? `--vc:${s.color}` : ''} @click=${() => act.source(s.i)}>${s.label}</button>`) : nothing}
+      ${v.voices ? html`<select class="pe-addvoice" title="Another line played with this one — still one part (one mixer channel)" @change=${(e) => { if (e.target.value) act.addVoice(e.target.value); e.target.value = ''; }}>
+          <option value="">＋ voice…</option>${v.voices.options.map((o) => html`<option value=${o.key}>${o.label}</option>`)}</select>
+        ${v.voices.canRemove ? html`<button class="link" title="Take this voice out" @click=${act.removeVoice}>✕ voice</button>` : nothing}` : nothing}</div>` : nothing}
     ${v.src ? noteEditor(v.src, act) : nothing}
 
     <details class="pe-code"><summary>code</summary>
@@ -90,12 +101,13 @@ function noteEditor(s, act) {
           <button title="Shorter (−)" ?disabled=${!s.sel} @click=${() => act.length(0.5)}>½</button>
           <button title="Longer (+)" ?disabled=${!s.sel} @click=${() => act.length(2)}>×2</button>
           <button title="Make it a rest (Delete)" ?disabled=${!s.sel} @click=${act.rest}>rest</button>
+          <label class="pe-chordmode" title="On: a click adds a note to the chord at that step (or hold Shift) — off: it moves the note"><input type="checkbox" .checked=${s.chord} @change=${(e) => act.chord(e.target.checked)} /> chord</label>
           <span class="small muted">${s.info}</span>` : nothing}`}
     </div>
     ${s.error ? html`<div class="se-msg bad">${s.error}</div>`
       : s.view === 'staff' ? staffView(s, act) : s.view === 'level' ? levelView(s, act) : gridView(s, act)}
     <label class="pe-mini"><span class="small muted">as text</span><input spellcheck="false" .value=${s.text} @change=${(e) => act.text(e.target.value)} /></label>
-    ${s.view === 'staff' && !s.error ? html`<div class="small faint">Click the staff to put a note there (or move the one at that step) · right-click a note to remove it · arrows / Delete / + − on the selected note</div>`
+    ${s.view === 'staff' && !s.error ? html`<div class="small faint">Click the staff to put a note there (or move the one at that step) · Shift-click (or chord on) adds a note to the chord · right-click a note to remove it · arrows / Delete / + − on the selected note${s.bars.some((b) => b.others?.length) ? ' · the other voices show faded in their colours' : ''}</div>`
       : s.view === 'grid' && !s.error ? html`<div class="small faint">Click a cell to add or remove a hit</div>` : nothing}
   </div>`;
 }
@@ -110,14 +122,19 @@ function staffView(s, act) {
       e.preventDefault();
       const r = e.currentTarget.getBoundingClientRect();
       const col = Math.max(0, Math.min(bar.steps - 1, Math.floor((e.clientX - r.left - padL) / cw)));
-      act.staff(bar.b, col, Math.round((BOTTOM - (e.clientY - r.top)) / HALF), e.type === 'contextmenu');
+      act.staff(bar.b, col, Math.round((BOTTOM - (e.clientY - r.top)) / HALF), e.type === 'contextmenu', e.shiftKey);
     };
-    return html`<svg class="pe-bar" width=${width} height=${HEIGHT} viewBox="0 0 ${width} ${HEIGHT}" @click=${click} @contextmenu=${click}>
+    return html`<svg class="pe-bar" style=${s.voiceColor ? `--vc:${s.voiceColor}` : ''} width=${width} height=${HEIGHT} viewBox="0 0 ${width} ${HEIGHT}" @click=${click} @contextmenu=${click}>
       ${[...Array(bar.steps)].map((_, c) => svg`<rect class="pe-col${bar.steps >= 8 && c % beatOf(bar.steps) === 0 ? ' beat' : ''}" x=${padL + c * cw} y="20" width=${cw} height=${HEIGHT - 40}></rect>`)}
       ${[0, 2, 4, 6, 8].map((st) => svg`<line class="pe-line" x1="0" x2=${width} y1=${yOf(st)} y2=${yOf(st)}></line>`)}
       <line class="pe-barline" x1=${width - 0.5} x2=${width - 0.5} y1=${yOf(8)} y2=${yOf(0)}></line>
       ${first ? svg`<text class="pe-clef" x="4" y=${s.clef === 'bass' ? yOf(4) + 13 : yOf(0) + 11} font-size=${s.clef === 'bass' ? 34 : 50}>${s.clef === 'bass' ? '𝄢' : '𝄞'}</text>` : nothing}
       ${bar.rests.map((r) => svg`<rect class="pe-rest" x=${xOf(r.t) - 4} y=${yOf(4) - 2} width="8" height="4"></rect>`)}
+      ${(bar.others || []).map((o) => svg`<g class="pe-ghost" style="--vc:${o.color}">${o.notes.map((n) => {
+        const x = padL + o.pos * bar.steps * cw + cw / 2;
+        return svg`<rect class="pe-gdur" x=${x - 4} y=${yOf(n.step) - 2} width=${Math.max(6, o.len * bar.steps * cw - 2)} height="4" rx="2"></rect>
+          <ellipse class="pe-ghead" cx=${x} cy=${yOf(n.step)} rx="5.5" ry="4" transform="rotate(-20 ${x} ${yOf(n.step)})"></ellipse>`;
+      })}</g>`)}
       ${bar.events.map((ev) => {
         const x = xOf(ev.t), f = ev.len / bar.res, hollow = f >= 0.5, flags = f >= 0.25 ? 0 : f >= 0.125 ? 1 : 2;
         const steps = ev.notes.map((n) => n.step), hi = Math.max(...steps), lo = Math.min(...steps);

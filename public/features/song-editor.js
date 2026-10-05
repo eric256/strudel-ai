@@ -29,7 +29,7 @@ export function rawSheet(sh) {
     form: sh.form, ...(sh.band ? { band: sh.band } : {}), master: sh.master || 'clean', ...(sh.masterParams ? { masterParams: sh.masterParams } : {}),
     bpm: sh.bpm, meter: normMeter(sh.meter), key: sh.key, scale: sh.scale, hook: sh.hook, ...(sh.melody ? { melody: sh.melody } : {}),
     chords: Object.fromEntries(Object.entries(sh.chords).map(([k, v]) => [k, v.replace(/^<|>$/g, '')])),
-    parts: sh.parts.map((p) => ({ name: p.id, role: p.role, sound: p.sound, variants: p.variants, desc: p.desc, ...(p.tune ? { tune: p.tune } : {}) })),
+    parts: sh.parts.map((p) => ({ name: p.id, role: p.role, sound: p.sound, variants: p.variants, desc: p.desc, ...(p.tune ? { tune: p.tune } : {}), ...(p.voices ? { voices: p.voices } : {}), ...(p.layers ? { layers: p.layers } : {}) })),
     sections: sh.sections.map((x) => ({ name: x.name, bars: x.bars, chords: x.chords, play: x.play.map((y) => (y.variant === 'main' ? y.part : `${y.part}.${y.variant}`) + (y.enter ? `@${y.enter}` : '')), ...(x.shift ? { shift: x.shift } : {}), ...(x.bpm ? { bpm: x.bpm } : {}), ...(x.level ? { level: x.level } : {}), ...(x.solo ? { solo: x.solo } : {}) })),
     ending: sh.ending || 'fade', ...(sh.feel != null ? { feel: sh.feel } : {}),
   };
