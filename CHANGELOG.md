@@ -2,6 +2,16 @@
 
 The version is in `package.json`. Bump it when you release. Open pages also notice *any* redeploy through the build id, which is a hash of the app files, even if the version wasn't bumped.
 
+## 1.57.0
+- **✎ Edit song has its own transport:** **▶ ⏸ ■ ↺** at the top of the editor, staying there while you scroll. They work on the song you're editing, so you don't have to go to 🎶 Now playing to start and stop it.
+  - **▶** plays this song, or carries on after **⏸**. It's off while the song plays.
+  - **⏸** pauses it where it is (section and bar).
+  - **■** stops.
+  - **↺** plays it again from its first section, fresh.
+  - The line beside them is live: `▶ chorus · bar 3/8` (and 🔁 when holding), paused at which bar, getting it ready, or which other song is playing.
+  - It replaces the editor's lone "▶ play".
+- **Tests:** a smoke step pauses, resumes, stops and restarts a song from the editor's transport and checks the line and the buttons.
+
 ## 1.56.0
 - **🔀 Routing: the knobs are on the nodes.**
   - Each effect card has its own dials (compressor threshold, ratio, attack, release and makeup; drive and mix; …) and a ⏻ bypass switch, like a pedalboard. The side panel no longer repeats them.

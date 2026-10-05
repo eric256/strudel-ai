@@ -10,7 +10,7 @@ import { signed } from '../lib/util.js';
 import { arrangeSong, carryLiveState, sectionAfterEdit, sectionCode } from '../lib/arrange.js';
 import { loadPads, padsState } from './pads.js';
 import { STYLE_NAMES } from '../master.js';
-import { $, atSectionStart, clog, engine, evaluateCode, fadeCycles, getCode, isPlaying, jumpTo, nextBoundary, nowCycle, queue, setHold, state, ws } from '../app.js';
+import { $, atSectionStart, clog, engine, evaluateCode, fadeCycles, getCode, isPlaying, jumpTo, nextBoundary, nowCycle, pauseSong, queue, restartSong, resumeSong, setHold, state, ws } from '../app.js';
 import { normalizeSheet } from './bands.js';
 import { prepareCode } from './sound-check.js';
 import { songsChanged, renderSongs, playFromSection } from './song-lists.js';
@@ -384,6 +384,15 @@ const edit = {
   revert() { openDraft(draft.sg, { sel: draft.sel, open: draft.open, msg: '↺ back to the song as it is' }); renderSongEditor(); },
   close() { ws.close('edit'); songEdit.sg = null; draft = null; songsChanged(); renderSongs(); },
   play() { playSong(draft.sg); },
+  // ▶ ⏸ ■ ↺ at the top: they work on this song (Now playing's work on whatever plays)
+  tPlay() {
+    const t = editTransport();
+    if (t.paused) resumeSong();
+    else if (!t.playing) playSong(draft.sg);
+  },
+  tPause() { if (editTransport().playing) pauseSong(); },
+  tStop() { $('stop').onclick(); },
+  tRestart() { if (editTransport().current) restartSong(); else playFromSection(draft.sg, 0); },
   jump(i) { const k = stepOf(i); if (k >= 0 && engine.running) jumpTo(k); else playFromSection(draft.sg, i); },
   loop(i) { const k = stepOf(i); if (k >= 0 && engine.running) { jumpTo(k); setHold(true); } else playFromSection(draft.sg, i, { hold: true }); },
 };
@@ -398,6 +407,7 @@ function stepOf(i) {
  * column, as far through it as the section has played). Hidden while that song isn't playing. Called every frame.
  */
 export function updatePlayhead() {
+  updateEditTransport();
   const line = $('editForm').querySelector('.se-playhead');
   if (!line) return;
   const sg = draft?.sg;
@@ -417,6 +427,43 @@ export function updatePlayhead() {
   line.style.left = `${table.offsetLeft + th.offsetLeft + frac * th.offsetWidth}px`; // (a cell's offset is from its table)
   line.style.top = `${table.offsetTop}px`;
   line.style.height = `${table.offsetHeight}px`;
+}
+
+/**
+ * Where the song being edited is: current (the playlist's song now), playing (and heard), paused, the section and
+ * bar it's at — and another song, if that's the one playing.
+ */
+function editTransport() {
+  const sg = draft?.sg;
+  const songs = sg ? [sg, ...linkedSongs(sg)] : [];
+  const cur = queue.running ? queue.songs[queue.current] : null;
+  const current = !!cur && songs.includes(cur);
+  const paused = !!engine.paused && songs.includes(engine.paused.step.song);
+  const playing = current && !paused && isPlaying();
+  const st = playing ? engine.steps.find((x) => x.status === 'playing' && songs.includes(x.song)) : null;
+  return { current, paused, playing, st, other: !current && isPlaying() && cur ? cur : null };
+}
+/** The transport at the top of the editor: its buttons and line, by hand (called every frame while it plays). */
+function updateEditTransport() {
+  const bar = $('editForm').querySelector('.se-transport');
+  if (!bar || !draft) return;
+  const t = editTransport();
+  const btn = (k) => bar.querySelector(`[data-et="${k}"]`);
+  btn('play').disabled = t.playing;
+  btn('play').classList.toggle('on', t.paused);
+  btn('pause').disabled = !t.playing;
+  btn('stop').disabled = !isPlaying() && !queue.running && !engine.paused;
+  let line;
+  if (t.paused) line = `⏸ paused · ${engine.paused.step.prompt || ''} · bar ${engine.paused.bar + 1} — ▶ carries on`;
+  else if (t.st) {
+    const len = Math.max(1, t.st.bars);
+    const at = t.st.startedAt != null ? Math.floor(Math.max(0, nowCycle() - t.st.startedAt)) % len + 1 : 1;
+    line = `▶ ${t.st.prompt || ''} · bar ${at}/${len}${engine.hold ? ' · 🔁 holding' : ''}`;
+  } else if (t.current && queue.running) line = '✎ getting it ready…';
+  else if (t.other) line = `another song is playing: “${t.other.title}” — ▶ plays this one`;
+  else line = '■ not playing — ▶ to hear it';
+  const el = bar.querySelector('.se-tline');
+  if (el.textContent !== line) el.textContent = line;
 }
 
 /** The ✎ Edit song editor (templates/song-editor.js) for the song being edited. */
@@ -449,6 +496,7 @@ export function renderSongEditor() {
     parts: r.parts.map((p, i) => ({ i, name: p.name, role: p.role, sound: p.sound, variants: p.variants.join(', '), color: vizColor(p.name), open: draft.open.has(p.name), defs: defsOf(p.name) })),
     roles: BAND_ROLES,
   }, edit), $('editForm'));
+  updateEditTransport();
   renderPartEditor(); // the 🧩 part editor shows the same draft
 }
 

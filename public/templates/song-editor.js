@@ -14,11 +14,20 @@ import { html, nothing, repeat } from '../html.js';
  * act: { field(k, v), selectSection(i), sectionField(i, k, v), moveSection(i, d), dupSection(i), delSection(i), addSection(),
  *        dragSection(i), dropSection(i), cell(part, i), cellEnter(part, i), chordName(old, name), chords(name, text),
  *        addChords(), delChords(name), partField(i, k, v), addPart(), delPart(i), togglePart(i), def(id, code),
- *        ask(part, text), editPart(part), apply(), revert(), close(), play(), jump(i), loop(i) }
+ *        ask(part, text), editPart(part), apply(), revert(), close(), play(), jump(i), loop(i),
+ *        tPlay(), tPause(), tStop(), tRestart() }  (the transport at the top: features/song-editor.js sets its buttons and
+ *        its line (.se-tline) by hand as the song plays — no template values inside them)
  */
 export function songEditor(v, act) {
   const num = (val, k, attrs = {}) => html`<input type="number" class="se-num" .value=${String(val ?? '')} min=${attrs.min ?? nothing} max=${attrs.max ?? nothing} placeholder=${attrs.placeholder ?? nothing} @change=${(e) => act[attrs.on || 'field'](...(attrs.args || []), k, e.target.value)} />`;
   return html`<div class="se">
+    <div class="se-transport" title="The transport for this song">
+      <button data-et="play" title="Play this song (▶ again after ⏸ carries on where it paused)" @click=${act.tPlay}>▶</button>
+      <button data-et="pause" title="Pause it where it is (section and bar)" @click=${act.tPause}>⏸</button>
+      <button data-et="stop" title="Stop (Ctrl+.)" @click=${act.tStop}>■</button>
+      <button data-et="restart" title="This song again from its first section, fresh" @click=${act.tRestart}>↺</button>
+      <span class="se-tline"></span>
+    </div>
     <div class="se-head">
       <label>title <input class="se-title" .value=${v.title} @change=${(e) => act.field('title', e.target.value)} /></label>
       <label>bpm ${num(v.bpm, 'bpm', { min: 40, max: 220 })}</label>
@@ -29,7 +38,6 @@ export function songEditor(v, act) {
         <option value="fade" ?selected=${v.ending !== 'cut'}>fade out</option><option value="cut" ?selected=${v.ending === 'cut'}>stop + silence</option></select></label>
       <label title="Feel: how loosely the band plays — 0 = on the grid, like a machine; 100 = a live band (each note a little softer or louder, a little behind the beat)">feel ${num(v.feel, 'feel', { min: 0, max: 100 })}</label>
       <span class="spacer"></span>
-      ${v.playing ? nothing : html`<button title="Play this song" @click=${act.play}>▶ play</button>`}
       <button class="se-apply${v.dirty ? ' dirty' : ''}" ?disabled=${!v.dirty} title="Check the changes and switch the song over (from its next section, if it's playing)" @click=${act.apply}>✓ apply</button>
       <button class="link" ?disabled=${!v.dirty} title="Throw away the changes" @click=${act.revert}>↺ revert</button>
       <button class="link" title="Close the editor" @click=${act.close}>close</button>

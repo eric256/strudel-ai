@@ -665,6 +665,14 @@ body.hydra-behind #editor-wrap .cm-line > span, body.hydra-behind #editor-wrap .
 .dv-fixed-tab { padding: 0 12px; display: flex; align-items: center; height: 100%; white-space: nowrap; }
 /* ✎ Edit song panel */
 #editPanel { padding: 8px 10px; overflow-y: auto; gap: 8px; }
+/* ✎ Edit song: its own transport, stuck to the top while the editor scrolls */
+.se-transport { position: sticky; top: -8px; z-index: 3; display: flex; align-items: center; gap: 4px; flex-wrap: wrap;
+  margin: -8px -10px 0; padding: 6px 10px; background: var(--panel-2, var(--panel)); border-bottom: 1px solid var(--border); }
+.se-transport button { min-width: 34px; height: 30px; padding: 0 8px; font-size: 15px; line-height: 1; }
+.se-transport [data-et="play"] { color: var(--accent-2); }
+.se-transport [data-et="stop"] { color: var(--danger); }
+.se-transport button.on { border-color: var(--accent-2); box-shadow: 0 0 0 1px var(--accent-2) inset; }
+.se-tline { flex: 1; min-width: 0; margin-left: 6px; font: 12px var(--mono); color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 #editForm .sv-edit { border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; background: var(--sunken); }
 .nowrap { white-space: nowrap; }
 /* the transport at the top left of the code */
