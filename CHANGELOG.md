@@ -2,6 +2,22 @@
 
 The version is in `package.json`. Bump it when you release. Open pages also notice *any* redeploy through the build id, which is a hash of the app files, even if the version wasn't bumped.
 
+## 1.59.0
+- **🔀 Routing: effects after the master mix.** The wires after the Master block are part of the graph now.
+  - Click the **Master** (or Master FX) and **＋** an effect to put it on the whole mix. Click **Out** and **＋** to put one just before the speakers.
+  - Wire around Master FX, or in parallel, like anywhere else.
+  - Master FX and Out stay (they can't be removed). With nothing after the master, it's Master → Master FX → Out, as before.
+  - Effects after the master have an accent bar on top.
+  - **Audio:** unless the way out is the plain one, the master's sum, the Master FX chain and the master volume are taken apart and wired as the board says. Taking the effects out puts them back.
+  - Out's meter measures the very end of the chain.
+- **Fix: the board sometimes wouldn't pan.**
+  - Drawflow only starts a background drag when the first class of what you pressed is its canvas's, and ours came second.
+  - After zooming or fitting, the strips around the scaled canvas didn't pan at all. Now anywhere on the background does.
+- **Tests:**
+  - Unit tests for the way out after the master: default, effects after it, around Master FX, no loops back.
+  - The things after the master survive unrouting a part and aren't dead ends.
+  - A smoke step adds effects after the master and before Out (sound still comes out), heals them back, and pans from a background strip.
+
 ## 1.58.0
 - **🔀 Routing is the whole signal path; 🎚 Mixer and 🎛 Master are simpler views of it.**
   - **The flow:** each part → its effects → **its own input on the Master block** (a row per channel: fader in dB, pan, mute / solo, a level line, level with its part so the wires run straight across) → summed → **🎛 Master FX** → **Out**.

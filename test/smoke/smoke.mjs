@@ -194,7 +194,8 @@ try {
     await p.locator('#routeBody .rt-part[data-id="src:bass"]').click();
     await add('Comp');
     await add('Split');
-    const g = await ev(() => ({ e: strudelAI.routing.graph.edges.map((e) => `${e.from}${e.fp ? '.1' : ''}>${e.to}${e.tp ? '.1' : ''}`).sort().join(' '), outs: document.querySelectorAll('#routeBody .rt-node[data-id="n2"] .output').length, ins: document.querySelectorAll('#routeBody .rt-node[data-id="n3"] .input').length }));
+    // (the wires before the master: not the way out after it)
+    const g = await ev(() => ({ e: strudelAI.routing.graph.edges.filter((e) => e.from !== 'master' && e.from !== 'mfx').map((e) => `${e.from}${e.fp ? '.1' : ''}>${e.to}${e.tp ? '.1' : ''}`).sort().join(' '), outs: document.querySelectorAll('#routeBody .rt-node[data-id="n2"] .output').length, ins: document.querySelectorAll('#routeBody .rt-node[data-id="n3"] .input').length }));
     expect(g.e === 'n1>n2 n2.1>n3.1 n2>n3 n3>master src:bass>n1' && g.outs === 2 && g.ins === 2, JSON.stringify(g));
     // the knobs are on the node: turning one changes that node's setting (and doesn't drag the node)
     const kb = await p.locator('#routeBody .rt-node[data-id="n1"] sa-knob[data-p="ratio"]').boundingBox();
@@ -212,7 +213,40 @@ try {
     await p.keyboard.press('Delete');
     await p.waitForFunction(() => !strudelAI.routing.graph.nodes.some((n) => n.id === 'n1') && strudelAI.routing.graph.edges.some((e) => e.from === 'src:bass' && e.to === 'n2'), null, { timeout: 3000 });
     await ev(() => [...document.querySelectorAll('#routeBody .rt-right button')].find((b) => b.textContent === 'clear').click());
-    expect(await ev(() => !strudelAI.routing.live && strudelAI.routing.graph.nodes.length === 0), 'clear left routing');
+    expect(await ev(() => { const L = strudelAI.routing.live; return (!L || (!Object.keys(L.blocks).length && !L.closed.length && !L.post)) && strudelAI.routing.graph.nodes.length === 0; }), 'clear left routing');
+  });
+
+  await step('🔀 routing: effects after the master mix (master → effect → Master FX, an effect before Out), sound still out; the board pans from any background', async () => {
+    await ev(() => strudelAI.ws.open('route'));
+    await p.waitForFunction(() => !!document.querySelector('#routeBody .drawflow-node[data-id="master"]'), null, { timeout: 5000 });
+    const add = (t) => ev((t) => [...document.querySelectorAll('#routeBody .rt-add button')].find((b) => b.textContent === t).click(), t);
+    // (select a card as a click does: Drawflow listens for the mouse on its canvas)
+    const pick = (id) => ev((id) => { const el = document.querySelector(`#routeBody .drawflow-node[data-id="${id}"] .rt-head b`); for (const t of ['mousedown', 'mouseup']) el.dispatchEvent(new MouseEvent(t, { bubbles: true, button: 0, clientX: 1, clientY: 1 })); }, id);
+    await pick('master');
+    await p.waitForFunction(() => strudelAI.routing.sel?.node === 'master', null, { timeout: 3000 });
+    await add('Comp');
+    await pick('out');
+    await p.waitForFunction(() => strudelAI.routing.sel?.node === 'out', null, { timeout: 3000 });
+    await add('Sat');
+    const e = await ev(() => strudelAI.routing.graph.edges.map((x) => `${x.from}>${x.to}`).sort().join(' '));
+    expect(e === 'master>n1 mfx>n2 n1>mfx n2>out', `edges: ${e}`);
+    const r = await ev(async () => {
+      const { masterAnalyser } = await import('/features/mixer.js');
+      const a = masterAnalyser(), buf = new Float32Array(a.fftSize);
+      let x = 0;
+      for (let i = 0; i < 15; i++) { a.getFloatTimeDomainData(buf); for (const v of buf) x = Math.max(x, Math.abs(v)); await new Promise((r) => setTimeout(r, 80)); }
+      return { taken: !!strudelAI.routing.live?.post, peak: x, marked: document.querySelectorAll('#routeBody .after-master').length };
+    });
+    expect(r.taken && r.peak > 0.01 && r.marked === 2, JSON.stringify(r));
+    // panning: zoomed out, a drag on the background strip beside the canvas moves it
+    const t0 = await ev(() => { const d = strudelAI.routing.df; d.zoom_out(); d.zoom_out(); d.zoom_out(); return [d.canvas_x, d.canvas_y]; });
+    const box = await p.locator('#routeBody .rt-df').boundingBox();
+    await p.mouse.move(box.x + box.width - 20, box.y + 20); await p.mouse.down(); await p.mouse.move(box.x + box.width - 120, box.y + 70, { steps: 6 }); await p.mouse.up();
+    const t1 = await ev(() => [strudelAI.routing.df.canvas_x, strudelAI.routing.df.canvas_y]);
+    expect(Math.abs(t1[0] - t0[0] + 100) < 3 && Math.abs(t1[1] - t0[1] - 50) < 3, `pan ${t0} → ${t1}`);
+    await ev(() => document.querySelector('#routeBody .rt-zoom button:nth-child(2)').click());
+    await ev(() => [...document.querySelectorAll('#routeBody .rt-right button')].find((b) => b.textContent === 'clear').click());
+    expect(await ev(() => !strudelAI.routing.live?.post), 'clear left the master taken apart');
   });
 
   await step('🎛 master nodes: ⏻ switches a node off (its effect goes neutral) and on again', async () => {

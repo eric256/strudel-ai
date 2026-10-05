@@ -11,12 +11,12 @@ import { $, addMsg, docks, isPlaying, load, player, save, setupDock, ws } from '
 import { render } from '../html.js';
 import { T, onTemplatesChange } from '../templates/index.js';
 import {
-  NODE_TYPES, SINK, TEMPLATES, addNode, canConnect, connect, deadEnds, edgeKey, freeInput, inPorts, inputKey, layoutGraph,
+  MFX, NODE_TYPES, OUT, SINK, TEMPLATES, addNode, canConnect, connect, deadEnds, edgeKey, freeInput, inPorts, inputKey, layoutGraph,
   masterInputs, nodeSummary, normGraph, outPorts, partOf, removeEdge, removeNode, routedParts, srcId, unfed, unplace,
-  unroutePart, visibleGraph,
+  unroutePart, visibleGraph, withPost, postNodes, layoutPost,
 } from '../lib/routing.js';
 import { createBlock } from '../routing-audio.js';
-import { busList, busStrip, channelHooks, channelIfAny, chOf, fxHook, mixer, mixerChannels, sdController, setChannel, stripIfAny } from './mixer.js';
+import { busList, busStrip, channelHooks, channelIfAny, chOf, fxHook, masterAnalyser, mixer, mixerChannels, sdController, setChannel, stripIfAny } from './mixer.js';
 import { master, masterChain, setMasterEq, setMasterParam, styleValue, toggleMasterNode } from './master-panel.js';
 import { openEqualizer } from './equalizer.js';
 import { MASTER_NODES, MASTER_PARAMS } from '../master.js';
@@ -43,28 +43,48 @@ function returnBus(ctrl) {
   }
   return ctrl.output.__routeBus;
 }
-/** Take the effects down: every part goes straight to its own input on the master again. */
+/** Take the effects down: every part goes straight to its own input on the master, the master to Master FX to out. */
 function tearDown() {
   const L = routing.live;
   if (!L) return;
   for (const [a, b] of L.wired) { try { a.disconnect(b); } catch {} }
   for (const b of Object.values(L.blocks)) b.dispose();
   for (const p of L.closed) { const ch = channelIfAny(p); if (ch) ch.thru.gain.setTargetAtTime(1, ch.thru.context.currentTime, 0.01); }
+  if (L.post) { try { L.post.merger.connect(L.post.chain.input); L.post.chain.output.connect(L.post.dest); } catch {} }
   routing.live = null;
 }
+/** Is the way out the plain one (master → Master FX → out, nothing else after the master)? */
+const plainPost = (g) => {
+  const gp = withPost(g), after = new Set([SINK, MFX, ...postNodes(gp)]);
+  const out = gp.edges.filter((e) => after.has(e.from) || e.to === OUT || e.to === MFX);
+  return out.length === 2 && out.some((e) => e.from === SINK && e.to === MFX) && out.some((e) => e.from === MFX && e.to === OUT);
+};
 /**
  * Build the audio for the graph (again): a block per node, the wires — from a part's source, into the master input
- * of the channel the wire carries (a part's, or a bus's) — and the routed parts' straight path closed.
+ * of the channel the wire carries (a part's, or a bus's) — and the routed parts' straight path closed. After the
+ * master: unless it's the plain way out, the master's sum (its merger), the Master FX chain and out (the master
+ * volume) are taken apart and wired as the graph says.
  */
 export function applyRouting() {
   tearDown();
   const ctrl = sdController(), ac = ctxOf(ctrl);
-  if (!ctrl || !ac || !routing.on || !routing.graph.edges.length) return;
-  const g = routing.graph;
-  const L = { ctrl, ac, blocks: {}, wired: [], closed: [] };
+  if (!ctrl || !ac || !routing.on) return;
+  const g = withPost(routing.graph);
+  const L = { ctrl, ac, blocks: {}, wired: [], closed: [], post: null };
   for (const n of g.nodes) L.blocks[n.id] = createBlock(ac, n);
-  const outOf = (id) => (partOf(id) != null ? channelIfAny(partOf(id))?.src : L.blocks[id]?.output);
+  if (!plainPost(g)) {
+    const chain = masterChain(), merger = ctrl.output.channelMerger, dest = ctrl.output.destinationGain;
+    if (chain && merger && dest) {
+      try { merger.disconnect(chain.input); } catch {}
+      try { chain.output.disconnect(dest); } catch {}
+      L.post = { merger, chain, dest };
+    }
+  }
+  const outOf = (id) => (partOf(id) != null ? channelIfAny(partOf(id))?.src
+    : id === SINK ? L.post?.merger : id === MFX ? L.post?.chain.output : L.blocks[id]?.output);
   const inOf = (e) => {
+    if (e.to === MFX) return L.post?.chain.input;
+    if (e.to === OUT) return L.post?.dest;
     if (e.to !== SINK) return L.blocks[e.to]?.input;
     const key = inputKey(g, e.from);
     return key.startsWith('bus:') ? busStrip(key, ctrl, returnBus(ctrl)).in : channelIfAny(key)?.in;
@@ -83,7 +103,6 @@ export function applyRouting() {
   }
   routing.live = L;
 }
-
 /** Change the graph: structure changes rebuild the audio, a node's values only update its block. */
 function setGraph(g, { rebuild = true } = {}) {
   routing.graph = normGraph(g);
@@ -143,7 +162,8 @@ function linkMixer() {
 // against the graph's rules, and redraws — so a wire that isn't allowed (a loop, into a part) just doesn't stay.
 const label = (id) => (id === SINK ? 'master' : partOf(id) ?? (routing.graph.nodes.find((n) => n.id === id) ? NODE_TYPES[routing.graph.nodes.find((n) => n.id === id).type].label : id));
 const typeOfId = (id) => routing.graph.nodes.find((n) => n.id === id)?.type;
-const isPost = (id) => typeof id === 'string' && id.startsWith('post:');
+// Master FX and Out: fixed (they can't be removed), but the wires around them are yours
+const isPost = (id) => id === MFX || id === OUT;
 // a card: 150 × 76 (style.css); one with knobs is taller, and wider for each knob past four
 const CARD_W = 150, CARD_H = 76, KNOB_H = 120, KNOB_W = 40;
 const sizeFor = (knobs) => (knobs ? { w: Math.max(CARD_W, 22 + knobs * KNOB_W), h: KNOB_H } : { w: CARD_W, h: CARD_H });
@@ -154,11 +174,12 @@ const act = {
   toggle(on) { routing.on = on; applyRouting(); saveRouting(); df.key = ''; renderRouting(); },
   add(type) {
     // after the selected part or node, into the selected wire — otherwise after the part picked in the bar
-    const s = routing.sel;
+    // (the master, Master FX: after it; Out: just before it)
+    const s = routing.sel, base = withPost(routing.graph);
     const part = routing.target || mixerChannels()[0]?.base;
-    const onNode = s?.node && s.node !== SINK && !isPost(s.node);
-    const opts = s?.edge ? { onEdge: s.edge } : onNode ? { after: s.node } : part ? { after: srcId(part) } : {};
-    const { graph, id } = addNode(routing.graph, type, opts);
+    const intoOut = s?.node === OUT ? base.edges.find((e) => e.to === OUT) : null;
+    const opts = s?.edge ? { onEdge: s.edge } : intoOut ? { onEdge: intoOut } : s?.node && s.node !== OUT ? { after: s.node } : part ? { after: srcId(part) } : {};
+    const { graph, id } = addNode(base, type, opts);
     routing.sel = { node: id };
     setGraph(graph);
   },
@@ -180,8 +201,8 @@ const act = {
     routing.sel = null;
     if (s.node === SINK || isPost(s.node)) renderRouting();
     else if (s.node && partOf(s.node) != null) setGraph(unroutePart(routing.graph, partOf(s.node)));
-    else if (s.node) setGraph(removeNode(routing.graph, s.node));
-    else if (s.edge) setGraph(removeEdge(routing.graph, s.edge));
+    else if (s.node) setGraph(removeNode(withPost(routing.graph), s.node));
+    else if (s.edge) setGraph(removeEdge(withPost(routing.graph), s.edge));
   },
   off(id = routing.sel?.node) {
     const n = routing.graph.nodes.find((x) => x.id === id);
@@ -212,7 +233,7 @@ export function renderRouting() {
   const s = routing.sel;
   const routed = routedParts(g);
   const selNode = s?.node && g.nodes.find((n) => n.id === s.node);
-  const post = isPost(s?.node) ? s.node.slice(5) : null;
+  const post = isPost(s?.node) ? s.node : null;
   const view = {
     on: routing.on,
     sel: selNode ? {
@@ -221,7 +242,7 @@ export function renderRouting() {
         controls: Object.entries(NODE_TYPES[selNode.type].params).map(([key, [min, max, step, def, lbl, unit]]) => ({ key, label: lbl, min, max, step, def, unit, value: selNode.params[key] })),
       },
     } : s?.node && partOf(s.node) != null ? { part: { base: partOf(s.node), routed: routed.includes(partOf(s.node)) } }
-      : s?.node === SINK || post ? { master: { name: post ? MASTER_NODES.find((n) => n.group === post)?.name || (post === 'EQ7' ? 'EQ7' : 'Out') : 'Master', style: master.style } }
+      : s?.node === SINK || post ? { master: { name: post === MFX ? '🎛 Master FX' : post === OUT ? '🔊 Out' : 'Master', style: master.style } }
       : s?.edge ? { edge: { ...s.edge, fromLabel: label(s.edge.from), toLabel: label(s.edge.to) } } : null,
     add: Object.entries(NODE_TYPES).map(([type, t]) => ({ type, label: t.label, title: t.title })),
     templates: Object.entries(TEMPLATES).map(([key, t]) => ({ key, label: t.label, title: t.title })),
@@ -290,33 +311,32 @@ function makeEditor(box) {
   editor.on('connectionSelected', (c) => {
     if (df.syncing) return;
     const from = m(c.output_id), to = m(c.input_id);
-    routing.sel = isPost(from) || isPost(to) || from === SINK ? null : { edge: { from, to, fp: port(c.output_class), tp: to === SINK ? 0 : port(c.input_class) } };
+    routing.sel = { edge: { from, to, fp: port(c.output_class), tp: to === SINK ? 0 : port(c.input_class) } };
     renderRouting();
   });
   for (const ev of ['nodeUnselected', 'connectionUnselected']) editor.on(ev, () => { if (!df.syncing && routing.sel) { routing.sel = null; renderRouting(); } });
   editor.on('connectionCreated', (c) => {
     if (df.syncing) return;
     const from = m(c.output_id), to = m(c.input_id), fp = port(c.output_class);
-    // the master's own chain (its sections) stays as it is; into the master, the wire takes its channel's row
-    if (isPost(from) || isPost(to) || from === SINK) { redrawSoon(); return; }
-    let tp = to === SINK ? 0 : port(c.input_class);
+    // into the master, the wire takes its channel's row
+    let tp = to === SINK || isPost(to) ? 0 : port(c.input_class);
+    const base = withPost(routing.graph);
     // dropped on a Sum whose first input is taken: its free one
-    if (typeOfId(to) === 'sum' && routing.graph.edges.some((e) => e.to === to && (e.tp || 0) === tp)) tp = freeInput(routing.graph, to);
-    if (canConnect(routing.graph, from, to, { fp, tp })) setGraphSoon(connect(routing.graph, from, to, { fp, tp }));
+    if (typeOfId(to) === 'sum' && base.edges.some((e) => e.to === to && (e.tp || 0) === tp)) tp = freeInput(base, to);
+    if (canConnect(base, from, to, { fp, tp })) setGraphSoon(connect(base, from, to, { fp, tp }));
     else { if (to !== SINK) flash(partOf(to) != null ? 'a part has no input' : 'that would make a loop'); redrawSoon(); }
   });
   editor.on('connectionRemoved', (c) => {
     if (df.syncing) return;
     const from = m(c.output_id), to = m(c.input_id);
-    if (isPost(from) || isPost(to) || from === SINK) { redrawSoon(); return; }
-    setGraphSoon(removeEdge(routing.graph, { from, to, fp: port(c.output_class), tp: to === SINK ? 0 : port(c.input_class) }));
+    setGraphSoon(removeEdge(withPost(routing.graph), { from, to, fp: port(c.output_class), tp: to === SINK || isPost(to) ? 0 : port(c.input_class) }));
   });
   editor.on('nodeRemoved', (id) => {
     if (df.syncing) return;
     const mid = m(id);
     routing.sel = null;
-    if (mid === SINK || isPost(mid) || partOf(mid) != null) redrawSoon(); // (the master, its sections and the parts always stay)
-    else setGraphSoon(removeNode(routing.graph, mid));
+    if (mid === SINK || isPost(mid) || partOf(mid) != null) redrawSoon(); // (the master, Master FX, out and the parts always stay)
+    else setGraphSoon(removeNode(withPost(routing.graph), mid));
   });
   editor.on('nodeMoved', (id) => {
     if (df.syncing) return;
@@ -341,7 +361,7 @@ const redrawSoon = () => setTimeout(() => { df.key = ''; renderRouting(); });
  */
 function canvasKey() {
   const parts = partsNow(), vg = visibleGraph(routing.graph, parts);
-  return JSON.stringify([routing.on, parts, vg.nodes.map((n) => [n.id, n.type, n.off, n.x, n.y]), vg.edges, routing.graph.pins, deadEnds(vg),
+  return JSON.stringify([routing.on, parts, vg.nodes.map((n) => [n.id, n.type, n.off, n.x, n.y]), withPost(vg).edges, routing.graph.pins, deadEnds(withPost(vg)),
     masterInputs(vg, parts).map((x) => x.key), master.off, master.bypass]);
 }
 function syncCanvas(box) {
@@ -378,11 +398,25 @@ function masterRows(vg, parts, pos, top) {
 function drawCanvas(editor) {
   const parts = partsNow();
   const vg = visibleGraph(routing.graph, parts);
+  const vgp = withPost(vg);                      // (with the default way out if nothing says otherwise)
+  const post = new Set(postNodes(vgp));
   // the grid fits the biggest card in the graph
   const sizes = vg.nodes.map((n) => cardSize(n.type));
   const pos = layoutGraph(vg, parts, { colW: Math.max(CARD_W, ...sizes.map((z) => z.w)) + 44, rowH: Math.max(CARD_H, ...sizes.map((z) => z.h)) + 22 });
   const mPos = routing.graph.pins?.[SINK] || pos[SINK];
-  const routed = routing.on ? routedParts(vg) : [], dead = deadEnds(vg), dry = unfed(vg), s = routing.sel;
+  const routed = routing.on ? routedParts(vg) : [], dead = deadEnds(vgp), dry = unfed(vg), s = routing.sel;
+  // after the master: Master FX, your effects and out, in columns from it (layoutPost)
+  const MFX_W = 560, mfxH = df.mfxH || 250;
+  const sizeOf = (id) => (id === MFX ? { w: MFX_W, h: mfxH } : id === OUT ? { w: CARD_W, h: 170 } : cardSize(typeOfId(id)));
+  const pl = routing.on ? layoutPost(vg) : { [MFX]: { col: 1, row: 0 }, [OUT]: { col: 2, row: 0 } };
+  const colW = {}, rowH = {};
+  for (const [id, { col, row }] of Object.entries(pl)) { colW[col] = Math.max(colW[col] || 0, sizeOf(id).w); rowH[row] = Math.max(rowH[row] || 0, sizeOf(id).h); }
+  const colX = (c) => mPos.x + MASTER_W + 50 + Object.keys(colW).filter((k) => k < c).reduce((x, k) => x + colW[k] + 44, 0);
+  const rowY = (r) => mPos.y + Object.keys(rowH).filter((k) => k < r).reduce((y, k) => y + rowH[k] + 26, 0);
+  for (const [id, { col, row }] of Object.entries(pl)) {
+    const n = vg.nodes.find((x) => x.id === id);
+    pos[id] = n && Number.isFinite(n.x) ? { x: n.x, y: n.y } : { x: colX(col), y: rowY(row) };
+  }
   df.syncing = true;
   try {
     editor.clear();
@@ -393,7 +427,7 @@ function drawCanvas(editor) {
       df.ids[mid] = id;
       df.model[id] = mid;
       const el = editor.container.querySelector(`#node-${id}`);
-      if (el) { el.dataset.id = mid; if (size) Object.assign(el.style, { width: `${size.w}px`, height: `${size.h}px` }); }
+      if (el) { el.dataset.id = mid; if (size) Object.assign(el.style, { width: `${size.w}px`, height: size.h ? `${size.h}px` : 'auto' }); }
       return el;
     };
     // the parts
@@ -403,14 +437,15 @@ function drawCanvas(editor) {
       }), pos[srcId(p)]);
       el?.style.setProperty('--c', vizColor(p));
     }
-    // the effects
+    // the effects (before the master, and after it)
     for (const n of vg.nodes) {
+      if (!pos[n.id]) continue;
       const t = NODE_TYPES[n.type];
       const controls = Object.entries(t.params).map(([key, [min, max, step, def, lbl, unit]]) => ({ key, label: lbl, min, max, step, def, unit, value: n.params[key] }));
-      put(n.id, inPorts(n.type), outPorts(n.type), `rt-card rt-node k-${t.kind}${n.off ? ' off' : ''}${dead.includes(n.id) ? ' dead' : ''}${controls.length ? ' has-knobs' : ''}`, T.routingCard({
+      put(n.id, inPorts(n.type), outPorts(n.type), `rt-card rt-node k-${t.kind}${n.off ? ' off' : ''}${dead.includes(n.id) ? ' dead' : ''}${controls.length ? ' has-knobs' : ''}${post.has(n.id) ? ' after-master' : ''}`, T.routingCard({
         id: n.id, label: `${t.label}${dead.includes(n.id) ? ' ⚠' : ''}`, sub: nodeSummary(vg, n), off: !!n.off, controls: n.type === 'split' || n.type === 'sum' ? null : controls,
         openEq: n.type === 'geq' ? n.id : null,
-        title: `${t.title}${dead.includes(n.id) ? ' — ⚠ not wired to the master: you won’t hear it' : dry.includes(n.id) ? ' — nothing goes in yet' : ''}`,
+        title: `${t.title}${post.has(n.id) ? ' — after the master: on the whole mix' : ''}${dead.includes(n.id) ? ' — ⚠ not wired on to the master or out: you won’t hear it' : dry.includes(n.id) ? ' — nothing goes in yet' : ''}`,
       }), pos[n.id], cardSize(n.type));
     }
     // the master: a row (input) per channel coming in
@@ -419,45 +454,34 @@ function drawCanvas(editor) {
     const mel = put(SINK, Math.max(1, rows.length), 1, 'rt-card rt-master', T.routingMaster({ rows, sub: rows.length ? `${rows.length} channel${rows.length > 1 ? 's' : ''} in` : 'nothing in yet' }), mPos, { w: MASTER_W, h: mh });
     // each input port at its row
     mel?.querySelectorAll('.inputs .input').forEach((inp, k) => { inp.style.top = `${(rows[k]?.top ?? HEAD_H) + ROW_H / 2 - 7}px`; });
-    // the master's sections, then out
-    const sections = [
-      { id: 'post:EQ7', label: '🎚 EQ7', sub: '', title: 'The master’s 7-band EQ (first in its chain) — ↗ for its curve and presets', openEq: 'master', pow: null,
-        controls: EQ_BANDS.map((b, i) => ({ key: `b${i}`, label: b.label, min: -12, max: 12, step: 0.5, def: 0, unit: 'dB', value: master.eq[i] || 0, data: { meq: i } })) },
+    // Master FX: the master's sections on one block (a grid of groups); Out: the master volume
+    const groups = [
+      { id: 'EQ7', label: '🎚 EQ7', title: 'The master’s 7-band EQ (first in its chain) — ↗ for its curve and presets', openEq: 'master', pow: null,
+        controls: EQ_BANDS.map((bd, i) => ({ key: `b${i}`, label: bd.label, min: -12, max: 12, step: 0.5, def: 0, unit: 'dB', value: master.eq[i] || 0, data: { meq: i } })) },
       ...MASTER_NODES.map((n) => ({
-        id: `post:${n.group}`, label: `${n.icon} ${n.name}`, sub: n.group === 'Output' ? 'into the limiter (−1 dB)' : '', title: n.title, kind: n.group === 'Space' || n.group === 'Echo' ? 'space' : 'dyn',
+        id: n.group, label: `${n.icon} ${n.name}`, title: n.title,
         off: master.bypass || master.off.includes(n.group), pow: { data: { mnode: n.group } },
         controls: MASTER_PARAMS.filter((d) => d.group === n.group).map((d) => ({ key: d.key, label: d.label, title: d.title, min: d.min, max: d.max, step: d.step, def: styleValue(d.key), unit: d.unit, value: master.params[d.key], data: { master: d.key } })),
       })),
-      { id: 'post:out', label: '🔊 Out', sub: masterDb(), title: 'The master volume, and what comes out', pow: null, meter: true, scope: false,
-        controls: [{ key: 'vol', label: 'volume', min: 0, max: 1.5, step: 0.01, def: 1, value: Number($('masterGain')?.value ?? 1), data: { mvol: 1 } }] },
     ];
-    // all on one block (a grid of groups), then out
-    const groups = sections.filter((x) => x.id !== 'post:out').map((x) => ({ ...x, id: x.id.slice(5) }));
-    const fxAt = { x: mPos.x + MASTER_W + 50, y: mPos.y };
-    // (a fixed width: the groups wrap into two or three rows; its height follows them)
-    put('post:fx', 1, 1, 'rt-card rt-node rt-post rt-fx', T.routingMasterFx({ sub: `style: ${master.style}${master.bypass ? ' · bypassed' : ''}`, groups }), fxAt, { w: 560, h: 0 });
-    const out = sections.find((x) => x.id === 'post:out');
-    const fxEl = editor.container.querySelector(`#node-${df.ids['post:fx']}`);
-    if (fxEl) fxEl.style.height = 'auto';
-    const fxBox = { w: fxEl?.offsetWidth || 560 };
-    put(out.id, 1, 0, 'rt-card rt-node rt-post rt-out', T.routingCard({ ...out, scope: false }), { x: fxAt.x + fxBox.w + 44, y: mPos.y }, { w: CARD_W, h: 170 });
-    for (const [a, b] of [[SINK, 'post:fx'], ['post:fx', 'post:out']]) {
-      editor.addConnection(df.ids[a], df.ids[b], 'output_1', 'input_1');
-      editor.container.querySelector(`.connection.node_in_node-${df.ids[b]}.node_out_node-${df.ids[a]}`)?.classList.add('k-post');
-    }
+    const fxEl = put(MFX, 1, 1, 'rt-card rt-node rt-post rt-fx', T.routingMasterFx({ sub: `style: ${master.style}${master.bypass ? ' · bypassed' : ''}`, groups }), pos[MFX], { w: MFX_W, h: 0 });
+    if (fxEl?.offsetHeight > 40 && Math.abs(fxEl.offsetHeight - mfxH) > 4) { df.mfxH = fxEl.offsetHeight; df.key = ''; } // (its real height: the next draw spaces the rows by it)
+    put(OUT, 1, 0, 'rt-card rt-node rt-post rt-out', T.routingCard({ id: OUT, label: '🔊 Out', sub: masterDb(), title: 'The master volume, and what comes out', pow: null, meter: true, scope: false,
+      controls: [{ key: 'vol', label: 'volume', min: 0, max: 1.5, step: 0.01, def: 1, value: Number($('masterGain')?.value ?? 1), data: { mvol: 1 } }] }), pos[OUT], sizeOf(OUT));
     // the wires
     const rowOf = (key) => Math.max(0, rows.findIndex((r) => r.key === key));
     const wire = (e, cls = '') => {
       const a = df.ids[e.from], b = df.ids[e.to];
       if (a == null || b == null) return;
-      const into = e.to === SINK ? rowOf(inputKey(vg, e.from)) : (e.tp || 0);
+      const into = e.to === SINK ? rowOf(inputKey(vg, e.from)) : isPost(e.to) ? 0 : (e.tp || 0);
       editor.addConnection(a, b, `output_${(e.fp || 0) + 1}`, `input_${into + 1}`);
       const svgEl = editor.container.querySelector(`.connection.node_in_node-${b}.node_out_node-${a}.output_${(e.fp || 0) + 1}.input_${into + 1}`);
-      const kind = partOf(e.from) != null ? 'part' : NODE_TYPES[typeOfId(e.from)]?.kind || 'route';
+      const kind = partOf(e.from) != null ? 'part' : e.from === SINK || e.from === MFX ? 'post' : NODE_TYPES[typeOfId(e.from)]?.kind || 'route';
       svgEl?.classList.add(`k-${kind}`, ...cls.split(' ').filter(Boolean));
       if (s?.edge && edgeKey(s.edge) === edgeKey(e)) svgEl?.querySelector('.main-path')?.classList.add('selected');
     };
-    if (routing.on) for (const e of vg.edges) wire(e);
+    if (routing.on) for (const e of vgp.edges) wire(e);
+    else for (const e of withPost({ nodes: [], edges: [] }).edges) wire(e);
     // parts going straight to their input: a faint wire (not part of the graph)
     for (const p of parts) if (!routed.includes(p)) wire({ from: srcId(p), to: SINK }, 'implicit');
     // the selection survives the redraw
@@ -467,6 +491,7 @@ function drawCanvas(editor) {
       editor.node_selected = el || null;
     }
   } finally { df.syncing = false; }
+  if (!df.key) setTimeout(() => renderRouting()); // (Master FX measured: once more, spaced by it)
 }
 
 /** The values on the board (knobs, mute / solo, switches) as they are now — without redrawing it. */
@@ -481,7 +506,7 @@ function syncValues() {
   for (const b of box.querySelectorAll('button[data-row]')) b.classList.toggle('on', !!chOf(b.dataset.row)[b.dataset.mx]);
   for (const b of box.querySelectorAll('.rt-pow[data-mnode]')) { const off = master.bypass || master.off.includes(b.dataset.mnode); b.classList.toggle('off', off); b.closest('.rt-fxg')?.classList.toggle('off', off); }
   for (const k of box.querySelectorAll('sa-knob[data-p]')) { const n = routing.graph.nodes.find((x) => x.id === k.dataset.node); if (n) set(k, n.params[k.dataset.p]); }
-  const out = box.querySelector('.rt-sub[data-id="post:out"]');
+  const out = box.querySelector(`.rt-sub[data-id="${OUT}"]`);
   if (out && out.textContent !== masterDb()) out.textContent = masterDb();
 }
 
@@ -497,6 +522,7 @@ const levelOf = (an) => {
 };
 function analyserOf(id) {
   if (id === SINK) return masterChain()?.analyser || null;
+  if (id === OUT) return masterAnalyser();
   if (id.startsWith('row:')) return stripIfAny(id.slice(4))?.an || null;
   if (partOf(id) != null) return channelIfAny(partOf(id))?.srcAn || null;
   return routing.live?.blocks[id]?.analyser || null;
@@ -530,7 +556,7 @@ function draw() {
   // what comes out
   const mm = el.querySelector('.rt-mmeter i');
   if (mm) {
-    const lv = playing ? levelOf(analyserOf(SINK)) : 0;
+    const lv = playing ? levelOf(analyserOf(OUT)) : 0; // (the very end: after anything wired after the master)
     const db = lv > 0 ? 20 * Math.log10(lv) : -60;
     mm.style.height = `${Math.max(0, Math.min(100, ((db + 48) / 48) * 100))}%`;
     mm.classList.toggle('hot', db > -6);

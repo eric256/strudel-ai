@@ -58,7 +58,7 @@ export function routingMasterFx(fx) {
     g.pow ? `<button class="rt-pow${g.off ? ' off' : ''}"${attrs(g.pow.data)} title="${g.off ? 'Off: click to switch it on' : 'On: click to switch it off (the sound passes through)'}">⏻</button>` : ''}</div>
     <div class="rt-knobs-on">${g.controls.map(knob).join('')}</div></div>`;
   return `<div class="rt-in rt-fxin" title="The master's effects, in signal order (left to right, top to bottom) — they follow 🎛 Master's style"><div class="rt-head"><b>🎛 Master FX</b></div>
-    <span class="rt-sub" data-id="post:fx">${esc(fx.sub)}</span><div class="rt-fxgrid">${fx.groups.map(group).join('')}</div></div>`;
+    <span class="rt-sub" data-id="mfx">${esc(fx.sub)}</span><div class="rt-fxgrid">${fx.groups.map(group).join('')}</div></div>`;
 }
 
 export function routing(v, act) {
@@ -77,7 +77,7 @@ export function routing(v, act) {
         <button class="link" title="Remove all routing: every part straight to the master" @click=${act.clear}>clear</button></span>
     </div>
     <div class="rt-main">
-      <div class="rt-df" tabindex="0"></div>
+      <div class="parent-drawflow rt-df" tabindex="0"></div><!-- (Drawflow reads the first class to know a drag on the background pans) -->
       <div class="rt-insp">${sel?.node ? html`
           <div class="rt-insp-head"><b>${sel.node.label}</b><span class="muted small">${sel.node.title}</span></div>
           <div class="muted small">${sel.node.controls.length ? 'Its knobs are on the node: drag up / down (Shift: fine), double-click for the default.' : sel.node.label === 'Split' ? 'No settings: it copies the sound to both of its outputs.' : 'No settings: it adds what comes into it.'}</div>
@@ -96,6 +96,7 @@ export function routing(v, act) {
         : html`<div class="muted small rt-help">
           <p>Each part comes out of its 🎚 mixer fader on the left. <b>Click a part, then ＋ an effect:</b> it goes part → effect → master. Click that effect and ＋ another: it goes in after it.</p>
           <p><b>Split</b> comes with its <b>Sum</b>: two parallel paths (the second is the one ＋ adds to). Wire several parts into one Sum for a bus. Drag from a <b>●</b> to wire by hand.</p>
+          <p><b>After the mix:</b> click the Master (or Master FX) and ＋ an effect to put it on the whole mix; click Out and ＋ to put one just before the speakers. Wire around Master FX, or in parallel, like anywhere else.</p>
           <p>Turn the knobs on a node to shape it; ⏻ bypasses it. Click a wire to insert into it or remove it; Delete removes the selection. Drag the background to move around, Ctrl + wheel to zoom, ⟲ to fit it all in. Or start from a ready-made chain for a part.</p></div>`}</div>
     </div>
   </div>`;

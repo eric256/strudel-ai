@@ -521,6 +521,7 @@ The status bar watches the whole mix. **● HOT** (amber) means it peaks within 
 - **The Master block** has an input per channel coming in, each on its own row, level with its part so the wires run straight across. Each row has that channel's **fader** (dB), **pan**, **M / S** and a level line; it's the same as the 🎚 Mixer's strip. A bus gets a row of its own.
 - **🎛 Master FX** holds all the master's processing on one block, in signal order: **EQ7** (↗ for the 🎚 Equalizer), **Tone**, **Filter**, **Colour**, **Space**, **Echo**, **Dynamics** and **Output**. Each has its knobs and ⏻; they follow 🎛 Master's style, and double-clicking a knob returns it to the style's value.
 - **Out:** the master volume and what comes out.
+- **Effects after the mix:** the wires after the Master block are yours too. Click the **Master** (or **Master FX**) and **＋** an effect to put it on the whole mix, after the sum. Click **Out** and **＋** to put one just before the speakers (a last EQ or a limiter-ish gain). Wire around Master FX or in parallel, like anywhere else. Master FX and Out can't be removed; with nothing after the master, it's Master → Master FX → Out.
 
 - **Building a chain:** click a part, then **＋** an effect: it goes part → effect → master. The new effect is selected, so **＋** another and it goes in after it. Select any node (or a wire) and **＋** to insert into the middle. With nothing selected, **＋** adds after the part picked in the bar.
 - **Wiring by hand:** drag from a **●** to a node, an input or the master. A part you wire stops going straight to the master; one with no wires goes straight there (the faint line).
@@ -532,7 +533,7 @@ The status bar watches the whole mix. **● HOT** (amber) means it peaks within 
   - Click a part for ＋ add after it and ✕ unroute.
   - Click a wire to insert a node into it or remove it.
   - Drag nodes and parts to move them; **tidy** lays the graph out again. Delete removes the selection, Esc unselects.
-  - Drag the background to move around the canvas; **Ctrl + wheel** (or pinch, or **− ⟲ ＋** in the bar) zooms.
+  - Drag the background anywhere to move around the canvas; **Ctrl + wheel** (or pinch, or **− ⟲ ＋** in the bar) zooms.
 - **Ready-made chains** for the part picked in the bar:
   - **Parallel comp:** New York compression, a squashed, driven copy under the dry sound.
   - **Wet space:** comp, then a 100 % wet reverb path summed under the dry sound.
@@ -540,7 +541,7 @@ The status bar watches the whole mix. **● HOT** (amber) means it peaks within 
   - **Dub echo:** a filtered echo path.
   - **Drum bus:** every drum part into one Sum with glue compression and saturation.
 - **routing on** switches it all off and on to compare (A / B); **clear** removes it.
-- A node that never reaches the master is outlined in amber (⚠): you won't hear what goes into it.
+- A node that never reaches the master (or Out) is outlined in amber (⚠): you won't hear what goes into it.
 - Kept in the browser by part name, like the mixer, so `drums` keeps its chain from song to song.
 
 How it works: each part's source (after its mute / solo) normally goes straight to its input on the master. Routing closes that path and wires the source into Web Audio nodes (`DynamicsCompressorNode`, `WaveShaperNode`, biquads, `ConvolverNode`, `DelayNode`). A wire into the master goes to the input of the channel it carries: the part's, or, when several parts reach it, a bus's. The inputs are summed into the master chain, which the Master FX block shows. Node changes are instant; adding or removing nodes rebuilds the graph. The graph rules (no loops, values in range, templates, layout) are in `lib/routing.js` and the audio blocks in `routing-audio.js`. The canvas is [Drawflow](https://github.com/jerosoler/Drawflow), which only shows the graph: what you do on it comes back as changes to the graph, which are checked against its rules before the canvas is redrawn from it.
