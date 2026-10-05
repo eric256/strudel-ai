@@ -93,7 +93,9 @@ function setParam(id, key, value) {
 // against the graph's rules, and redraws — so a wire that isn't allowed (a loop, into a part) just doesn't stay.
 const label = (id) => (id === SINK ? 'master' : partOf(id) ?? (routing.graph.nodes.find((n) => n.id === id) ? NODE_TYPES[routing.graph.nodes.find((n) => n.id === id).type].label : id));
 const typeOfId = (id) => routing.graph.nodes.find((n) => n.id === id)?.type;
-const COL = 194, ROW = 98; // the auto layout's grid (a card is 150 × 76, style.css)
+// a card: 150 × 76 (style.css); one with knobs is taller, and wider for each knob past four
+const CARD_W = 150, CARD_H = 76, KNOB_H = 120, KNOB_W = 40;
+const cardSize = (type) => { const k = Object.keys(NODE_TYPES[type]?.params || {}).length; return k ? { w: Math.max(CARD_W, 22 + k * KNOB_W), h: KNOB_H } : { w: CARD_W, h: CARD_H }; };
 
 const act = {
   toggle(on) { routing.on = on; applyRouting(); saveRouting(); renderRouting(); },
@@ -127,8 +129,8 @@ const act = {
     else if (s.node) setGraph(removeNode(routing.graph, s.node));
     else if (s.edge) setGraph(removeEdge(routing.graph, s.edge));
   },
-  off() {
-    const n = routing.graph.nodes.find((x) => x.id === routing.sel?.node);
+  off(id = routing.sel?.node) {
+    const n = routing.graph.nodes.find((x) => x.id === id);
     if (!n) return;
     n.off = !n.off;
     routing.live?.blocks[n.id]?.set(n.params, n.off);
@@ -140,7 +142,7 @@ const act = {
     if (!df) return;
     if (dir > 0) df.zoom_in();
     else if (dir < 0) df.zoom_out();
-    else { df.zoom = 1; df.canvas_x = 0; df.canvas_y = 0; df.zoom_refresh(); }
+    else fitCanvas(df);
   },
 };
 const flash = (msg) => addMsg('info', `🔀 ${msg}`);
@@ -186,7 +188,28 @@ function masterDb() {
 const body = () => $('routeBody');
 const winOf = () => body()?.ownerDocument.defaultView || window;
 const port = (cls) => (/_2$/.test(cls || '') ? 1 : 0); // output_2 / input_2: a Split's second path, a Sum's second input
-const df = { ids: {}, model: {}, key: '', syncing: false };
+const df = { ids: {}, model: {}, key: '', syncing: false, fitted: false };
+
+/** Zoom (never past 100 %) and move the canvas so everything on it shows. */
+function fitCanvas(editor) {
+  const box = editor.container.getBoundingClientRect();
+  const cards = [...editor.precanvas.querySelectorAll('.drawflow-node')];
+  if (!cards.length || box.width < 50) return;
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  for (const c of cards) {
+    const x = c.offsetLeft, y = c.offsetTop;
+    x0 = Math.min(x0, x); y0 = Math.min(y0, y); x1 = Math.max(x1, x + c.offsetWidth); y1 = Math.max(y1, y + c.offsetHeight);
+  }
+  const pad = 16;
+  const z = Math.max(editor.zoom_min, Math.min(1, (box.width - 2 * pad) / (x1 - x0), (box.height - 2 * pad) / (y1 - y0)));
+  // Drawflow scales the canvas about its centre: put the content's top-left corner at the padding
+  const cx = box.width / 2, cy = box.height / 2;
+  editor.zoom = z;
+  editor.zoom_last_value = z;
+  editor.canvas_x = pad - cx - z * (x0 - cx);
+  editor.canvas_y = pad - cy - z * (y0 - cy);
+  editor.precanvas.style.transform = `translate(${editor.canvas_x}px, ${editor.canvas_y}px) scale(${z})`;
+}
 
 function makeEditor(box) {
   const editor = new globalThis.Drawflow(box);
@@ -198,6 +221,9 @@ function makeEditor(box) {
     if (e.key === 'Escape') { routing.sel = null; renderRouting(); }
   };
   editor.start();
+  // a knob or the ⏻ switch on a card works the control, it doesn't pick the node up (Drawflow only knows to leave
+  // real inputs alone); stopped on the way up, before Drawflow's own listener on the canvas — the knob has it already
+  for (const ev of ['mousedown', 'touchstart']) editor.precanvas.addEventListener(ev, (e) => { if (e.target.closest?.('sa-knob, .rt-pow')) e.stopPropagation(); });
   const m = (id) => df.model[id];
   editor.on('nodeSelected', (id) => {
     if (df.syncing) return;
@@ -254,16 +280,20 @@ function canvasKey() {
 }
 function syncCanvas(box) {
   if (!box || typeof globalThis.Drawflow !== 'function') return;
-  if (!routing.df || routing.df.container !== box) { routing.df = makeEditor(box); df.key = ''; }
+  if (!routing.df || routing.df.container !== box) { routing.df = makeEditor(box); df.key = ''; df.fitted = false; }
   const key = canvasKey();
   if (key === df.key) return;
   df.key = key;
   drawCanvas(routing.df);
+  // the first time it's shown: all of it in view
+  if (!df.fitted) { df.fitted = true; fitCanvas(routing.df); }
 }
 function drawCanvas(editor) {
   const g = routing.graph;
   const parts = partsNow();
-  const pos = layoutGraph(g, parts, { colW: COL, rowH: ROW });
+  // the grid fits the biggest card in the graph
+  const sizes = g.nodes.map((n) => cardSize(n.type));
+  const pos = layoutGraph(g, parts, { colW: Math.max(CARD_W, ...sizes.map((z) => z.w)) + 44, rowH: Math.max(CARD_H, ...sizes.map((z) => z.h)) + 22 });
   const routed = routedParts(g), dead = deadEnds(g), dry = unfed(g), s = routing.sel;
   df.syncing = true;
   try {
@@ -285,10 +315,13 @@ function drawCanvas(editor) {
     }
     for (const n of g.nodes) {
       const t = NODE_TYPES[n.type];
-      put(n.id, inPorts(n.type), outPorts(n.type), `rt-card rt-node k-${t.kind}${n.off ? ' off' : ''}${dead.includes(n.id) ? ' dead' : ''}`, {
-        id: n.id, label: `${t.label}${n.off ? ' ⏻' : ''}${dead.includes(n.id) ? ' ⚠' : ''}`, sub: nodeSummary(g, n),
+      const controls = Object.entries(t.params).map(([key, [min, max, step, def, lbl, unit]]) => ({ key, label: lbl, min, max, step, def, unit, value: n.params[key] }));
+      const el = put(n.id, inPorts(n.type), outPorts(n.type), `rt-card rt-node k-${t.kind}${n.off ? ' off' : ''}${dead.includes(n.id) ? ' dead' : ''}${controls.length ? ' has-knobs' : ''}`, {
+        id: n.id, label: `${t.label}${dead.includes(n.id) ? ' ⚠' : ''}`, sub: nodeSummary(g, n), off: !!n.off, controls: n.type === 'split' || n.type === 'sum' ? null : controls,
         title: `${t.title}${dead.includes(n.id) ? ' — ⚠ not wired to the master: you won’t hear it' : dry.includes(n.id) ? ' — nothing goes in yet' : ''}`,
       }, pos[n.id]);
+      const z = cardSize(n.type);
+      if (el) Object.assign(el.style, { width: `${z.w}px`, height: `${z.h}px` });
     }
     const mel = put(SINK, 1, 0, 'rt-card rt-master', { id: SINK, label: 'Master', sub: masterDb(), title: 'The master: on to 🎛 Master (double-click to open it)', master: true }, pos[SINK]);
     if (mel) mel.style.height = `${pos[SINK].h}px`;
@@ -375,7 +408,9 @@ export function setup() {
   });
   onTemplatesChange(() => renderRouting());
   const bodyEl = $('routeBody');
-  bodyEl.addEventListener('input', (e) => { const k = e.target.dataset?.p; if (k && routing.sel?.node) setParam(routing.sel.node, k, Number(e.target.value)); });
+  // a knob on a node card (data-node) — or, without one, the selected node
+  bodyEl.addEventListener('input', (e) => { const k = e.target.dataset?.p, id = e.target.dataset?.node || routing.sel?.node; if (k && id) setParam(id, k, Number(e.target.value)); });
+  bodyEl.addEventListener('click', (e) => { const pow = e.target.closest?.('.rt-pow[data-node]'); if (pow) act.off(pow.dataset.node); });
   bodyEl.addEventListener('dblclick', (e) => { if (e.target.closest('.rt-master')) ws.open('master'); });
   // Drawflow follows the mouse only over its canvas: a drag let go outside it ends there too (in whichever window
   // the panel is — floating or popped out)

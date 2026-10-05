@@ -2,6 +2,16 @@
 
 The version is in `package.json`. Bump it when you release. Open pages also notice *any* redeploy through the build id, which is a hash of the app files, even if the version wasn't bumped.
 
+## 1.56.0
+- **🔀 Routing: the knobs are on the nodes.**
+  - Each effect card has its own dials (compressor threshold, ratio, attack, release and makeup; drive and mix; …) and a ⏻ bypass switch, like a pedalboard. The side panel no longer repeats them.
+  - Turning a knob changes the sound at once and doesn't drag the node; drag a card by its title to move it.
+  - Cards with knobs are taller, and wider for each knob past four. The layout grid fits them.
+  - **⟲ fits the whole graph in view** (zooming out as needed), and the canvas fits itself when it first opens.
+- **Fix: knobs and faders couldn't be dragged in a popped-out panel** (mixer, master, equalizer, routing). The drag listened on the main window. A control now captures the pointer itself, so a drag follows it anywhere, in any window.
+- Knobs can stack their value under the label (`<sa-knob stack>`) where they're narrow.
+- **Tests:** the routing smoke step turns a knob on a node (the setting changes, the node stays put).
+
 ## 1.55.0
 - **🔀 Routing's canvas is now [Drawflow](https://github.com/jerosoler/Drawflow)** instead of hand-made dragging and wiring. That clears up the odd behaviour with nodes.
   - Dragging nodes, drawing wires and picking wires is Drawflow's well-worn code.

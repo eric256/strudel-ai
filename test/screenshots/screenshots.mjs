@@ -197,6 +197,7 @@ const big = async (id, name, w, h) => {
   await open(id);
   await ev(([id, w, h]) => { const pn = strudelAI.ws.api.getPanel(id); strudelAI.ws.api.addFloatingGroup(pn, { position: { left: 40, top: 60 }, width: w, height: h }); }, [id, w, h]);
   await p.waitForTimeout(1200);
+  if (id === 'route') { await ev(() => document.querySelector('#routeBody .rt-zoom button:nth-child(2)')?.click()); await p.waitForTimeout(300); } // (fit it all in)
   await shot(name, `#${id}-dock`);
   await ev((id) => strudelAI.ws.dock?.(id), id);
 };
