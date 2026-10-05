@@ -291,6 +291,7 @@ A song's sheet and sections show in two places only:
     - **When the song has stopped,** it plays the song again starting there. The same goes for ⏭ go and 🔁 loop in ✎ Edit song.
   - **⏸ hold this section** stays on it until you pick another.
 - **✎ Edit song:** **✎ Edit** opens the song editor in its own panel. In 🎼 Studio it gets the big space under the code. You change a draft of the song, and **✓ apply** checks it, test-plays the parts and switches the song over. If it's playing, you hear the section playing now change from the next bar.
+  - **Its own transport** stays at the top while you scroll: **▶** plays this song (or carries on after a pause), **⏸** pauses it where it is, **■** stops, **↺** plays it again from its first section. The line beside them says where it is (section and bar, holding, paused), or which other song is playing. No trip to 🎶 Now playing to start and stop it.
   - **Song:** title, tempo, meter, scale, master style and **feel** (0 = on the grid, 100 = a loose live band).
   - **Sections:** a timeline, with each section as wide as its bars. Click one to edit its name, bars, chord progression, key change and tempo. You can move it (← → or drag), duplicate it, delete it, add one, or, while the song plays, **⏭ go** there or **🔁 loop** it while you work.
   - **Arrangement:** a grid of parts × sections. Click a cell to cycle off → the main version → the part's other variants. Right-click it to make the part come in halfway, drop out halfway or alternate. While the song plays, a **playhead line** moves across the grid with it.

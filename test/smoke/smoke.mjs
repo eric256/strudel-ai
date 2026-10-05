@@ -587,7 +587,7 @@ try {
     const after = await ev(() => { const sg = strudelAI.activeSong(); return { secs: sg.sheet.sections.length, blocks: sg.blocks.filter((b) => !b.fillStep && !b.gap).length, ed: document.querySelectorAll('#editForm .se-sec').length }; });
     expect(after.blocks === before.blocks + 2 && after.ed === before.ed + 2, `the new verses aren't everywhere: ${JSON.stringify({ before, after })}`);
     // playing again, in a repeat of the verse (the song has A … A A): an edit goes on from that section, not the first A
-    await ev(() => [...document.querySelectorAll('#editForm .se-head button')].find((b) => /play/.test(b.textContent)).click());
+    await ev(() => document.querySelector('#editForm .se-transport [data-et="play"]').click()); // (▶ in the editor's own transport)
     await p.waitForFunction(() => strudelAI.queue.running && strudelAI.engine.steps.some((x) => x.status === 'playing'), null, { timeout: 20000 });
     const k = await ev(() => { const s = strudelAI.activeSong().sheet.sections; const name = s[1].name; return s.map((x, i) => (x.name === name ? i : -1)).filter((i) => i >= 0)[1]; });
     await ev((k) => { document.querySelectorAll('#editForm .se-sec')[k].click(); [...document.querySelectorAll('#editForm .se-selrow button')].find((b) => /go/.test(b.textContent)).click(); }, k);
@@ -604,6 +604,25 @@ try {
     expect(flow.playing === k && (JSON.stringify(flow.next) === JSON.stringify(flow.names.slice(k + 1)) || JSON.stringify(flow.next) === JSON.stringify(flow.names.slice(k + 2))),
       `after the edit the song doesn't go on from the section playing: ${JSON.stringify({ k, ...flow })}`);
     await ev(() => document.getElementById('stop').click());
+  });
+
+  await step('✎ song editor: its own ▶ ⏸ ■ ↺ work on the song being edited, with a live line', async () => {
+    const bar = () => ev(() => { const b = document.querySelector('#editForm .se-transport'); return { line: b?.querySelector('.se-tline').textContent || '', play: b?.querySelector('[data-et="play"]').disabled, pause: b?.querySelector('[data-et="pause"]').disabled }; });
+    const click = (k) => ev((k) => document.querySelector(`#editForm .se-transport [data-et="${k}"]`).click(), k);
+    await click('play');
+    await p.waitForFunction(() => /^▶ .* · bar \d+\/\d+/.test(document.querySelector('#editForm .se-tline')?.textContent || ''), null, { timeout: 20000 });
+    await click('pause');
+    await p.waitForFunction(() => /^⏸ paused/.test(document.querySelector('#editForm .se-tline').textContent), null, { timeout: 5000 });
+    let b = await bar();
+    expect(b.pause && !b.play, `paused: ${JSON.stringify(b)}`);
+    await click('play');
+    await p.waitForFunction(() => !strudelAI.engine.paused && /^▶ /.test(document.querySelector('#editForm .se-tline').textContent), null, { timeout: 5000 });
+    await click('stop');
+    await p.waitForFunction(() => /not playing/.test(document.querySelector('#editForm .se-tline').textContent), null, { timeout: 5000 });
+    await click('restart');
+    await p.waitForFunction(() => /^▶ /.test(document.querySelector('#editForm .se-tline').textContent), null, { timeout: 20000 });
+    b = await bar();
+    expect(b.play && !b.pause, `after ↺: ${JSON.stringify(b)}`);
   });
 
   await step('✎ song editor: a playhead line follows the song across the arrangement', async () => {

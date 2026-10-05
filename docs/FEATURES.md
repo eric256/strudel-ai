@@ -20,7 +20,7 @@ Pick or describe a station, put it on air, and an AI agent keeps inventing, writ
 The chat changes the song open in ✎ Edit song; a new song described in the chat is written, plays and opens there.
 ![Studio mode](screenshots/06-studio-mode.png)
 
-**✎ Edit song:** the song's title, tempo, meter, scale, master style, ending and feel; melody and hook; sections on a timeline (bars, chords, key, tempo, volume, solo, ⏭ go, 🔁 loop); the arrangement; chord progressions; and the parts.
+**✎ Edit song:** its own ▶ ⏸ ■ ↺ for the song at the top (with where it is: section and bar); the song's title, tempo, meter, scale, master style, ending and feel; melody and hook; sections on a timeline (bars, chords, key, tempo, volume, solo, ⏭ go, 🔁 loop); the arrangement; chord progressions; and the parts.
 ![Song editor](screenshots/07-song-editor.png)
 
 **Arrangement:** which parts play in each section (variants, coming in / dropping out). The playhead line follows the song.
