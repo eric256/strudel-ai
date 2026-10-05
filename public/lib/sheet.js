@@ -9,6 +9,7 @@ const MAX_SECTION_BARS = 16;
 import { findIn } from './forms.js';
 import { enforceBand, parseInstruments, parseTweaks } from './bands.js';
 import { normStyle, styleParams, diffParams } from '../master.js';
+import { normVoices, normLayers, VOICE_ROLE } from './poly.js';
 
 export function normalizeSheet(raw, choice = 'auto', { enforceForm = true, band: bandPick = null, forms = [], bands = [] } = {}) {
   if (!raw || typeof raw !== 'object') throw new Error('the sheet is not an object');
@@ -34,7 +35,11 @@ export function normalizeSheet(raw, choice = 'auto', { enforceForm = true, band:
     if (parts.some((q) => q.id === id)) continue;
     const variants = [...new Set(['main', ...(Array.isArray(p.variants) ? p.variants : []).map(ident)])];
     const tune = ['melody', 'hook'].includes(p.tune) ? p.tune : null;
-    parts.push({ id, role: String(p.role || '').toLowerCase(), sound: String(p.sound || ''), desc: String(p.desc || p.description || ''), variants, ...(tune ? { tune } : {}) });
+    const role = String(p.role || '').toLowerCase(), sound = String(p.sound || '');
+    // polyphony: voices (harmony lines, a counter-line) on single-line parts, layers (more sounds on the same notes)
+    const voices = VOICE_ROLE.test(role + ' ' + id) ? normVoices(p.voices) : [];
+    const layers = /drum|perc|beat/.test(role) ? [] : normLayers(p.layers, sound);
+    parts.push({ id, role, sound, desc: String(p.desc || p.description || ''), variants, ...(tune ? { tune } : {}), ...(voices.length ? { voices } : {}), ...(layers.length ? { layers } : {}) });
   }
   if (parts.length < 2) throw new Error('fewer than 2 parts');
   parts.splice(10);

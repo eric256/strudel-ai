@@ -28,7 +28,7 @@ The chat changes the song open in ✎ Edit song; a new song described in the cha
 
 **🧩 Part editor:** one part on its own — ▶ loop it (solo or with its section), shape its effects with sliders, and change its notes.
 
-Melodies on a staff (click to place or move a note, arrows / octave / length / rest on the selected one):
+Melodies on a staff (click to place or move a note, Shift-click for a chord, arrows / octave / length / rest on the selected one). A part with voices shows each in its own colour, ＋ voice adds a harmony, and ＋ layer doubles it on another sound:
 ![Part editor: staff](screenshots/09-part-editor-staff.png)
 
 Drums on a grid (one row per sound), with velocity as level bars:

@@ -16,12 +16,16 @@ import { sectionCode } from '../lib/arrange.js';
 import { EFFECTS, readEffects, setEffect, addEffect, removeEffect, readSources, setSource } from '../lib/partcode.js';
 import { parseMini, serializeMini, withGrid, eventAt, placeNote, removeNote, resizeNote, toggleAt, gridSteps } from '../lib/mini-edit.js';
 import { parseScale, degreeToMidi, midiToDegree, noteToMidi, midiToNote, clefFor, staffPos, stepToMidi } from '../lib/staff.js';
+import { VOICES, voiceLine, addVoice, removeVoice, readLayers, canLayer, addLayer, removeLayer } from '../lib/poly.js';
 
 // the scale table (/scale-intervals.json); a few common ones until it has loaded
 let SCALES = { major: '1P 2M 3M 4P 5P 6M 7M', minor: '1P 2M 3m 4P 5P 6m 7m', dorian: '1P 2M 3m 4P 5P 6M 7m', mixolydian: '1P 2M 3M 4P 5P 6M 7m' };
 const STEP_OPTIONS = [2, 3, 4, 6, 8, 12, 16, 24, 32];
 /** What's open: the part, its variant, the section whose chords it loops over, the note pattern, the selection. */
-const pe = { part: null, variant: 'main', section: 0, solo: true, playing: false, src: 0, steps: null, sel: null, rows: [], msg: '', bad: false };
+const pe = { part: null, variant: 'main', section: 0, solo: true, playing: false, src: 0, steps: null, sel: null, rows: [], msg: '', bad: false, chord: false };
+/** Each voice's colour on the staff (the first: the part's own). */
+const VOICE_COLORS = ['var(--c)', '#f0a040', '#40b8e0', '#c070e0'];
+const isVoice = (s) => s.kind === 'degree' || s.kind === 'pitch';
 
 /** Open a part of the song in ✎ Edit song. */
 export function openPartEditor(part, variant = 'main') {
@@ -142,16 +146,30 @@ const act = {
   removeEffect(i) { const def = curDef(), e = def && readEffects(def.code)[i]; if (e) { setDraftDef(def.id, removeEffect(def.code, e)); live(); } },
   source(i) { pe.src = i; pe.steps = null; pe.sel = null; pe.rows = []; renderPartEditor(); },
   steps(n) { pe.steps = n; renderPartEditor(); },
-  /** A click on the staff: put a note at that step and pitch (or move the one there); right-click removes it. */
-  staff(b, col, step, remove) {
+  /**
+   * A click on the staff: put a note at that step and pitch (or move the one there); with chord on (or Shift) add it to
+   * the chord there. Right-click removes the note at that pitch (or the whole note).
+   */
+  staff(b, col, step, remove, add) {
     const src = curSource(), m = model(src);
     if (m.error) return;
     const bar = m.bars[b], t = (col * bar.res) / m.steps;
     const at = eventAt(bar, t);
-    if (remove) { if (at) { m.bars[b] = removeNote(bar, at); pe.sel = null; commit(src, m); } return; }
-    const clef = clefFor(m.bars.flatMap((x) => x.events.flatMap((e) => e.vals.map((v) => midiOf(src, v)))));
+    const clef = staffClef(src, m);
     const val = valOf(src, stepToMidi(step, clef), at?.vals[0] ?? m.bars.flatMap((x) => x.events)[0]?.vals[0]);
-    if (at && at.t === t) m.bars[b] = { res: bar.res, events: bar.events.map((e) => (e === at ? { ...e, vals: [val] } : e)) };
+    if (remove) {
+      if (!at) return;
+      if (at.vals.length > 1) {
+        // the chord note nearest the click
+        const near = at.vals.map((v) => ({ v, d: Math.abs((staffPos(midiOf(src, v) ?? 0, clef).step) - step) })).sort((x, y) => x.d - y.d)[0].v;
+        m.bars[b] = { res: bar.res, events: bar.events.map((e) => (e === at ? { ...e, vals: e.vals.filter((v) => v !== near) } : e)) };
+      } else { m.bars[b] = removeNote(bar, at); pe.sel = null; }
+      commit(src, m);
+      return;
+    }
+    if (at && at.t === t && (add || pe.chord)) {
+      if (!at.vals.includes(val)) m.bars[b] = { res: bar.res, events: bar.events.map((e) => (e === at ? { ...e, vals: sortVals(src, [...e.vals, val]) } : e)) };
+    } else if (at && at.t === t) m.bars[b] = { res: bar.res, events: bar.events.map((e) => (e === at ? { ...e, vals: [val] } : e)) };
     else m.bars[b] = placeNote(bar, t, bar.res / m.steps, [val]);
     pe.sel = { b, pos: t / bar.res };
     commit(src, m);
@@ -204,6 +222,35 @@ const act = {
     else m.bars[b] = placeNote(bar, t, bar.res / m.steps, [String(value)]);
     commit(src, m);
   },
+  chord(on) { pe.chord = on; renderPartEditor(); },
+  /** ＋ voice: a new line next to this one (a harmony of it, or a counter-line to shape). */
+  addVoice(key) {
+    const def = curDef(), src = curSource();
+    if (!def || !src || !VOICES[key]) return;
+    const sc = scaleOf(src);
+    // note names move along the song's scale too
+    const map = src.kind === 'pitch' ? (v, n) => { const m = noteToMidi(v); return m == null ? v : valOf(src, degreeToMidi(midiToDegree(m, sc) + n, sc), v); } : null;
+    const line = src.kind === 'pitch' && VOICES[key].shift == null ? '~' : voiceLine(src.value, key, map);
+    if (!line) { pe.msg = '⚠ this line uses notation the note editor can’t copy — add the voice in its code'; pe.bad = true; renderPartEditor(); return; }
+    const code = addVoice(def.code, src, line);
+    // (the new voice is the last line: edit it)
+    const all = readSources(code), last = all.filter(isVoice).pop();
+    pe.src = all.indexOf(last);
+    pe.sel = null;
+    setDraftDef(def.id, code, `＋ ${VOICES[key].label}`);
+    live();
+  },
+  removeVoice() {
+    const def = curDef(), src = curSource();
+    if (!def || !src) return;
+    const code = removeVoice(def.code, src);
+    if (code === def.code) return;
+    pe.src = 0; pe.sel = null;
+    setDraftDef(def.id, code, '− a voice');
+    live();
+  },
+  addLayer(sound) { const def = curDef(); if (def && sound.trim()) { setDraftDef(def.id, addLayer(def.code, sound.trim()), `＋ layer ${sound.trim()}`); live(); } },
+  removeLayer(k) { const def = curDef(); if (def) { setDraftDef(def.id, removeLayer(def.code, k)); live(); } },
   bar(what) {
     const src = curSource(), m = model(src);
     if (m.error) return;
@@ -217,6 +264,22 @@ const act = {
   revert() { revertDraft(); },
   close() { if (pe.playing) stop(); ws.close('part'); pe.part = null; renderPartEditor(); },
 };
+/** Chord notes low to high. */
+const sortVals = (src, vals) => vals.slice().sort((a, b) => (midiOf(src, a) ?? 0) - (midiOf(src, b) ?? 0));
+/** The other voices of a part (its degree / note lines besides this one). */
+function otherVoices(src) {
+  const all = sources().filter(isVoice);
+  return all.length > 1 ? all.map((s, k) => ({ s, k })).filter((x) => x.s.start !== src.start) : [];
+}
+/** The clef that fits every voice. */
+function staffClef(src, m) {
+  const mid = m.bars.flatMap((x) => x.events.flatMap((e) => e.vals.map((v) => midiOf(src, v))));
+  for (const { s } of otherVoices(src)) {
+    const o = parseMini(s.value);
+    if (!o.error) mid.push(...o.bars.flatMap((x) => x.events.flatMap((e) => e.vals.map((v) => midiOf(s, v)))));
+  }
+  return clefFor(mid);
+}
 function selected(m) {
   if (!pe.sel || m.error) return null;
   const bar = m.bars[pe.sel.b];
@@ -262,10 +325,20 @@ function view() {
       uses: s.play.some((x) => { const q = playOf(x); return q.part === pe.part && q.variant === pe.variant; }) })),
     solo: pe.solo, playing: pe.playing, dirty: d.dirty, msg: def ? pe.msg || d.msg : `⚠ ${defId()} has no code yet — give it some in ✎ Edit song`, bad: pe.bad || !def,
     effects: groups, addable: Object.entries(EFFECTS).filter(([k]) => !have.has(k)).map(([key, m]) => ({ key, label: m.label, group: m.group })),
-    sources: srcs.map((s, i) => ({ i, label: s.label, on: i === pe.src })),
+    sources: sourceChips(srcs),
+    voices: srcs[pe.src] && isVoice(srcs[pe.src]) ? { options: Object.entries(VOICES).map(([key, x]) => ({ key, label: x.label })), canRemove: srcs.filter(isVoice).length > 1 } : null,
+    layers: def ? { list: readLayers(def.code).map((l, k) => ({ k, sound: l.sound || '?', text: l.text })), can: canLayer(def.code) } : null,
     src: srcs.length ? srcView(srcs[pe.src]) : null,
     code: def?.code || '',
   };
+}
+/** The source chips: voices get "voice 1 (the line) / voice 2 …" and their colours. */
+function sourceChips(srcs) {
+  const voices = srcs.filter(isVoice);
+  return srcs.map((s, i) => {
+    const k = voices.length > 1 ? voices.indexOf(s) : -1;
+    return { i, on: i === pe.src, label: k < 0 ? s.label : k === 0 ? 'voice 1 · the line' : `voice ${k + 1}`, color: k < 0 ? null : VOICE_COLORS[k % VOICE_COLORS.length] };
+  });
 }
 function srcView(src) {
   const base = { kind: src.kind, label: src.label, text: src.value, stepOptions: STEP_OPTIONS, view: src.kind === 'degree' || src.kind === 'pitch' ? 'staff' : src.kind === 'level' ? 'level' : 'grid' };
@@ -275,7 +348,9 @@ function srcView(src) {
   const sel = selected(m);
   if (base.view === 'staff') {
     const sc = scaleOf(src), flats = sc?.flats;
-    const clef = clefFor(m.bars.flatMap((x) => x.events.flatMap((e) => e.vals.map((v) => midiOf(src, v)))));
+    const clef = staffClef(src, m);
+    // the other voices, faded in their colours under this one (positions as parts of the bar)
+    const ghosts = otherVoices(src).map(({ s, k }) => ({ s, color: VOICE_COLORS[k % VOICE_COLORS.length], m: parseMini(s.value) })).filter((g) => !g.m.error);
     const bars = m.bars.map((bar, b) => {
       const events = bar.events.map((e, k) => {
         const notes = e.vals.map((v) => midiOf(src, v)).filter((x) => x != null).map((midi) => staffPos(midi, clef, flats));
@@ -285,10 +360,16 @@ function srcView(src) {
       const rests = [];
       const tick = bar.res / m.steps;
       for (let t = 0; t < bar.res; t += tick) if (!eventAt(bar, t) && (t === 0 || eventAt(bar, t - tick))) rests.push({ t, len: tick });
-      return { b, res: bar.res, steps: m.steps, events, rests };
+      const others = ghosts.flatMap((g) => {
+        const gb = g.m.bars[b % g.m.bars.length];
+        return gb.events.map((e) => ({ color: g.color, pos: e.t / gb.res, len: e.len / gb.res,
+          notes: e.vals.map((v) => midiOf(g.s, v)).filter((x) => x != null).map((midi) => staffPos(midi, clef, flats)) }));
+      });
+      return { b, res: bar.res, steps: m.steps, events, rests, others };
     });
     const info = sel ? sel.ev.vals.map((v) => { const midi = midiOf(src, v); return src.kind === 'degree' ? `degree ${v} · ${midi != null ? midiToNote(midi, flats) : '?'}` : v; }).join(' + ') + ` · ${fracName(sel.ev.len / m.bars[sel.b].res)}` : 'click a note to select it';
-    return { ...base, stepOptions, stepsPer: m.steps, clef, bars, sel: !!sel, info, rows: [] };
+    const vk = sources().filter(isVoice).findIndex((x) => x.start === src.start);
+    return { ...base, stepOptions, stepsPer: m.steps, clef, bars, sel: !!sel, info, rows: [], chord: pe.chord, voiceColor: vk >= 0 && ghosts.length ? VOICE_COLORS[vk % VOICE_COLORS.length] : null };
   }
   const bars = m.bars.map((bar, b) => ({ b, res: bar.res, steps: m.steps, events: bar.events, rests: [] }));
   let rows = [];

@@ -201,7 +201,9 @@ export function readSources(code) {
     if (!lit) continue;
     const chain = calls.filter((x) => x.expr === c.expr && x.dot && x.start > c.close);
     const has = (n) => chain.some((x) => x.name === n);
-    const scaleCall = chain.find((x) => x.name === 'scale');
+    // (a voice in stack(n("…"), n("…")).scale(…) takes the stack's scale)
+    const st = calls.filter((x) => x.name === 'stack' && !x.dot && x.open < c.start && c.close < x.close && x.depth === c.depth - 1).pop();
+    const scaleCall = chain.find((x) => x.name === 'scale') || (st && calls.find((x) => x.expr === st.expr && x.dot && x.start > st.close && x.name === 'scale'));
     const scale = scaleCall ? literal(callArgs(code, scaleCall)[0] || { text: '' })?.value || null : null;
     const onChords = has('chord') || has('voicing') || calls.some((x) => x.expr === c.expr && !x.dot && x.name === 'chord');
     let kind;

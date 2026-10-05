@@ -24,8 +24,8 @@ const SHEET = {
     { name: 'bass', role: 'bass', sound: 'sawtooth', variants: ['main', 'alt1'], desc: 'driving eighths' },
     { name: 'keys', role: 'chords', sound: 'triangle', variants: ['main'], desc: 'arpeggiated chords' },
     { name: 'pad', role: 'pad', sound: 'sawtooth', variants: ['main'], desc: 'wide slow pad' },
-    { name: 'lead', role: 'melody', sound: 'square', variants: ['main', 'solo'], desc: 'the tune', tune: 'melody' },
-    { name: 'hook', role: 'melody', sound: 'gm_lead_2_sawtooth', variants: ['main'], desc: 'the chorus hook', tune: 'hook' },
+    { name: 'lead', role: 'melody', sound: 'square', voices: ['third below'], variants: ['main', 'solo'], desc: 'the tune, in thirds', tune: 'melody' },
+    { name: 'hook', role: 'melody', sound: 'gm_lead_2_sawtooth', layers: ['gm_string_ensemble_1'], variants: ['main'], desc: 'the chorus hook, doubled by strings', tune: 'hook' },
   ],
   sections: [
     { name: 'intro', bars: 4, chords: 'verse', play: ['pad', 'keys@in'], level: 0.75 },

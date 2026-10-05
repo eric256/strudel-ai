@@ -198,8 +198,8 @@ Example:
     { "name": "bass", "role": "bass", "sound": "gm_synth_bass_1", "variants": ["main", "alt1"], "desc": "main: chord roots in a syncopated eighth-note pattern; alt1: a walking line with passing notes" },
     { "name": "keys", "role": "chords", "sound": "gm_epiano1", "variants": ["main", "alt1"], "desc": "main: offbeat chord stabs; alt1: a broken-chord figure across the bar" },
     { "name": "pad", "role": "pad", "sound": "gm_pad_warm", "variants": ["main"], "desc": "long soft chords" },
-    { "name": "hook", "role": "melody", "sound": "gm_lead_2_sawtooth", "variants": ["main", "harmony"], "desc": "plays the hook, bright and short; harmony: the hook a third above" },
-    { "name": "theme", "role": "melody", "sound": "gm_vibraphone", "variants": ["main"], "desc": "plays the main melody in the verses" },
+    { "name": "hook", "role": "melody", "sound": "gm_lead_2_sawtooth", "layers": ["gm_string_ensemble_1"], "variants": ["main", "harmony"], "desc": "plays the hook, bright and short, doubled by soft strings; harmony: the hook a third above" },
+    { "name": "theme", "role": "melody", "sound": "gm_vibraphone", "voices": ["third below"], "variants": ["main"], "desc": "plays the main melody in the verses, in thirds" },
     { "name": "counter", "role": "counter", "sound": "gm_flute", "variants": ["main", "alt1", "solo"], "desc": "a counter-melody that answers the hook in its gaps; alt1: slow held notes for the verses; solo: an improvised-sounding lead line for the solo" },
     { "name": "riff", "role": "melody", "sound": "gm_electric_guitar_muted", "variants": ["main"], "desc": "a short syncopated two-bar riff that comes and goes" }
   ],
@@ -282,6 +282,17 @@ Rules:
   FILLS: give drums one or more fill variants — "fill", and for longer songs "fill2" (and "fill3") of a different kind
   (a snare roll, a tom run, a hat build, a stop with one hit). The app plays one in the last bar before a chorus, a drop
   or a solo, and the fills take turns, so the song doesn't repeat the same fill.
+- VOICES AND LAYERS (optional, on a few parts — most parts play one line on one sound):
+  * "voices" makes a melodic part (melody, counter, riff, arp, lead) play 2–3 lines at once, written out like a
+    section of horns or strings: "third below" (sweet: pop, soul, folk, country, latin, big band), "sixth below"
+    (warm, open: ballads, gospel, jazz), "third above", "octave below" / "octave above" (unison power: rock, metal,
+    synthwave), or "counter" (its own answering line underneath). Up to 2 voices. Use them where the genre harmonises
+    its tunes, often only on the theme or the hook — not on bass, chords, pads or drums (they are chords already).
+  * "layers" doubles a part's notes on 1–2 more sounds, each with its own effects — a fatter or more interesting sound:
+    a saw lead with soft strings under it, an e-piano with a bell on top, a sub bass under a mid bass, a pluck with a
+    pad tail. Pick sounds from the same AVAILABLE SOUNDS. Use layers on 1–2 parts at most, for the parts that carry
+    the song (the hook, the main chords, the bass in dance music).
+  A part with voices or layers is still ONE part (one mixer channel): the sections play it as usual.
 - KEY AND TEMPO MOVE where the genre does it — use them. A section may add "shift" (semitones up or down from the song's
   key, -3…+3: the app moves the chords and melodies, never the drums) and/or "bpm" (its own tempo, within ±8% of the
   song's). Fitting, and welcome: a pop / rock / gospel / ballad / anthem last chorus lifted +1 or +2; jazz and fusion
@@ -342,6 +353,14 @@ Exactly ONE fenced code block with language "javascript", nothing after it:
   and holds long notes where the hook is busy, in a different register (usually above or below the hook).
 - A HARMONY variant of the hook copies the hook's rhythm a third above (the same degrees with .add(2) before .scale(...)),
   quieter than the hook.
+- VOICES (the request says "VOICES: …"): the part plays its line and the voices named, each WRITTEN OUT as its own n("…")
+  in a stack, then one .scale(…) and one sound for all of them — the harmony moves with the line, in scale degrees (a third
+  below = each degree −2, a sixth below = −5, an octave = ±7); a counter-line is its own rhythm under the line:
+    const theme_main = stack(n("<[0 ~ 2 4] [5 4 2 ~]>"), n("<[-2 ~ 0 2] [3 2 0 ~]>").velocity(0.7)).scale("A:minor").s("gm_vibraphone").gain(slider(0.6, 0, 1.2))
+- LAYERS (the request says "LAYERS: …"): the same notes on more sounds, each with its own effects — .layer(…) in place of .s(…),
+  then what all of them share:
+    const hook_main = n("<[0@3 2] [4 2 0 ~]>").scale("A:minor").layer(x => x.s("gm_lead_2_sawtooth").lpf(2400),
+      x => x.s("gm_string_ensemble_1").attack(0.05).room(0.4).velocity(0.6)).gain(slider(0.6, 0, 1.2))
 - Every const ends with .gain(slider(v, 0, 1.2)). Add 1–2 more sliders per part for the best live controls (lpf, room, delay).
   slider() arguments are plain non-negative numbers.
 - No labels ("drums:"), no "$:", nothing that plays on its own. Keep each part 1–4 lines.

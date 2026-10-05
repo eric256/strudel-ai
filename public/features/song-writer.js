@@ -15,6 +15,8 @@ import { closest, parseJSONLoose, sleep, stripThinking } from '../lib/util.js';
 import { scaleHelp } from '../lib/scales.js';
 import { patternLines } from '../lib/labels.js';
 import { wrapCode } from '../format.js';
+import { splitLibrary, joinLibrary } from '../lib/library.js';
+import { VOICES, ensurePoly } from '../lib/poly.js';
 import { arrangeSong, sectionCode } from '../lib/arrange.js';
 import { songPads } from './song-pads.js';
 import { songsChanged, updateSetButtons, setNowSong } from './song-lists.js';
@@ -126,6 +128,30 @@ async function partsCatalog(sh) {
   return `Sounds for this song: ${[...want].filter((k) => reg[k]).join(' ')}\n${lines.join('\n')}`;
 }
 
+/** What a part's voices and layers ask of its code (the library request). */
+function polyNote(p, variant, sh) {
+  if (/^fill\d*$/.test(variant)) return '';
+  const v = variant === 'solo' ? [] : p.voices || [];
+  const out = [];
+  if (v.length) out.push(` — VOICES: plays ${v.length + 1} lines at once — its line plus ${v.map((k) => VOICES[k].label).join(' and ')}` +
+    `, each written out in the same rhythm (a counter-line: its own rhythm, held notes where the line is busy): stack(n("…"), n("…").velocity(0.7)).scale("${sh.scale}").s(…)`);
+  if (p.layers?.length) out.push(` — LAYERS: the same notes also on ${p.layers.join(' and ')}, each with its own effects: .layer(x => x.s("${p.sound || '…'}")…, ${p.layers.map((l) => `x => x.s("${l}").velocity(0.6)…`).join(', ')}) in place of .s(…)`);
+  return out.join('');
+}
+/** The library with each part's voices and layers (added to its code where the AI left them out). */
+function withPoly(lib, sh) {
+  const parts = sh.parts.filter((p) => p.voices?.length || p.layers?.length);
+  if (!parts.length) return lib;
+  const { head, defs } = splitLibrary(lib);
+  for (const d of defs) {
+    const p = parts.find((q) => d.id.startsWith(q.id + '_'));
+    const variant = p && d.id.slice(p.id.length + 1);
+    if (!p || /^fill\d*$/.test(variant)) continue;
+    d.code = ensurePoly(d.code, { voices: variant === 'solo' ? [] : p.voices || [], layers: p.layers || [] });
+  }
+  return joinLibrary({ head, defs });
+}
+
 /** Write (or repair) the part library. Returns checked, corrected library code. */
 const fillVariantsOf = (p) => p.variants.filter((v) => /^fill\d*$/.test(v));
 async function writeSongLibrary(song, signal, { fix = null, prev = null } = {}) {
@@ -143,7 +169,7 @@ async function writeSongLibrary(song, signal, { fix = null, prev = null } = {}) 
       : /^alt/.test(variant) ? ` (an ALTERNATE ${p.role || 'part'}: same sound and register as ${p.id}_main, but a clearly different line — new rhythm, contour or figure — that still fits the chords and the other parts; it gives the sections that use it their own character)`
       : /harm/.test(variant) ? ` (a HARMONY of ${p.id}_main: same rhythm, a third or sixth above — e.g. the same degrees .add(2) — softer gain)`
       : ` (${variant} version of ${p.id}_main)`;
-    return `- ${id}  [${kind}]  ${p.role}, sound ${p.sound || '(your choice)'}: ${p.desc}${vdesc}${extra}`;
+    return `- ${id}  [${kind}]  ${p.role}, sound ${p.sound || '(your choice)'}: ${p.desc}${vdesc}${extra}${polyNote(p, variant, sh)}`;
   });
   const base =
     `SONG: "${song.title}" — ${song.desc}\n` +
@@ -181,6 +207,8 @@ async function writeSongLibrary(song, signal, { fix = null, prev = null } = {}) 
       if (missing.length) err = `these consts are missing: ${missing.join(', ')}`;
       else if (patternLines(lib).length) err = 'the library must not contain labelled lines like "drums:" or "$:" — only const definitions';
       else err = syntaxError(lib);
+      // the voices and layers the sheet asks for, where the reply left them out
+      if (!err) lib = withPoly(lib, sh);
       if (!err) {
         const prep = await prepareCode(lib, { quiet: true, library: true });
         lib = prep.code;

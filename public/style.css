@@ -884,6 +884,19 @@ body.hydra-behind .code-bar { background: color-mix(in srgb, var(--panel-2) 80%,
 .pe-dur { fill: color-mix(in srgb, var(--c) 18%, transparent); }
 .pe-head { fill: var(--text); stroke: var(--text); stroke-width: 1.4; }
 .pe-head.hollow { fill: var(--sunken); }
+/* voices: the one being edited in its colour (voice 1: the text colour), the others faded under it */
+.pe-bar[style*="--vc"] .pe-head { stroke: var(--vc); }
+.pe-bar[style*="--vc"] .pe-head:not(.hollow), .pe-bar[style*="--vc"] .pe-acc { fill: var(--vc); }
+.pe-bar[style*="--vc"] .pe-stem, .pe-bar[style*="--vc"] .pe-flag { stroke: var(--vc); }
+.pe-ghost { pointer-events: none; opacity: 0.5; }
+.pe-ghead { fill: var(--vc); }
+.pe-gdur { fill: color-mix(in srgb, var(--vc) 30%, transparent); }
+.pe-chip.pe-voice { border-left: 4px solid var(--vc); }
+.pe-chip.pe-voice.on { background: color-mix(in srgb, var(--vc) 22%, var(--raised)); }
+.pe-layer { display: inline-flex; align-items: center; gap: 4px; }
+.pe-addlayer { min-width: 16em; font-size: 12px; }
+.pe-addvoice { font-size: 12px; }
+.pe-chordmode { display: inline-flex; align-items: center; gap: 3px; font-size: 12px; }
 .pe-stem, .pe-flag { stroke: var(--text); stroke-width: 1.4; fill: none; }
 .pe-acc { fill: var(--text); font-size: 14px; }
 .pe-note.sel .pe-head, .pe-note.sel .pe-stem, .pe-note.sel .pe-flag { stroke: var(--accent); }

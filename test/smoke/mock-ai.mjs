@@ -11,7 +11,7 @@ const sheet = (last) => ({
   parts: [
     { name: 'drums', role: 'drums', sound: 'RolandTR909', variants: ['main', 'fill'], desc: 'four on the floor' },
     { name: 'bass', role: 'bass', sound: 'sawtooth', variants: ['main'], desc: 'roots' },
-    { name: 'pad', role: 'pad', sound: 'triangle', variants: ['main'], desc: 'chords' },
+    { name: 'pad', role: 'pad', sound: 'triangle', layers: ['sine'], variants: ['main'], desc: 'chords, layered' },
     { name: 'hook', role: 'melody', sound: 'square', variants: ['main'], desc: 'plays the hook' },
   ],
   sections: [
