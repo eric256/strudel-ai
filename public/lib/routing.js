@@ -27,9 +27,16 @@ export const NODE_TYPES = {
   delay: { label: 'Delay', kind: 'space', title: 'Echo', params: { time: [0.02, 1, 0.01, 0.25, 'time', 's'], feedback: [0, 0.9, 0.01, 0.35, 'fdbk', ''], mix: [0, 1, 0.05, 0.3, 'mix', ''] } },
 };
 export const SINK = 'master';
+/**
+ * After the master (the sum of every channel): the Master FX block (the master style's chain) and Out (the master
+ * volume, the speakers). Fixed, like the master: the wires between them are yours — effects after the mix, around
+ * Master FX, in parallel. With no wires after the master, it's master → Master FX → out (withPost).
+ */
+export const MFX = 'mfx';
+export const OUT = 'out';
 export const srcId = (part) => `src:${part}`;
 export const partOf = (id) => (typeof id === 'string' && id.startsWith('src:') ? id.slice(4) : null);
-const isEnd = (id) => id === SINK || partOf(id) != null;
+const isEnd = (id) => id === SINK || id === MFX || id === OUT || partOf(id) != null;
 
 export const defaultParams = (type) => Object.fromEntries(Object.entries(NODE_TYPES[type]?.params || {}).map(([k, d]) => [k, d[3]]));
 const clamp = (v, [min, max, step, def]) => {
@@ -64,11 +71,11 @@ export function normGraph(g) {
     if (Number.isFinite(n.x) && Number.isFinite(n.y)) Object.assign(node, { x: Math.round(n.x), y: Math.round(n.y) });
     nodes.push(node);
   }
-  const ok = (id) => partOf(id) != null || id === SINK || nodes.some((n) => n.id === id);
+  const ok = (id) => partOf(id) != null || id === SINK || id === MFX || id === OUT || nodes.some((n) => n.id === id);
   const edges = [];
   for (const e of Array.isArray(g?.edges) ? g.edges : []) {
     const from = String(e?.from || ''), to = String(e?.to || '');
-    if (!ok(from) || !ok(to) || from === to || from === SINK || partOf(to) != null) continue;
+    if (!ok(from) || !ok(to) || from === to || from === OUT || partOf(to) != null) continue;
     const edge = { from, to };
     if (e.fp === 1 && typeOf(nodes, from) === 'split') edge.fp = 1;
     if (e.tp === 1 && typeOf(nodes, to) === 'sum') edge.tp = 1;
@@ -97,14 +104,34 @@ export function reaches(g, a, b) {
   }
   return false;
 }
-/** Can this edge be added? (not from the master, not into a part, not twice, no loop) */
-export const canConnect = (g, from, to, { fp = 0, tp = 0 } = {}) => from !== to && from !== SINK && partOf(to) == null
+/** Is there a path a → … → b before the master (not through it)? */
+export function reachesPre(g, a, b) {
+  const seen = new Set([a]), todo = [a];
+  while (todo.length) {
+    const x = todo.pop();
+    if (x === b) return true;
+    if (x === SINK) continue;
+    for (const e of g.edges) if (e.from === x && !seen.has(e.to)) { seen.add(e.to); todo.push(e.to); }
+  }
+  return false;
+}
+/** The nodes after the master (its sum reaches them). */
+export const postNodes = (g) => g.nodes.filter((n) => reaches(g, SINK, n.id)).map((n) => n.id);
+/** The graph with the default way out when nothing says otherwise: master → Master FX → out. */
+export function withPost(g) {
+  const edges = [...g.edges];
+  if (!edges.some((e) => e.from === SINK)) edges.push({ from: SINK, to: MFX });
+  if (!edges.some((e) => e.to === OUT)) edges.push({ from: MFX, to: OUT });
+  return { ...g, edges };
+}
+/** Can this edge be added? (not out of Out, not into a part, not twice, no loop) */
+export const canConnect = (g, from, to, { fp = 0, tp = 0 } = {}) => from !== to && from !== OUT && partOf(to) == null
   && !g.edges.some((e) => sameEdge(e, { from, to, fp, tp })) && !reaches(g, to, from);
 
 /** The parts that are routed (have an edge from their source): the others go straight to the master. */
 export const routedParts = (g) => [...new Set(g.edges.map((e) => partOf(e.from)).filter((p) => p != null))];
 /** Nodes whose sound never reaches the master (a dead end: you won't hear what goes in). */
-export const deadEnds = (g) => g.nodes.filter((n) => !reaches(g, n.id, SINK)).map((n) => n.id);
+export const deadEnds = (g) => g.nodes.filter((n) => !reaches(g, n.id, SINK) && !reaches(g, n.id, OUT)).map((n) => n.id);
 /** Nodes nothing flows into (they make no sound). */
 export const unfed = (g) => g.nodes.filter((n) => !g.edges.some((e) => e.to === n.id)).map((n) => n.id);
 
@@ -174,8 +201,9 @@ export function unroutePart(g, part) {
   const mine = new Set();
   const others = g.edges.filter((e) => partOf(e.from) != null && e.from !== src).map((e) => e.from);
   const fromOthers = new Set();
-  for (const o of others) for (const n of g.nodes) if (reaches(g, o, n.id)) fromOthers.add(n.id);
-  for (const n of g.nodes) if (reaches(g, src, n.id) && !fromOthers.has(n.id)) mine.add(n.id);
+  // (only before the master: what's after it belongs to everyone)
+  for (const o of others) for (const n of g.nodes) if (reachesPre(g, o, n.id)) fromOthers.add(n.id);
+  for (const n of g.nodes) if (reachesPre(g, src, n.id) && !fromOthers.has(n.id)) mine.add(n.id);
   return normGraph({ ...g, nodes: g.nodes.filter((n) => !mine.has(n.id)), edges: g.edges.filter((e) => e.from !== src && !mine.has(e.from) && !mine.has(e.to)) });
 }
 
@@ -204,7 +232,7 @@ export function upstreamParts(g, id) {
   const out = new Set(), seen = new Set([id]), todo = [id];
   while (todo.length) {
     const x = todo.pop();
-    for (const e of g.edges) if (e.to === x && !seen.has(e.from)) { seen.add(e.from); if (partOf(e.from) != null) out.add(partOf(e.from)); else todo.push(e.from); }
+    for (const e of g.edges) if (e.to === x && !seen.has(e.from) && e.from !== SINK) { seen.add(e.from); if (partOf(e.from) != null) out.add(partOf(e.from)); else todo.push(e.from); }
   }
   return [...out];
 }
@@ -235,9 +263,9 @@ export const inputKey = (g, from) => { const up = upstreamParts(g, from); return
  * and the wires between them. Routing of parts that aren't in this music is kept, just not shown.
  */
 export function visibleGraph(g, parts) {
-  const reach = new Set(), todo = parts.map(srcId);
+  const reach = new Set(), todo = [...parts.map(srcId), SINK]; // (what's after the master always shows)
   while (todo.length) { const x = todo.pop(); for (const e of g.edges) if (e.from === x && !reach.has(e.to)) { reach.add(e.to); todo.push(e.to); } }
-  const show = (id) => id === SINK || (partOf(id) != null ? parts.includes(partOf(id)) : reach.has(id) || !g.edges.some((e) => e.to === id));
+  const show = (id) => id === SINK || id === MFX || id === OUT || (partOf(id) != null ? parts.includes(partOf(id)) : reach.has(id) || !g.edges.some((e) => e.to === id));
   return { ...g, nodes: g.nodes.filter((n) => show(n.id)), edges: g.edges.filter((e) => show(e.from) && show(e.to)) };
 }
 
@@ -251,23 +279,24 @@ export function layoutGraph(g, parts, { colW = 190, rowH = 125, pad = 18 } = {})
   const outsOf = (id) => g.edges.filter((e) => e.from === id).sort((a, b) => (a.fp || 0) - (b.fp || 0));
   // longest path from any part (no loops, so this terminates)
   const visit = (id, d) => {
-    if (id === SINK) return;
+    if (id === SINK || id === MFX || id === OUT) return;
     if (depth[id] != null && depth[id] >= d) return;
     depth[id] = d;
     for (const e of outsOf(id)) visit(e.to, d + 1);
   };
   for (const p of parts) visit(srcId(p), 0);
-  for (const n of g.nodes) if (depth[n.id] == null) visit(n.id, 1);
+  const post = new Set(postNodes(g)); // (after the master: laid out from it, by the panel)
+  for (const n of g.nodes) if (depth[n.id] == null && !post.has(n.id)) visit(n.id, 1);
   const row = {};
   let next = 0;
   const place = (id, r) => {
-    if (id === SINK || row[id] != null) return;
+    if (id === SINK || id === MFX || id === OUT || row[id] != null) return;
     row[id] = r;
     let first = true;
     for (const e of outsOf(id)) { if (e.to === SINK || row[e.to] != null) continue; place(e.to, first ? r : next++); first = false; }
   };
   for (const p of parts) place(srcId(p), next++);
-  for (const n of g.nodes) if (row[n.id] == null) place(n.id, next++);
+  for (const n of g.nodes) if (row[n.id] == null && !post.has(n.id)) place(n.id, next++);
   const cols = Math.max(1, ...Object.values(depth)) + 1;
   const pos = {};
   for (const [id, d] of Object.entries(depth)) pos[id] = { x: pad + d * colW, y: pad + (row[id] ?? 0) * rowH };
@@ -277,6 +306,36 @@ export function layoutGraph(g, parts, { colW = 190, rowH = 125, pad = 18 } = {})
   const maxY = Math.max(next * rowH, ...Object.values(pos).map((p) => p.y + rowH));
   pos[SINK] = { x: maxX, y: pad, h: Math.max(maxY - pad - 20, 200) };
   return pos;
+}
+/**
+ * After the master, left to right: each node (Master FX and Out too) a column after the furthest thing feeding it,
+ * the first path on the master's row, a second path a row below. { id: { col, row } } — col 1 is right after it.
+ */
+export function layoutPost(g) {
+  const gp = withPost(g);
+  const outsOf = (id) => gp.edges.filter((e) => e.from === id).sort((a, b) => (a.fp || 0) - (b.fp || 0));
+  const col = {};
+  const visit = (id, d) => {
+    if (col[id] != null && col[id] >= d) return;
+    col[id] = d;
+    if (id !== OUT) for (const e of outsOf(id)) if (partOf(e.to) == null && e.to !== SINK) visit(e.to, d + 1);
+  };
+  for (const e of outsOf(SINK)) visit(e.to, 1);
+  // what nothing after the master reaches (Master FX left out of the path, say): after the rest
+  const last = Math.max(0, ...Object.values(col));
+  for (const id of [MFX, OUT]) if (col[id] == null) col[id] = last + 1;
+  if (col[OUT] <= col[MFX] && !reaches(gp, OUT, MFX)) col[OUT] = Math.max(col[OUT], col[MFX] + 1);
+  const row = {};
+  let next = 1;
+  const place = (id, r) => {
+    if (row[id] != null || col[id] == null) return;
+    row[id] = r;
+    let first = true;
+    for (const e of outsOf(id)) { if (row[e.to] != null || col[e.to] == null) continue; place(e.to, first ? r : next++); first = false; }
+  };
+  for (const e of outsOf(SINK)) place(e.to, row[e.to] == null && Object.keys(row).length ? next++ : 0);
+  for (const id of Object.keys(col)) if (row[id] == null) row[id] = next++;
+  return Object.fromEntries(Object.keys(col).map((id) => [id, { col: col[id], row: row[id] }]));
 }
 /** Forget hand placement (tidy up). */
 export const unplace = (g) => ({ nodes: g.nodes.map(({ x, y, ...n }) => n), edges: g.edges });

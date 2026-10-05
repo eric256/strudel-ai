@@ -991,6 +991,7 @@ body.hydra-behind .code-bar { background: color-mix(in srgb, var(--panel-2) 80%,
 .rt-df .connection.k-post .main-path { stroke: var(--text); opacity: .5; stroke-dasharray: none; }
 .rt-df .drawflow .drawflow-node.rt-post { border-top: 3px solid var(--accent); }
 .rt-open { color: var(--accent); }
+.rt-df .drawflow .drawflow-node.after-master { border-top: 3px solid var(--accent); } /* (an effect on the whole mix) */
 /* the master's effects on one block: a group per section, wrapping */
 .rt-df .drawflow .drawflow-node.rt-fx { height: auto; }
 .rt-fxgrid { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }

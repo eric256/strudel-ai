@@ -12,7 +12,7 @@ const empty = { nodes: [], edges: [] };
 test('normGraph: unknown types, bad ids, bad edges and loops are dropped; values are clamped to their range', () => {
   const g = normGraph({
     nodes: [{ id: 'a', type: 'comp', params: { ratio: 99, thresh: 'x' } }, { id: 'b', type: 'nope' }, { id: 'master', type: 'sum' }, { id: 'a', type: 'sat' }, { id: 'c', type: 'sum' }],
-    edges: [{ from: 'src:drums', to: 'a' }, { from: 'a', to: 'c' }, { from: 'c', to: 'a' }, { from: 'a', to: 'src:bass' }, { from: 'master', to: 'a' }, { from: 'a', to: 'ghost' }, { from: 'c', to: 'master' }, { from: 'c', to: 'master' }],
+    edges: [{ from: 'src:drums', to: 'a' }, { from: 'a', to: 'c' }, { from: 'c', to: 'a' }, { from: 'a', to: 'src:bass' }, { from: 'out', to: 'a' }, { from: 'a', to: 'ghost' }, { from: 'c', to: 'master' }, { from: 'c', to: 'master' }],
   });
   assert.deepEqual(g.nodes.map((n) => n.id), ['a', 'c']);
   assert.equal(g.nodes[0].params.ratio, 20);
@@ -189,4 +189,31 @@ test('EQ7: seven bands in range, a summary of them', () => {
   assert.deepEqual(Object.values(g.nodes[0].params), [3, 0, 0, 0, 0, 0, -12]);
   assert.equal(nodeSummary(g, g.nodes[0]), '+3 0 0 0 0 0 -12');
   assert.equal(nodeSummary(g, { type: 'geq', params: defaultParams('geq') }), 'flat');
+});
+
+test('after the master: its default way out, effects added after it, around Master FX — and unrouting a part leaves them alone', async () => {
+  const { MFX, OUT, withPost, postNodes, layoutPost, reachesPre } = await import('../public/lib/routing.js');
+  // the default: master → Master FX → out
+  assert.deepEqual(withPost(empty).edges, [{ from: SINK, to: MFX }, { from: MFX, to: OUT }]);
+  // select the master, ＋ a comp: master → comp → Master FX → out
+  let { graph: g, id } = addNode(withPost(empty), 'comp', { after: SINK });
+  assert.deepEqual(g.edges.map((e) => `${e.from}>${e.to}`).sort(), [`${MFX}>${OUT}`, `${SINK}>${id}`, `${id}>${MFX}`].sort());
+  assert.deepEqual(postNodes(g), [id]);
+  // a limiter-ish gain after Master FX, on the wire into out
+  ({ graph: g } = addNode(g, 'gain', { onEdge: { from: MFX, to: OUT } }));
+  const L = layoutPost(g);
+  assert.ok(L[id].col < L[MFX].col && L[MFX].col < L.n2.col && L.n2.col < L[OUT].col, JSON.stringify(L));
+  assert.ok([id, MFX, 'n2', OUT].every((k) => L[k].row === 0));
+  // nothing out of Out, no loop back into the master, but around Master FX is fine
+  assert.equal(canConnect(g, OUT, id), false);
+  assert.equal(canConnect(g, id, SINK), false, 'a loop through the master');
+  assert.equal(canConnect(g, SINK, OUT), true);
+  // these are nobody's part: unrouting a part keeps them; they never show up as a part's own nodes
+  g = TEMPLATES.nycomp.build(g, ['drums']);
+  const un = unroutePart(g, 'drums');
+  assert.ok(un.nodes.some((n) => n.id === id) && un.nodes.some((n) => n.id === 'n2'));
+  assert.equal(reachesPre(g, srcId('drums'), id), false);
+  // and they're not dead ends (they reach out), and the part layout leaves them to the panel
+  assert.equal(deadEnds(g).includes(id), false);
+  assert.equal(layoutGraph(g, ['drums'])[id], undefined);
 });

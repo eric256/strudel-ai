@@ -147,7 +147,7 @@ export function musicLevel() {
   return levelSmooth;
 }
 /** The master meter: an analyser on the main output. */
-function masterAnalyser() {
+export function masterAnalyser() {
   const ctrl = sdController();
   const out = ctrl?.output?.destinationGain;
   if (!out) return null;
