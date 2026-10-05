@@ -2,6 +2,28 @@
 
 The version is in `package.json`. Bump it when you release. Open pages also notice *any* redeploy through the build id, which is a hash of the app files, even if the version wasn't bumped.
 
+## 1.58.0
+- **🔀 Routing is the whole signal path; 🎚 Mixer and 🎛 Master are simpler views of it.**
+  - **The flow:** each part → its effects → **its own input on the Master block** (a row per channel: fader in dB, pan, mute / solo, a level line, level with its part so the wires run straight across) → summed → **🎛 Master FX** → **Out**.
+  - **Master FX:** one block with all of the master's processing, wrapped in rows. That's EQ7 (↗ to the 🎚 Equalizer), Tone, Filter, Colour, Space, Echo, Dynamics and Output, each with its knobs and ⏻, following the master style.
+  - **Out:** the master volume with a meter.
+  - **Buses:** a bus (a node several parts reach, wired to the master) gets its own input row and mixer strip. A part split into paths that both reach the master is still one channel.
+  - **Every effect is on the board, the channel EQ too:**
+    - The mixer strip's H / M / L and 7-band channel EQ are gone. There's an **EQ7** node (7 bands), and the 🎚 Equalizer works on the master or any EQ7 node.
+    - Mixer EQ settings saved by an older version become EQ / EQ7 nodes at the start of their part's chain, once, with a note in the chat.
+  - **🎚 Mixer:** strips with pan, M / S, **FX ↗** (that part on the board), 👍 / 👎, fader, meter and clip LED, plus a strip per bus. "flat EQ" is now "centre pans".
+  - **🎛 Master:** the style, follow song, save to song and bypass, with the sections as on / off switches, the EQ, the spectrum and the meters. "🔀 edit in Routing" leads to the knobs.
+  - **Audio:**
+    - Each part: orbit → src (mute, solo, a solo section's lead) → its effects → its input (pan → fader → meter) → the master.
+    - Mute and solo act before the effects, so a bus follows them.
+- **Fix: the board didn't follow the music.**
+  - It now shows only the parts in the music now, and redraws when the song, section, mode or transport changes.
+  - A part that's gone keeps its effects, hidden until it plays again. Before, it stayed on the board.
+- **Fix:** zoom-to-fit waited for the board to have a size (a hidden or tiny panel left it off-screen).
+- **Tests:**
+  - Unit tests for master inputs (parts, buses, split paths), the visible part of the graph, and EQ7.
+  - Smoke steps for the pared-down mixer strip, EQ7 in the Equalizer, the master's knobs on the board and its chips, master rows (one per part) and a row's fader setting its channel.
+
 ## 1.57.0
 - **✎ Edit song has its own transport:** **▶ ⏸ ■ ↺** at the top of the editor, staying there while you scroll. They work on the song you're editing, so you don't have to go to 🎶 Now playing to start and stop it.
   - **▶** plays this song, or carries on after **⏸**. It's off while the song plays.

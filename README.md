@@ -477,43 +477,56 @@ Fix attempts always work on the AI's own failed code (sent as *code to fix*), no
 - If a reply needed fixing, its bubble shows the code that finally worked, with a note like *🔧 fixed automatically (1 retry)*.
 - An error reaches the chat only when every attempt has failed.
 
+## 🎚 Mixer, 🔀 Routing and 🎛 Master: one signal path, three views
+The whole sound runs left to right on the **🔀 Routing** board:
+
+> each part → its effects → **its input on the Master block** (fader, pan, mute, solo) → summed → **Master FX** → **Out** (master volume) → speakers
+
+The **🎚 Mixer** shows the master's inputs as a console. **🎛 Master** shows the master at a glance. All effects live on the board, including a channel's EQ: mixer EQ settings saved by an older version become EQ nodes there automatically.
+
 ## 🎚 Mixer
 
-**🎚 Mixer** opens a console with a channel for **every part of the song**, whether or not it plays in the current section. That's every part in the song sheet, plus any other labelled line in the code (your own parts, pad lines). It ends with the master.
+**🎚 Mixer** opens a console with a channel for **every part of the song**, whether or not it plays in the current section. That's every part in the song sheet, plus any other labelled line in the code (your own parts, pad lines). It also has a strip for each **bus** built on the board, and ends with the master.
 
-Each channel strip is laid out like a console channel:
+Each channel strip is one input of the master, laid out like a console channel:
 - **Name and state:** ● playing, *not in section* (the strip is dimmed, but its settings apply when the part comes in), or *muted in code*.
-- **EQ display:** the channel's EQ curve drawn over its live spectrum.
-- **Knobs:** H (high shelf at 4 kHz), M (mid peak at 1 kHz) and L (low shelf at 200 Hz), ±12 dB each, plus **pan**. Drag up / down (Shift: fine), scroll or use the arrow keys while focused, and double-click to centre.
-- **M / S / EQ:** mute and solo the channel for the whole song; **EQ** opens it in the 🎚 Equalizer.
+- **Spectrum** of the channel's live sound.
+- **Pan** knob: drag up / down (Shift: fine), scroll or use the arrow keys while focused, and double-click to centre.
+- **M / S:** mute and solo the channel, for the whole song. **FX ↗** opens its effects on the 🔀 Routing board.
 - **Fader** with a dB scale (+6 … −40, ∞) and a metal cap. 0 dB is the rest position, and double-clicking it returns there.
 - **Meter and clip LED:** RMS level, a slowly falling peak line, red at full scale. The LED above it lights amber when the channel peaks within 3 dB of the top and red when it clips; click it to reset.
 
 How it works:
-- Every labelled part plays on its own Strudel *orbit* (output bus). The channel strip sits on that bus: 3-band EQ → 7-band EQ → pan → fader → speakers, and the meter and spectrum tap the fader's output.
+- Every labelled part plays on its own Strudel *orbit* (output bus): orbit → *src* (mute, solo, a solo section's lead) → its effects on the board → its input (pan → fader → meter) → the master.
+- A part with no effects goes straight to its input. A bus (a node that several parts reach, wired to the master) has an input of its own.
 - Mixer changes are instant and never touch the code. The code's own faders (`.postgain(slider(…))`) still work as a trim before the channel.
-- Settings are kept per part name in the browser, so `bass` keeps its fader, EQ, pan, mute and solo from section to section and song to song.
-- **flat EQ** resets every EQ and pan. **reset all** also resets faders, mutes and solos.
+- Settings are kept per part name in the browser (a bus by its node), so `bass` keeps its fader, pan, mute and solo from section to section and song to song. The same fader is on the board's Master block.
+- **centre pans** centres every pan. **reset all** also resets faders, mutes and solos.
 - Anonymous `$:` lines share the default bus and don't get a channel: name them (e.g. `lead:`) to mix them.
 
 ### Level alerts
 The status bar watches the whole mix. **● HOT** (amber) means it peaks within 3 dB of the top or the limiter is working hard; **● CLIP** (red, blinking) means it hits the top or the limiter takes more than 6 dB off. Hover it for how much and the loudest channels, and click it to open the mixer. Clipping is also noted in the 🖥 console (at most every 15 seconds).
 
 ## 🎚 Equalizer
-**🎚 EQ** opens a 7-band equalizer for the master or any mixer channel (pick it under **on**, or press a strip's **EQ** button): a low shelf at 60 Hz, peaks at 150, 400 Hz, 1, 2.5 and 6 kHz, and a high shelf at 12 kHz, ±12 dB each.
+**🎚 EQ** opens a 7-band equalizer for the master or any **EQ7** node on the 🔀 Routing board (pick it under **on**, or press **↗** on the node): a low shelf at 60 Hz, peaks at 150, 400 Hz, 1, 2.5 and 6 kHz, and a high shelf at 12 kHz, ±12 dB each. For a channel, add an EQ7 to its chain on the board.
 - The response curve is drawn over the live spectrum of what it's working on, with a dot per band.
 - Each band has its own fader; double-click one for 0 dB.
 - **Presets:** Flat, Soft top (tames harsh square waves and cymbals), Warm, Bass boost, Bright, Presence, De-mud and Smile.
-- It's remembered: the master's EQ in the browser, a channel's with that part's mixer settings.
+- It's remembered: the master's EQ in the browser, a node's with the routing.
 
 ## 🔀 Routing
-**🔀 Routing** sends parts through chains of effects after their mixer faders, the way a studio console routes channels through outboard gear and buses. It's drawn as a graph: the parts on the left, the master on the right, effect nodes wired in between. Each card has a little scope of its sound now.
+**🔀 Routing** is the whole signal path on one board, the way a studio console routes channels through outboard gear and buses into the master. The parts are on the left, effect nodes are wired in between, then the Master block, the Master FX and Out on the right. Each card has a little scope of its sound now.
+
+- **The parts** are the ones in the music now. When the song, section or code changes, the board follows. A part that's gone keeps its effects, hidden until it plays again.
+- **The Master block** has an input per channel coming in, each on its own row, level with its part so the wires run straight across. Each row has that channel's **fader** (dB), **pan**, **M / S** and a level line; it's the same as the 🎚 Mixer's strip. A bus gets a row of its own.
+- **🎛 Master FX** holds all the master's processing on one block, in signal order: **EQ7** (↗ for the 🎚 Equalizer), **Tone**, **Filter**, **Colour**, **Space**, **Echo**, **Dynamics** and **Output**. Each has its knobs and ⏻; they follow 🎛 Master's style, and double-clicking a knob returns it to the style's value.
+- **Out:** the master volume and what comes out.
 
 - **Building a chain:** click a part, then **＋** an effect: it goes part → effect → master. The new effect is selected, so **＋** another and it goes in after it. Select any node (or a wire) and **＋** to insert into the middle. With nothing selected, **＋** adds after the part picked in the bar.
 - **Wiring by hand:** drag from a **●** to a node, an input or the master. A part you wire stops going straight to the master; one with no wires goes straight there (the faint line).
 - **Nodes:**
   - **Split** has two outputs (two parallel paths) and comes with its **Sum**, which has two inputs: part → Split ⇒ both paths → Sum → on. **＋** on a selected Split puts the effect on its second path (the one you process), keeping the first dry. Wire several parts into one Sum to make a bus.
-  - **Comp** (threshold, ratio, attack, release, makeup; its card shows the gain reduction live), **Sat** (drive, mix), **EQ** (low / mid / high), **Filter** (high-pass, low-pass), **Verb** (size, mix), **Delay** (time, feedback, mix) and **Gain**.
+  - **Comp** (threshold, ratio, attack, release, makeup; its card shows the gain reduction live), **Sat** (drive, mix), **EQ** (low / mid / high), **EQ7** (7 bands, also in the 🎚 Equalizer), **Filter** (high-pass, low-pass), **Verb** (size, mix), **Delay** (time, feedback, mix) and **Gain**.
 - **Editing:**
   - **The knobs are on the nodes:** drag one up or down (Shift: fine), or double-click it for the default; it changes the sound at once. **⏻** on a node bypasses it. Click a node for what it does and ✕ remove. Removing a node joins what fed it to what it fed.
   - Click a part for ＋ add after it and ✕ unroute.
@@ -530,7 +543,7 @@ The status bar watches the whole mix. **● HOT** (amber) means it peaks within 
 - A node that never reaches the master is outlined in amber (⚠): you won't hear what goes into it.
 - Kept in the browser by part name, like the mixer, so `drums` keeps its chain from song to song.
 
-How it works: each part's channel strip ends in its fader, then a *direct* path to the master. Routing closes that path and wires the fader's output into Web Audio nodes (`DynamicsCompressorNode`, `WaveShaperNode`, biquads, `ConvolverNode`, `DelayNode`). Their sum goes into the master chain, so 🎛 Master and the master volume still apply. Node changes are instant; adding or removing nodes rebuilds the graph. The graph rules (no loops, values in range, templates, layout) are in `lib/routing.js` and the audio blocks in `routing-audio.js`. The canvas is [Drawflow](https://github.com/jerosoler/Drawflow), which only shows the graph: what you do on it comes back as changes to the graph, which are checked against its rules before the canvas is redrawn from it.
+How it works: each part's source (after its mute / solo) normally goes straight to its input on the master. Routing closes that path and wires the source into Web Audio nodes (`DynamicsCompressorNode`, `WaveShaperNode`, biquads, `ConvolverNode`, `DelayNode`). A wire into the master goes to the input of the channel it carries: the part's, or, when several parts reach it, a bus's. The inputs are summed into the master chain, which the Master FX block shows. Node changes are instant; adding or removing nodes rebuilds the graph. The graph rules (no loops, values in range, templates, layout) are in `lib/routing.js` and the audio blocks in `routing-audio.js`. The canvas is [Drawflow](https://github.com/jerosoler/Drawflow), which only shows the graph: what you do on it comes back as changes to the graph, which are checked against its rules before the canvas is redrawn from it.
 
 ## 🎛 Master (mastering style)
 Every song has a **master style**: post-processing on the whole mix, picked by the songwriter (or the band) and shown in the song's details as 🎛. Styles: clean, lo-fi, warm, acoustic (natural and open: a wooden room, gentle compression), pop, techno, house, edm, dnb, hiphop, synthwave, ambient, dub, cinematic, rock, chiptune and radio.
@@ -538,10 +551,9 @@ Every song has a **master style**: post-processing on the whole mix, picked by t
 The chain sits between Strudel's output and the master volume:
 EQ (low shelf 120 Hz · mid 1 kHz · high shelf 6 kHz) → DJ filter (low-pass ← off → high-pass, with resonance) → drive (tape-style saturation) → crush (bit reduction) → reverb and tempo-synced echo sends, vinyl hiss and crackle → stereo width → glue compressor with makeup gain → output level → limiter (−1 dB).
 
-**🎛 Master** shows the chain as nodes in signal order, like the effects of a part: 🎚 EQ → Tone → Filter → Colour → Space → Echo → Dynamics → Output.
-- **🎚 EQ:** a small picture of the master's 7-band EQ and its preset; **7 bands ↗** opens the 🎚 Equalizer.
-- **Each node** has knobs for its settings (16 in all). A knob in yellow differs from the style; double-click it to return to the style's value.
-- **⏻ on each node** switches it off: its effect goes neutral and the sound passes through (remembered). It's for hearing what one stage does.
+**🎛 Master** shows the master at a glance:
+- **The sections** in signal order (EQ → Tone → Filter → Colour → Space → Echo → Dynamics → Output) as switches: click one to switch it off (its effect goes neutral and the sound passes through; remembered), to hear what one stage does. Their knobs are on the 🔀 Routing board's **Master FX** block (**🔀 edit in Routing ↗**).
+- **The EQ:** a small picture of the master's 7-band EQ and its preset; click it for the 🎚 Equalizer.
 - **Output:** the mastered spectrum, the glue / limiter gain reduction, the level meter and its clip LED.
 - **style** loads a style. **↺ style** throws away your tweaks. **bypass** lets you hear the mix without it (A/B).
 - **follow song** (on by default): when a song starts, the master glides to its style and its own tweaks.

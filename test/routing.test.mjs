@@ -4,7 +4,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   NODE_TYPES, SINK, TEMPLATES, addNode, canConnect, connect, deadEnds, defaultParams, layoutGraph, nodeSummary,
-  normGraph, reaches, removeEdge, removeNode, routedParts, srcId, unfed, unroutePart, freeInput,
+  normGraph, reaches, removeEdge, removeNode, routedParts, srcId, unfed, unroutePart, freeInput, partOf,
 } from '../public/lib/routing.js';
 
 const empty = { nodes: [], edges: [] };
@@ -158,4 +158,35 @@ test('parts you move keep their place (pins), through templates too', () => {
   assert.deepEqual(g.pins, { 'src:drums': { x: 40, y: 300 } });
   assert.deepEqual(layoutGraph(g, ['drums', 'bass'])['src:drums'], { x: 40, y: 300 });
   assert.deepEqual(TEMPLATES.nycomp.build(g, ['drums']).pins, g.pins);
+});
+
+test('master inputs: a row per channel coming in — each part on its own (whatever its paths), each bus, unwired parts too', async () => {
+  const { masterInputs, inputKey, upstreamParts, visibleGraph } = await import('../public/lib/routing.js');
+  // lead: comp → split ⇒ dry + verb → sum → master (one channel); kick + hats: a drum bus; bass: no effects
+  let g = TEMPLATES.space.build(empty, ['lead']);
+  g = TEMPLATES.drumbus.build(g, ['kick', 'hats']);
+  const parts = ['kick', 'hats', 'bass', 'lead'];
+  const ins = masterInputs(g, parts);
+  const busEnd = g.edges.find((e) => e.to === SINK && upstreamParts(g, e.from).length === 2).from; // (the drum bus's last node)
+  assert.deepEqual(ins.map((x) => x.key), [`bus:${busEnd}`, 'bass', 'lead']);
+  assert.deepEqual(ins[0].parts.sort(), ['hats', 'kick']);
+  assert.equal(ins[0].part, null);
+  assert.equal(inputKey(g, srcId('bass')), 'bass');
+  // a part split into two paths that both reach the master: still one channel
+  let s = addNode(empty, 'split', { after: srcId('pad') }).graph;
+  s = connect(removeEdge(s, { from: 'n2', to: SINK }), 'n1', SINK, { fp: 1 });
+  assert.deepEqual(masterInputs(s, ['pad']).map((x) => x.key), ['pad']);
+  // what's shown for the music now: parts that aren't in it, and the nodes only they reach, are kept but hidden
+  const v = visibleGraph(g, ['bass', 'lead']);
+  assert.ok(!v.nodes.some((n) => g.edges.some((e) => e.to === n.id && partOf(e.from) === 'kick')), 'the drum bus is hidden');
+  assert.ok(v.nodes.length === 4 && v.edges.every((e) => partOf(e.from) !== 'kick'));
+  // a node nothing feeds yet stays in view
+  assert.equal(visibleGraph(addNode(empty, 'comp').graph, []).nodes.length, 1);
+});
+
+test('EQ7: seven bands in range, a summary of them', () => {
+  const g = normGraph({ nodes: [{ id: 'a', type: 'geq', params: { b0: 3, b6: -20 } }], edges: [] });
+  assert.deepEqual(Object.values(g.nodes[0].params), [3, 0, 0, 0, 0, 0, -12]);
+  assert.equal(nodeSummary(g, g.nodes[0]), '+3 0 0 0 0 0 -12');
+  assert.equal(nodeSummary(g, { type: 'geq', params: defaultParams('geq') }), 'flat');
 });

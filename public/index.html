@@ -327,17 +327,17 @@
           <b>🎚 Mixer</b>
           <span class="muted small">every part of the song · settings stay with the part name · double-click a control to reset it</span>
           <span class="spacer"></span>
-          <button id="mixerFlat" class="link" title="Set every EQ and pan back to flat / centre">flat EQ</button>
+          <button id="mixerFlat" class="link" title="Set every pan back to the centre">centre pans</button>
           <button id="mixerReset" class="link" title="Reset every channel: faders to 0 dB, EQ flat, pan centre, no mute / solo">reset all</button>
         </div>
         <div id="mixerStrips" class="mx-strips"></div>
       </section>
       <section id="route-dock" class="panel dock">
-        <div class="viz-bar"><b>🔀 Routing</b><span class="muted small">each part after its fader, through effect nodes, to the master — wire, split, sum, bus</span></div>
+        <div class="viz-bar"><b>🔀 Routing</b><span class="muted small">the whole signal path: each part → its effects → its row on the master → Master FX → out</span></div>
         <div id="routeBody" class="rt-wrap"></div>
       </section>
       <section id="eq-dock" class="panel dock">
-        <div class="viz-bar"><b>🎚 Equalizer</b><span class="muted small">7 bands (60 Hz … 12 kHz, ±12 dB) on the master or any channel — the line is the EQ, the colour the sound now</span></div>
+        <div class="viz-bar"><b>🎚 Equalizer</b><span class="muted small">7 bands (60 Hz … 12 kHz, ±12 dB) on the master or an EQ7 node in 🔀 Routing — the line is the EQ, the colour the sound now</span></div>
         <div id="eqBody" class="eq-wrap"></div>
       </section>
       <section id="master-dock" class="panel dock">

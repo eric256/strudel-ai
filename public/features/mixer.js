@@ -1,15 +1,16 @@
-// 🎚 Mixer: a console with one channel per part of the WHOLE song (every part in the song sheet, plus any other
-// labelled line in the code), whether or not it plays in the current section.
-// Every labelled part plays on its own orbit (Strudel's output bus); the mixer puts a channel strip on that bus:
-//   orbit → EQ (high shelf 4 kHz · mid peak 1 kHz · low shelf 200 Hz, ±12 dB) → pan → fader → speakers
-//                                                                                   └→ meter / spectrum
-// Settings are kept per part name, so they apply whenever that part plays — this section, the next, the next song.
+// 🎚 Mixer: the master's inputs as a console — one strip per part of the WHOLE song (every part in the song sheet,
+// plus any other labelled line in the code), whether or not it plays in the current section, and one per bus.
+// Every labelled part plays on its own orbit (Strudel's output bus). Its sound:
+//   orbit → src (mute / solo / the section's solo lead) → its effects in 🔀 Routing → its input on the master:
+//   pan → fader → master                                                           └→ meter / spectrum
+// A part with no effects goes straight to its input (src → thru → input). A bus (a node in 🔀 Routing that several
+// parts reach) gets an input of its own. The effects themselves (EQ included) are all in 🔀 Routing.
+// Settings are kept per part name (a bus: per its node), so they apply whenever that part plays.
 // Nothing here touches the code; the code's own faders (.postgain) still work as a trim.
 // (split out of app.js: start-up code runs in setup(), called from app.js)
 import { master } from './master-panel.js';
-import { EQ_BANDS, normEq } from '../lib/eq.js';
+import { normEq, isFlat } from '../lib/eq.js';
 import { peakState } from '../lib/taper.js';
-import { openEqualizer } from './equalizer.js';
 import { stringArgs } from '../lib/partcode.js';
 import { splitLibrary } from '../lib/library.js';
 import { getTaste, avoidSound, likeSound } from './taste.js';
@@ -24,14 +25,13 @@ import { render } from '../html.js';
 import { T, onTemplatesChange } from '../templates/index.js';
 import { themeColor } from '../theme.js';
 let saveMixer;
-const MX_BANDS = [['high', 'highshelf', 4000], ['mid', 'peaking', 1000], ['low', 'lowshelf', 200]];
-const MX_DEFAULT = { vol: 1, pan: 0, high: 0, mid: 0, low: 0, mute: false, solo: false };
-export const mixer = { ch: {}, orbits: {}, nextOrbit: 2, key: '', dragging: false };
-export const chOf = (base) => (mixer.ch[base] ||= { ...MX_DEFAULT });
-/** A channel's 🎚 Equalizer bands (dB): set, saved, heard at once. */
-export function setChannelEq(base, gains) { chOf(base).geq = normEq(gains); saveMixer(); applyChannel(base); }
-/** A channel's analyser (its sound after the strip), or null while it hasn't played. */
-export const channelAnalyser = (base) => (mixer.orbits[base] != null ? sdController()?.nodes?.[mixer.orbits[base]]?.__ch?.an || null : null);
+const MX_DEFAULT = { vol: 1, pan: 0, mute: false, solo: false };
+export const mixer = { ch: {}, orbits: {}, nextOrbit: 2, key: '', dragging: false, buses: {}, oldEq: {} };
+export const chOf = (key) => (mixer.ch[key] ||= { ...MX_DEFAULT });
+/** A channel's input on the master (its pan → fader → meter): its analyser, or null while it hasn't played. */
+export const channelAnalyser = (key) => stripIfAny(key)?.an || null;
+/** The buses on the master (from 🔀 Routing): [{ key, label, title, parts }] — set by features/routing.js. */
+export const busList = { get: () => [] };
 /** Every labelled part gets its own orbit ("$:" lines share the default one). */
 function mixerOrbit(base) {
   if (!base || base === '$') return null;
@@ -59,7 +59,11 @@ function installOrbitTrap() {
 }
 
 export const sdController = () => { try { return globalThis.getSuperdoughAudioController(); } catch { return null; } };
-/** The channel strip on a part's orbit (built the first time, rebuilt if the audio engine was reset). */
+/**
+ * A part's nodes on its orbit (built the first time, rebuilt if the audio engine was reset):
+ *   orbit → src → thru → in → pan → gain (fader) → an, and gain → the master.
+ * 🔀 Routing takes src's sound through its effects (closing thru) and brings it back into `in` (or a bus's).
+ */
 function channelNodes(base) {
   const n = mixer.orbits[base];
   const ctrl = sdController();
@@ -67,34 +71,44 @@ function channelNodes(base) {
   const orbit = ctrl.getOrbit(n, [0, 1]);
   if (!orbit.__ch) {
     const ac = orbit.audioContext;
-    const eq = MX_BANDS.map(([, type, f]) => new BiquadFilterNode(ac, { type, frequency: f, Q: type === 'peaking' ? 0.8 : 0.7, gain: 0 }));
-    const pan = new StereoPannerNode(ac, { pan: 0 });
-    const gain = new GainNode(ac, { gain: 1 });
-    const an = new AnalyserNode(ac, { fftSize: 1024, smoothingTimeConstant: 0.6 });
-    // the 🎚 Equalizer's 7 bands after the strip's quick EQ
-    const geq = EQ_BANDS.map((b) => new BiquadFilterNode(ac, { type: b.type, frequency: b.f, Q: b.q || 0.7, gain: 0 }));
+    const src = new GainNode(ac), thru = new GainNode(ac), srcAn = new AnalyserNode(ac, { fftSize: 512, smoothingTimeConstant: 0.5 });
     try { orbit.output.disconnect(); } catch {}
-    orbit.output.connect(eq[0]);
-    eq[0].connect(eq[1]);
-    eq[1].connect(eq[2]);
-    eq[2].connect(geq[0]);
-    for (let i = 1; i < geq.length; i++) geq[i - 1].connect(geq[i]);
-    geq[geq.length - 1].connect(pan);
-    pan.connect(gain);
-    gain.connect(an);
-    // straight to the master — unless 🔀 Routing takes the channel (it closes `direct` and wires `gain` itself)
-    const direct = new GainNode(ac, { gain: 1 });
-    gain.connect(direct);
-    ctrl.output.connectToDestination(direct, [0, 1]);
-    orbit.__ch = { high: eq[0], mid: eq[1], low: eq[2], geq, pan, gain, an, direct };
+    orbit.output.connect(src).connect(thru);
+    src.connect(srcAn); // (the part's own sound, before its effects: 🔀 Routing's part cards)
+    const strip = makeStrip(ac);
+    thru.connect(strip.in);
+    ctrl.output.connectToDestination(strip.gain, [0, 1]);
+    orbit.__ch = { src, srcAn, thru, ...strip };
     for (const f of channelHooks) f(base, orbit.__ch);
   }
   return orbit.__ch;
 }
-/** Called when a channel's nodes are made (🔀 Routing wires a new channel in). */
+/** An input on the master: pan → fader, with a meter after the fader. */
+function makeStrip(ac) {
+  const input = new GainNode(ac), pan = new StereoPannerNode(ac, { pan: 0 }), gain = new GainNode(ac), an = new AnalyserNode(ac, { fftSize: 1024, smoothingTimeConstant: 0.6 });
+  input.connect(pan).connect(gain).connect(an);
+  return { in: input, pan, gain, an };
+}
+/** A bus's input on the master (made the first time it's needed; it joins the master through 🔀 Routing's return). */
+export function busStrip(key, ctrl, ret) {
+  let b = mixer.buses[key];
+  if (!b || b.ctx !== ctrl.output.channelMerger.context) {
+    b = mixer.buses[key] = { ...makeStrip(ctrl.output.channelMerger.context), ctx: ctrl.output.channelMerger.context };
+    b.gain.connect(ret);
+  }
+  applyChannel(key);
+  return b;
+}
+/** Called when a part's nodes are made (🔀 Routing wires a new channel in). */
 export const channelHooks = new Set();
-/** A channel's nodes, if it has a bus yet (no new ones made). */
+/** A part's nodes, if its orbit has them yet (no new ones made). */
 export const channelIfAny = (base) => (mixer.orbits[base] != null ? sdController()?.nodes?.[mixer.orbits[base]]?.__ch || null : null);
+/** "FX ↗" on a strip: its effects in 🔀 Routing (set by features/routing.js). */
+export const fxHook = { open: () => {} };
+/** A master input's nodes, by key (a part's name, or 'bus:<node>'), if it has them yet. */
+export const stripIfAny = (key) => (String(key).startsWith('bus:') ? mixer.buses[key] || null : channelIfAny(key));
+/** A part's input on the master (made if its orbit exists). */
+export const stripFor = (key) => channelNodes(key);
 const anySolo = () => Object.values(mixer.ch).some((c) => c.solo);
 /** A solo section: its lead part steps forward, the others step back (on top of the faders). */
 const SOLO_LEAD = 1.15, SOLO_OTHERS = 0.45;
@@ -105,19 +119,19 @@ export function setSectionLead(part) {
   mixer.lead = part || null;
   for (const base of Object.keys(mixer.orbits)) applyChannel(base, 0.25);
 }
-const audible = (base) => { const c = chOf(base); return !c.mute && (!anySolo() || c.solo); };
-function applyChannel(base, ramp = 0.015) {
-  const nodes = channelNodes(base);
+const audible = (key) => { const c = chOf(key); return !c.mute && (String(key).startsWith('bus:') || !anySolo() || c.solo); };
+/** Mute, solo and the section's lead act on a part's src (so its effects and buses follow); pan and fader on its input. */
+function applyChannel(key, ramp = 0.015) {
+  const bus = String(key).startsWith('bus:');
+  const nodes = bus ? mixer.buses[key] : channelNodes(key);
   if (!nodes) return;
-  const c = chOf(base);
+  const c = chOf(key);
   const t = nodes.gain.context.currentTime;
-  for (const [b] of MX_BANDS) nodes[b].gain.setTargetAtTime(Number(c[b]) || 0, t, 0.02);
-  const geq = normEq(c.geq);
-  nodes.geq.forEach((n, i) => n.gain.setTargetAtTime(geq[i], t, 0.02));
+  if (!bus) nodes.src.gain.setTargetAtTime(audible(key) ? sectionGain(key) : 0, t, ramp);
   nodes.pan.pan.setTargetAtTime(Number(c.pan) || 0, t, 0.02);
-  nodes.gain.gain.setTargetAtTime(audible(base) ? Number(c.vol) * sectionGain(base) : 0, t, ramp);
+  nodes.gain.gain.setTargetAtTime((bus && c.mute ? 0 : 1) * Number(c.vol), t, ramp);
 }
-const applyAllChannels = () => { for (const base of Object.keys(mixer.orbits)) applyChannel(base); };
+const applyAllChannels = () => { for (const key of [...Object.keys(mixer.orbits), ...Object.keys(mixer.buses)]) applyChannel(key); };
 
 /** How loud the music is right now, 0…1 (smoothed): 🌀 Hydra's L() makes visuals move with the music. */
 let levelBuf = null, levelSmooth = 0;
@@ -173,40 +187,28 @@ const dbText = (v) => (v <= 0.0001 ? '-∞' : `${(20 * Math.log10(v)).toFixed(1)
 function renderMixerPanel() {
   if (!docks.mixer?.on || mixer.dragging) return;
   const chans = mixerChannels();
-  const key = JSON.stringify([chans, mixer.ch, $('masterGain').value]);
+  const key = JSON.stringify([chans, busList.get(), mixer.ch, $('masterGain').value]);
   if (key === mixer.key) return;
   mixer.key = key;
-  const EQ_TITLE = { high: '(4 kHz shelf)', mid: '(1 kHz peak)', low: '(200 Hz shelf)' };
   const channel = (ch) => {
     const c = chOf(ch.base);
     return {
       base: ch.base, color: vizColor(ch.base), title: `${ch.base}${ch.role ? ` · ${ch.role}` : ''}${ch.sound ? ` · ${ch.sound}` : ''}`,
       state: !ch.inSection ? 'absent' : ch.codeMuted ? 'code-muted' : 'playing', silenced: !audible(ch.base),
-      eq: MX_BANDS.map(([b]) => ({ band: b, title: `${b} ${EQ_TITLE[b]} — double-click: 0 dB`, value: Number(c[b]) || 0 })),
       pan: Number(c.pan) || 0, mute: !!c.mute, solo: !!c.solo, vol: c.vol, db: dbText(c.vol),
       sound: ch.sound || '', liked: !!ch.sound && getTaste().liked.includes(ch.sound),
     };
   };
+  // the buses (🔀 Routing): a strip each, after the parts
+  const buses = busList.get().map((b) => {
+    const c = chOf(b.key);
+    return { base: b.key, bus: true, label: b.label, color: themeColor('accent'), title: b.title, state: 'playing', silenced: !!c.mute, pan: Number(c.pan) || 0, mute: !!c.mute, solo: false, vol: c.vol, db: dbText(c.vol), sound: '', liked: false };
+  });
   const gain = $('masterGain').value;
-  render(T.mixer({ channels: chans.map(channel), master: { playing: isPlaying(), value: gain, db: dbText(Number(gain)) } }), $('mixerStrips'));
+  render(T.mixer({ channels: [...chans.map(channel), ...buses], master: { playing: isPlaying(), value: gain, db: dbText(Number(gain)) } }), $('mixerStrips'));
 }
 
-// live visuals: an EQ curve over each channel's spectrum, and a level meter beside each fader
-const eqProbe = { freqs: null, nodes: null };
-function eqCurve(c, width) {
-  const ac = audioCtx();
-  if (!ac) return null;
-  if (!eqProbe.nodes) eqProbe.nodes = MX_BANDS.map(([, type, f]) => new BiquadFilterNode(ac, { type, frequency: f, Q: type === 'peaking' ? 0.8 : 0.7 }));
-  if (eqProbe.freqs?.length !== width) eqProbe.freqs = Float32Array.from({ length: width }, (_, i) => 20 * Math.pow(1000, i / (width - 1))); // 20 Hz … 20 kHz
-  const total = new Float32Array(width);
-  const mag = new Float32Array(width), ph = new Float32Array(width);
-  MX_BANDS.forEach(([b], i) => {
-    eqProbe.nodes[i].gain.value = Number(c[b]) || 0;
-    eqProbe.nodes[i].getFrequencyResponse(eqProbe.freqs, mag, ph);
-    for (let k = 0; k < width; k++) total[k] += 20 * Math.log10(mag[k] || 1e-6);
-  });
-  return total;
-}
+// live visuals: each channel's spectrum, and a level meter beside each fader
 export const levelOf = (an, buf) => {
   an.getFloatTimeDomainData(buf);
   let sum = 0, peak = 0;
@@ -252,7 +254,7 @@ function drawMixer() {
   for (const el of $('mixerStrips').querySelectorAll('.mx-strip')) { // (the panel may be in another window)
     const base = el.dataset.base;
     const isMaster = base === '__master';
-    const an = isMaster ? masterAnalyser() : mixer.orbits[base] != null ? sdController()?.nodes?.[mixer.orbits[base]]?.__ch?.an : null;
+    const an = isMaster ? masterAnalyser() : channelAnalyser(base);
     const color = getComputedStyle(el).getPropertyValue('--c') || themeColor('accent');
     // EQ curve + spectrum
     const cv = el.querySelector('.mx-eqviz');
@@ -263,17 +265,6 @@ function drawMixer() {
       g.strokeStyle = themeColor('line');
       g.beginPath(); g.moveTo(0, h / 2); g.lineTo(w, h / 2); g.stroke();
       if (an && isPlaying()) drawChannelSpectrum(g, an, w, h, isMaster ? themeColor('accent') : color);
-      if (!isMaster) {
-        const curve = eqCurve(chOf(base), w);
-        if (curve) {
-          g.strokeStyle = color;
-          g.lineWidth = 1.5;
-          g.beginPath();
-          for (let x = 0; x < w; x++) { const yv = h / 2 - (curve[x] / 15) * (h / 2); x ? g.lineTo(x, yv) : g.moveTo(x, yv); }
-          g.stroke();
-          g.lineWidth = 1;
-        }
-      }
     }
     const m = el.querySelector('.mx-meter');
     const lvl = an && isPlaying() ? levelOf(an, buf) : { rms: 0, peak: 0 };
@@ -331,7 +322,8 @@ export function checkLevels() {
   if (btn.textContent !== text) btn.textContent = text;
 }
 
-function setChannel(base, k, v) {
+/** Set a master input's fader, pan, mute or solo (the mixer and 🔀 Routing's master block both use this). */
+export function setChannel(base, k, v) {
   chOf(base)[k] = v;
   saveMixer();
   if (k === 'solo' || k === 'mute') applyAllChannels(); else applyChannel(base);
@@ -356,6 +348,13 @@ export function setup() {
     const st = load();
     for (const [base, e] of Object.entries(st.mixerEq || {})) mixer.ch[base] = { ...MX_DEFAULT, ...e };
     Object.assign(mixer.ch, st.mixerCh || {});
+    // the channels' EQ moved to 🔀 Routing: what was set here is handed over (routing makes it EQ nodes), then dropped
+    for (const [key, c] of Object.entries(mixer.ch)) {
+      const three = { low: Number(c.low) || 0, mid: Number(c.mid) || 0, high: Number(c.high) || 0 };
+      const geq = c.geq ? normEq(c.geq) : null;
+      if (three.low || three.mid || three.high || (geq && !isFlat(geq))) mixer.oldEq[key] = { three, geq: geq && !isFlat(geq) ? geq : null };
+      for (const k of ['low', 'mid', 'high', 'geq']) delete c[k];
+    }
   }
   saveMixer = (() => { let t; return () => { clearTimeout(t); t = setTimeout(() => save({ mixerCh: mixer.ch }), 300); }; })();
   window.__mixerTrap = () => installOrbitTrap();
@@ -397,7 +396,7 @@ export function setup() {
     if (!base) return;
     // the clip LED: click to reset it; EQ: this channel in the 🎚 Equalizer
     if (b.dataset.mx === 'clip') { b.closest('.mx-strip').__clip = false; b.classList.remove('clip', 'hot'); return; }
-    if (b.dataset.mx === 'eq') { openEqualizer(base === '__master' ? 'master' : base); return; }
+    if (b.dataset.mx === 'fx') { if (base === '__master') ws.open('route'); fxHook.open(base); return; }
     // 🎧 👍 / 👎 its sound (your taste)
     if (b.dataset.mx === 'like' || b.dataset.mx === 'dislike') {
       const sound = mixerChannels().find((x) => x.base === base)?.sound;
@@ -415,7 +414,7 @@ export function setup() {
     renderMixerPanel();
   });
   $('mixerFlat').onclick = () => {
-    for (const c of Object.values(mixer.ch)) Object.assign(c, { ...MX_DEFAULT, vol: c.vol, mute: c.mute, solo: c.solo });
+    for (const c of Object.values(mixer.ch)) c.pan = 0;
     saveMixer();
     applyAllChannels();
     mixer.key = '';

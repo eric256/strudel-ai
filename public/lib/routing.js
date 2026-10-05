@@ -18,6 +18,10 @@ export const NODE_TYPES = {
   },
   sat: { label: 'Sat', kind: 'dyn', title: 'Saturation: warm, then gritty harmonics', params: { drive: [0, 30, 0.5, 6, 'drive', 'dB'], mix: [0, 1, 0.05, 1, 'mix', ''] } },
   eq: { label: 'EQ', kind: 'dyn', title: '3-band EQ: low shelf 200 Hz, mid 1 kHz, high shelf 4 kHz', params: { low: [-12, 12, 0.5, 0, 'low', 'dB'], mid: [-12, 12, 0.5, 0, 'mid', 'dB'], high: [-12, 12, 0.5, 0, 'high', 'dB'] } },
+  geq: {
+    label: 'EQ7', kind: 'dyn', title: '7-band EQ (60 Hz … 12 kHz, ±12 dB) — also in the 🎚 Equalizer, with its curve and presets',
+    params: { b0: [-12, 12, 0.5, 0, '60', 'dB'], b1: [-12, 12, 0.5, 0, '150', 'dB'], b2: [-12, 12, 0.5, 0, '400', 'dB'], b3: [-12, 12, 0.5, 0, '1k', 'dB'], b4: [-12, 12, 0.5, 0, '2.5k', 'dB'], b5: [-12, 12, 0.5, 0, '6k', 'dB'], b6: [-12, 12, 0.5, 0, '12k', 'dB'] },
+  },
   filter: { label: 'Filter', kind: 'dyn', title: 'High-pass and low-pass', params: { hp: [20, 2000, 1, 20, 'hp', 'Hz'], lp: [200, 20000, 10, 20000, 'lp', 'Hz'] } },
   verb: { label: 'Verb', kind: 'space', title: 'Reverb', params: { size: [0.2, 8, 0.1, 2, 'size', 's'], mix: [0, 1, 0.05, 0.3, 'mix', ''] } },
   delay: { label: 'Delay', kind: 'space', title: 'Echo', params: { time: [0.02, 1, 0.01, 0.25, 'time', 's'], feedback: [0, 0.9, 0.01, 0.35, 'fdbk', ''], mix: [0, 1, 0.05, 0.3, 'mix', ''] } },
@@ -78,7 +82,7 @@ export function normGraph(g) {
   }
   const out = { nodes, edges };
   const pins = {};
-  for (const [id, p] of Object.entries(g?.pins || {})) if (partOf(id) != null && Number.isFinite(p?.x) && Number.isFinite(p?.y)) pins[id] = { x: Math.round(p.x), y: Math.round(p.y) };
+  for (const [id, p] of Object.entries(g?.pins || {})) if ((partOf(id) != null || id === SINK) && Number.isFinite(p?.x) && Number.isFinite(p?.y)) pins[id] = { x: Math.round(p.x), y: Math.round(p.y) };
   if (Object.keys(pins).length) out.pins = pins;
   return out;
 }
@@ -186,11 +190,55 @@ export function nodeSummary(g, n, live = {}) {
     case 'comp': return live.gr != null ? `GR ${Math.abs(live.gr).toFixed(1)} dB` : `${p.ratio}:1 at ${p.thresh} dB`;
     case 'sat': return `Drive ${p.drive} dB${p.mix < 1 ? ` · ${pct(p.mix)}` : ''}`;
     case 'eq': return ['low', 'mid', 'high'].filter((k) => p[k]).map((k) => `${k[0].toUpperCase()} ${p[k] > 0 ? '+' : ''}${p[k]}`).join(' ') || '0 dB';
+    case 'geq': { const g7 = [0, 1, 2, 3, 4, 5, 6].map((i) => p[`b${i}`] || 0); return g7.every((v) => !v) ? 'flat' : g7.map((v) => (v > 0 ? '+' : '') + v).join(' '); }
     case 'filter': return [p.hp > 20 && `HP ${Math.round(p.hp)}`, p.lp < 20000 && `LP ${p.lp >= 1000 ? `${(p.lp / 1000).toFixed(1)}k` : p.lp}`].filter(Boolean).join(' · ') || 'open';
     case 'verb': return `Mix ${pct(p.mix)} · ${p.size}s`;
     case 'delay': return `${Math.round(p.time * 1000)} ms · Mix ${pct(p.mix)}`;
     default: return '';
   }
+}
+
+/** The parts whose sound reaches node id (a part's own source: just that part). */
+export function upstreamParts(g, id) {
+  if (partOf(id) != null) return [partOf(id)];
+  const out = new Set(), seen = new Set([id]), todo = [id];
+  while (todo.length) {
+    const x = todo.pop();
+    for (const e of g.edges) if (e.to === x && !seen.has(e.from)) { seen.add(e.from); if (partOf(e.from) != null) out.add(partOf(e.from)); else todo.push(e.from); }
+  }
+  return [...out];
+}
+/**
+ * The master's inputs: one per channel coming in — each part that reaches the master on its own (whatever its
+ * paths), and each bus (a node that several parts reach) wired to it. A part with no wires is its own input too.
+ * In the parts' order (a bus where its first part is). [{ key, part | null, parts, from: [ids] }]
+ * The key is the part's name, or 'bus:<node id>' — its fader, pan, mute and solo are kept under it.
+ */
+export function masterInputs(g, parts) {
+  const byKey = new Map();
+  const add = (key, entry, from) => { const x = byKey.get(key) || { key, ...entry, from: [] }; if (from && !x.from.includes(from)) x.from.push(from); byKey.set(key, x); };
+  for (const e of g.edges) {
+    if (e.to !== SINK) continue;
+    const up = upstreamParts(g, e.from);
+    if (up.length === 1) add(up[0], { part: up[0], parts: up }, e.from);
+    else if (up.length > 1) add(`bus:${e.from}`, { part: null, parts: up }, e.from);
+  }
+  const routed = new Set(routedParts(g));
+  for (const p of parts) if (!routed.has(p)) add(p, { part: p, parts: [p] }, srcId(p));
+  const rank = (x) => Math.min(...x.parts.map((p) => (parts.includes(p) ? parts.indexOf(p) : 1e6)));
+  return [...byKey.values()].sort((a, b) => rank(a) - rank(b) || (a.part ? -1 : 1));
+}
+/** The key of the master input an edge into the master feeds. */
+export const inputKey = (g, from) => { const up = upstreamParts(g, from); return up.length === 1 ? up[0] : `bus:${from}`; };
+/**
+ * What to show for the parts in the music now: those parts, the nodes they reach (and new nodes nothing feeds yet),
+ * and the wires between them. Routing of parts that aren't in this music is kept, just not shown.
+ */
+export function visibleGraph(g, parts) {
+  const reach = new Set(), todo = parts.map(srcId);
+  while (todo.length) { const x = todo.pop(); for (const e of g.edges) if (e.from === x && !reach.has(e.to)) { reach.add(e.to); todo.push(e.to); } }
+  const show = (id) => id === SINK || (partOf(id) != null ? parts.includes(partOf(id)) : reach.has(id) || !g.edges.some((e) => e.to === id));
+  return { ...g, nodes: g.nodes.filter((n) => show(n.id)), edges: g.edges.filter((e) => show(e.from) && show(e.to)) };
 }
 
 /**
