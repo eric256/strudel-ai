@@ -579,6 +579,8 @@ main.ws { flex: 1; display: flex; min-height: 0; position: relative; overflow: h
 .mx-state .on { color: var(--accent-2); }
 .mx-state .cm { color: var(--danger); }
 .mx-eqviz { width: 100%; height: 30px; border: 1px solid var(--line); border-radius: 3px; background: var(--canvas); }
+.mx-knobs.one { grid-template-columns: 1fr; justify-items: center; }
+.mx-strip.bus { border-style: dashed; }
 .mx-knobs { display: grid; grid-template-columns: 1fr 1fr; justify-items: center; gap: 1px 0; min-height: 0; }
 .mx-knobs sa-knob { --size: 26px; }
 .mx-knobs.master-note { display: flex; align-items: center; justify-content: center; font-size: 10px; min-height: 76px; }
@@ -911,6 +913,14 @@ body.hydra-behind .code-bar { background: color-mix(in srgb, var(--panel-2) 80%,
 .sb-level.hot { color: var(--warn); border-color: var(--warn); }
 .sb-level.clip { color: var(--on-accent); background: var(--danger); border-color: var(--danger); animation: sb-blink .6s steps(2) infinite; }
 @keyframes sb-blink { 50% { opacity: .55; } }
+/* 🎛 master at a glance (its knobs are in 🔀 Routing) */
+.ms-glance { display: flex; flex-direction: column; gap: 8px; padding: 6px 10px 10px; }
+.ms-chips { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+.ms-chip { font-size: 12px; border-radius: 12px; padding: 3px 9px; color: var(--text); border-color: color-mix(in srgb, var(--accent-2) 45%, var(--border)); }
+.ms-chip.off { opacity: .45; text-decoration: line-through; border-color: var(--border); }
+.ms-eqchip { display: flex; gap: 6px; align-items: center; padding: 2px 6px; border-radius: 6px; }
+.ms-arrow { color: var(--faint); font-size: 11px; }
+.ms-route { margin-left: auto; font-size: 12px; }
 /* 🎚 equalizer */
 .eq-wrap { flex: 1; min-height: 0; overflow: auto; background: var(--sunken); }
 .eq { display: flex; flex-direction: column; gap: 6px; padding: 6px 10px 10px; }
@@ -962,8 +972,32 @@ body.hydra-behind .code-bar { background: color-mix(in srgb, var(--panel-2) 80%,
 .rt-df .drawflow .drawflow-node.rt-part { background: color-mix(in srgb, var(--c, var(--danger)) 30%, var(--panel)); border-color: color-mix(in srgb, var(--c, var(--danger)) 60%, var(--border)); }
 .rt-df .rt-part .rt-sub, .rt-df .rt-part .rt-scope { color: color-mix(in srgb, var(--c, var(--danger)) 70%, var(--text)); }
 .rt-df .rt-part:not(.routed) .rt-sub { opacity: .7; }
-.rt-df .drawflow .drawflow-node.rt-master { width: 140px; }
-.rt-master .rt-scope { width: 118px; }
+/* the master block: a row per channel coming in, each with its input port at its height */
+.rt-df .drawflow .drawflow-node.rt-master { width: 230px; background: color-mix(in srgb, var(--text) 6%, var(--raised)); }
+.rt-df .drawflow .drawflow-node.rt-master .inputs { position: absolute; left: 0; top: 0; height: 100%; display: block; }
+.rt-df .drawflow .drawflow-node.rt-master .input { position: absolute; left: -8px; }
+.rt-df .drawflow .drawflow-node.rt-master .outputs { justify-content: flex-start; padding-top: 16px; }
+.rt-min { position: relative; }
+.rt-mrow { position: absolute; left: 6px; right: 6px; height: 40px; display: flex; align-items: center; gap: 4px; padding: 0 4px;
+  border-left: 3px solid var(--c, var(--accent)); border-radius: 4px; background: color-mix(in srgb, var(--c, var(--accent)) 10%, var(--sunken)); }
+.rt-mrow.bus { border-left-style: dashed; }
+.rt-mname { flex: 1; min-width: 0; font-size: 12px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rt-mrow sa-knob { --size: 18px; flex: none; }
+.rt-mbtns { display: flex; gap: 2px; }
+.rt-mbtns button { font: 700 10px var(--mono); padding: 0 4px; height: 18px; line-height: 16px; border-radius: 3px; }
+.rt-mbtns button.m.on { background: var(--danger); color: var(--on-accent); border-color: var(--danger); }
+.rt-mbtns button.s.on { background: var(--warn); color: var(--on-warn); border-color: var(--warn); }
+.rt-rowscope { width: 36px; height: 16px; margin: 0; flex: none; color: var(--c, var(--muted)); }
+.rt-df .connection.k-post .main-path { stroke: var(--text); opacity: .5; stroke-dasharray: none; }
+.rt-df .drawflow .drawflow-node.rt-post { border-top: 3px solid var(--accent); }
+.rt-open { color: var(--accent); }
+/* the master's effects on one block: a group per section, wrapping */
+.rt-df .drawflow .drawflow-node.rt-fx { height: auto; }
+.rt-fxgrid { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
+.rt-fxg { flex: 1 1 auto; padding: 4px 6px 5px; border-radius: 5px; background: color-mix(in srgb, var(--accent-2) 10%, var(--sunken)); border: 1px solid var(--line); }
+.rt-fxg .rt-head b { font-size: 12px; }
+.rt-fxg .rt-knobs-on sa-knob { flex: 0 0 32px; }
+.rt-fxg.off .rt-knobs-on { opacity: .35; }
 .rt-mmeter { flex: 1; margin: 8px 0 6px; border: 1px solid var(--line); border-radius: 3px; background: var(--sunken); display: flex; align-items: flex-end; min-height: 40px; }
 .rt-mmeter i { display: block; width: 100%; height: 0; background: var(--accent-2); border-radius: 2px; transition: height .08s linear; }
 .rt-mmeter i.hot { background: var(--warn); }

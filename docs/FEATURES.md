@@ -50,16 +50,16 @@ You and the AI write one piece of code in the editor; 🎼 Make it a song grows 
 
 ## Mix and master
 
-**🎚 Mixer:** a console with a channel per part. Each strip has H / M / L and pan knobs, M / S / EQ, 👍 / 👎 for its sound, and a dB fader beside its meter and clip LED. The status bar warns ● HOT / ● CLIP when the mix gets close to the top.
+**🎚 Mixer:** the master's inputs as a console, a strip per part (and per bus). Each has pan, M / S, **FX ↗** (its effects on the 🔀 Routing board), 👍 / 👎 for its sound, and a dB fader beside its meter and clip LED. The status bar warns ● HOT / ● CLIP when the mix gets close to the top.
 ![Mixer](screenshots/15-mixer.png)
 
-**🎛 Master:** the song's master style as nodes in signal order (EQ → Tone → Filter → Colour → Space → Echo → Dynamics → Output), with knobs, and ⏻ to switch a node off.
+**🎛 Master:** the master at a glance. Its sections in signal order (EQ → Tone → Filter → Colour → Space → Echo → Dynamics → Output) switch on and off, with the style, follow song, save to song, bypass, and what comes out. Their knobs are on the 🔀 Routing board.
 ![Master](screenshots/16-master.png)
 
-**🎚 Equalizer:** 7 bands on the master or any channel. The curve is drawn over the live spectrum, with presets such as Soft top for harsh synths.
+**🎚 Equalizer:** 7 bands on the master or an EQ7 node on the 🔀 Routing board. The curve is drawn over the live spectrum, with presets such as Soft top for harsh synths.
 ![Equalizer](screenshots/16b-equalizer.png)
 
-**🔀 Routing:** parts through effect chains after their faders, as a graph to the master. Split / Sum for parallel paths and buses, Comp, Sat, EQ, Filter, Verb and Delay, each with a live scope. Here the drums share a bus with glue compression, and the lead has a 100 % wet reverb path summed under it.
+**🔀 Routing:** the whole signal path on one board. The parts (left) go through their effects (Split / Sum, Comp, Sat, EQ, EQ7, Filter, Verb, Delay) into the **Master** block, a row per channel with its fader, pan and mute / solo, level with its part. Then **Master FX** (all the master's sections, with knobs and ⏻) and **Out**. Here the drums share a bus, and the lead has a 100 % wet reverb path summed under it.
 ![Routing](screenshots/16c-routing.png)
 
 ## Visuals

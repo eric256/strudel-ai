@@ -127,9 +127,9 @@ try {
     for (const n of ['drums', 'bass', 'pad', 'hook', '__master']) expect(names.includes(n), `no ${n} strip (${names})`);
   });
 
-  await step('🎚 mixer console: knobs (H / M / L / pan) and a dB fader per strip; dragging the fader sets the level', async () => {
-    const c = await ev(() => { const s = document.querySelector('#mixerStrips .mx-strip[data-base="drums"]'); return { knobs: s.querySelectorAll('sa-knob').length, fader: !!s.querySelector('sa-fader[data-k="vol"]'), clip: !!s.querySelector('.mx-clip') }; });
-    expect(c.knobs === 4 && c.fader && c.clip, JSON.stringify(c));
+  await step('🎚 mixer console: a pan knob, M / S / FX ↗ and a dB fader per strip (the effects are in 🔀 Routing); dragging the fader sets the level', async () => {
+    const c = await ev(() => { const s = document.querySelector('#mixerStrips .mx-strip[data-base="drums"]'); return { knobs: s.querySelectorAll('sa-knob').length, fader: !!s.querySelector('sa-fader[data-k="vol"]'), clip: !!s.querySelector('.mx-clip'), fx: !!s.querySelector('[data-mx="fx"]') }; });
+    expect(c.knobs === 1 && c.fader && c.clip && c.fx, JSON.stringify(c));
     const box = await p.locator('#mixerStrips .mx-strip[data-base="drums"] sa-fader').boundingBox();
     await p.mouse.move(box.x + box.width / 2, box.y + box.height * 0.2);
     await p.mouse.down(); await p.mouse.move(box.x + box.width / 2, box.y + box.height * 0.6, { steps: 5 }); await p.mouse.up();
@@ -140,22 +140,30 @@ try {
     expect(await ev(() => strudelAI.mixer.ch.drums.vol) === 1, 'double-click did not reset the fader to 0 dB');
   });
 
-  await step('🎚 equalizer: a channel\'s EQ button opens 7 bands; a preset shapes that channel', async () => {
-    await ev(() => document.querySelector('#mixerStrips .mx-strip[data-base="bass"] [data-mx="eq"]').click());
+  await step('🎚 equalizer: an EQ7 node on a part (🔀 Routing) opens in the Equalizer; a preset shapes it', async () => {
+    await ev(() => strudelAI.ws.open('route'));
+    await p.waitForFunction(() => !!document.querySelector('#routeBody .rt-part[data-id="src:bass"]'), null, { timeout: 5000 });
+    await p.locator('#routeBody .rt-part[data-id="src:bass"]').click();
+    await ev(() => [...document.querySelectorAll('#routeBody .rt-add button')].find((b) => b.textContent === 'EQ7').click());
+    const id = await ev(() => strudelAI.routing.graph.nodes.find((n) => n.type === 'geq').id);
+    await ev((id) => document.querySelector(`#routeBody .rt-node[data-id="${id}"] [data-open-eq]`).click(), id);
     await p.waitForFunction(() => document.querySelectorAll('#eqBody .eq-band sa-fader').length === 7, null, { timeout: 3000 });
     await ev(() => [...document.querySelectorAll('#eqBody .eq-presets button')].find((b) => /Soft/.test(b.textContent)).click());
-    const g = await ev(() => strudelAI.mixer.ch.bass.geq);
-    expect(JSON.stringify(g) === JSON.stringify([0, 0, 0, 0, -1.5, -4, -6]), `bass eq: ${g}`);
-    await ev(() => [...document.querySelectorAll('#eqBody .eq-presets button')].find((b) => /Flat/.test(b.textContent)).click());
+    const g = await ev((id) => { const pr = strudelAI.routing.graph.nodes.find((n) => n.id === id).params; return [0, 1, 2, 3, 4, 5, 6].map((i) => pr[`b${i}`]); }, id);
+    expect(JSON.stringify(g) === JSON.stringify([0, 0, 0, 0, -1.5, -4, -6]), `bass EQ7: ${g}`);
+    await ev(() => [...document.querySelectorAll('#routeBody .rt-right button')].find((b) => b.textContent === 'clear').click());
   });
 
   await step('the master chain is on the output and follows the song', async () => {
     await ev(() => strudelAI.ws.open('master'));
     await p.waitForTimeout(800);
-    const m = await ev(() => ({ installed: !!globalThis.getSuperdoughAudioController().output.channelMerger.__master, style: strudelAI.master.style, controls: document.querySelectorAll('#masterBody .ms-node sa-knob').length }));
+    const m = await ev(() => ({ installed: !!globalThis.getSuperdoughAudioController().output.channelMerger.__master, style: strudelAI.master.style, chips: document.querySelectorAll('#masterBody .ms-chip').length }));
     expect(m.installed, 'chain not installed');
     expect(m.style === 'techno', `style ${m.style}`);
-    expect(m.controls === 16, `controls ${m.controls}`);
+    expect(m.chips === 7, `section chips ${m.chips}`);
+    // its knobs: the master's sections, right of the master block in 🔀 Routing
+    await ev(() => strudelAI.ws.open('route'));
+    await p.waitForFunction(() => document.querySelectorAll('#routeBody sa-knob[data-master]').length === 16 && document.querySelectorAll('#routeBody sa-knob[data-meq]').length === 7, null, { timeout: 5000 });
     const peak = await ev(async () => { const a = strudelAI.master.chain.analyser, b = new Float32Array(2048); let x = 0; for (let i = 0; i < 15; i++) { a.getFloatTimeDomainData(b); for (const v of b) x = Math.max(x, Math.abs(v)); await new Promise((r) => setTimeout(r, 100)); } return x; });
     expect(peak > 0.01, `no sound through the master (peak ${peak})`);
   });
@@ -169,9 +177,16 @@ try {
       const L = strudelAI.routing.live, b = new Float32Array(2048);
       let x = 0;
       for (let i = 0; i < 15; i++) { strudelAI.masterChain().analyser.getFloatTimeDomainData(b); for (const v of b) x = Math.max(x, Math.abs(v)); await new Promise((r) => setTimeout(r, 100)); }
-      return { closed: L?.closed, blocks: Object.keys(L?.blocks || {}).length, nodes: document.querySelectorAll('#routeBody .rt-node').length, peak: x };
+      return { closed: L?.closed, blocks: Object.keys(L?.blocks || {}).length, nodes: document.querySelectorAll('#routeBody .rt-node:not(.rt-post)').length, peak: x,
+        rows: [...document.querySelectorAll('#routeBody .rt-mrow .rt-mname')].map((e) => e.textContent), parts: document.querySelectorAll('#routeBody .rt-part').length };
     });
     expect(r.closed?.includes('drums') && r.blocks === 4 && r.nodes === 4, JSON.stringify(r));
+    // the master has an input (row) per channel coming in: here, one per part
+    expect(r.rows.length === r.parts && r.rows.includes('drums'), `master rows: ${r.rows}`);
+    // a row's fader is that channel's fader (the 🎚 Mixer's strip)
+    await ev(() => { const k = document.querySelector('#routeBody sa-knob[data-row="hook"][data-k="vol"]'); k.value = -6; k.dispatchEvent(new Event('input', { bubbles: true })); });
+    expect(Math.abs(await ev(() => strudelAI.mixer.ch.hook.vol) - 0.501) < 0.01, 'the hook row fader did not set its channel');
+    await ev(() => { const k = document.querySelector('#routeBody sa-knob[data-row="hook"][data-k="vol"]'); k.value = 0; k.dispatchEvent(new Event('input', { bubbles: true })); });
     expect(r.peak > 0.01, `no sound through the master (peak ${r.peak})`);
     // click a part, ＋ an effect: part → effect → master; ＋ Split comes with its Sum (two outputs, two inputs)
     await ev(() => [...document.querySelectorAll('#routeBody .rt-right button')].find((b) => b.textContent === 'clear').click());
@@ -192,7 +207,7 @@ try {
     const before = await p.locator('#routeBody .rt-node[data-id="n1"]').boundingBox();
     await p.mouse.move(before.x + 60, before.y + 20); await p.mouse.down(); await p.mouse.move(before.x + 90, before.y + 140, { steps: 8 }); await p.mouse.up();
     const after = await p.locator('#routeBody .rt-node[data-id="n1"]').boundingBox();
-    expect(Math.round(after.y - before.y) === 120 && await ev(() => Number.isFinite(strudelAI.routing.graph.nodes.find((n) => n.id === 'n1').x)), `drag: ${after.y - before.y}`);
+    expect(Math.abs(after.y - before.y - 120) < 4 && await ev(() => Number.isFinite(strudelAI.routing.graph.nodes.find((n) => n.id === 'n1').x)), `drag: ${after.y - before.y}`); // (the board may be zoomed to fit: a pixel or two of rounding)
     await p.locator('#routeBody .rt-node[data-id="n1"]').click();
     await p.keyboard.press('Delete');
     await p.waitForFunction(() => !strudelAI.routing.graph.nodes.some((n) => n.id === 'n1') && strudelAI.routing.graph.edges.some((e) => e.from === 'src:bass' && e.to === 'n2'), null, { timeout: 3000 });
@@ -201,10 +216,14 @@ try {
   });
 
   await step('🎛 master nodes: ⏻ switches a node off (its effect goes neutral) and on again', async () => {
-    await ev(() => document.querySelector('#masterBody .ms-pow[data-node="Space"]').click());
+    await ev(() => strudelAI.ws.open('master'));
+    await ev(() => document.querySelector('#masterBody .ms-chip[data-node="Space"]').click());
     const off = await ev(() => ({ off: strudelAI.master.off.includes('Space'), cls: document.querySelector('#masterBody .ms-node[data-group="Space"]').classList.contains('off') }));
     expect(off.off && off.cls, JSON.stringify(off));
-    await ev(() => document.querySelector('#masterBody .ms-pow[data-node="Space"]').click());
+    // the same switch on the board's Space section
+    await ev(() => strudelAI.ws.open('route'));
+    await p.waitForTimeout(200);
+    await ev(() => document.querySelector('#routeBody .rt-pow[data-mnode="Space"]').click());
     expect(await ev(() => !strudelAI.master.off.includes('Space')), 'Space did not switch back on');
   });
 

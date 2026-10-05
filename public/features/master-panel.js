@@ -41,6 +41,23 @@ export function masterChain() {
   master.chain = merger.__master;
   return master.chain;
 }
+/** One control of the master, as you turn it (from 🔀 Routing's master sections): heard at once, saved. */
+export function setMasterParam(k, v) {
+  master.msg = '';
+  if (master.bypass) master.bypass = false;
+  setMaster({ [k]: v });
+  syncMasterUI();
+}
+/** The style's own value of a control (a knob's double-click). */
+export const styleValue = (k) => styleParams(master.style)[k];
+/** Switch one of the master's sections (EQ, Filter, Color, …) on or off: off, it passes the sound through. */
+export function toggleMasterNode(g) {
+  master.off = master.off.includes(g) ? master.off.filter((x) => x !== g) : [...master.off, g];
+  if (master.bypass) master.bypass = false;
+  masterChain()?.set(heard(), 0.05);
+  save({ masterOff: master.off });
+  syncMasterUI();
+}
 /** Set the master: some controls (live), or a whole style. ramp = seconds to glide. */
 function setMaster(params, ramp = 0.03) {
   master.params = clampParams({ ...master.params, ...params });
@@ -190,15 +207,8 @@ export function setup() {
   // a node's ⏻: switch it on / off; the EQ node opens the Equalizer; the clip LED resets
   $('masterBody').addEventListener('click', (e) => {
     const pow = e.target.closest('[data-node]');
-    if (pow) {
-      const g = pow.dataset.node;
-      master.off = master.off.includes(g) ? master.off.filter((x) => x !== g) : [...master.off, g];
-      if (master.bypass) master.bypass = false;
-      masterChain()?.set(heard(), 0.05);
-      save({ masterOff: master.off });
-      syncMasterUI();
-      return;
-    }
+    if (pow) { toggleMasterNode(pow.dataset.node); return; }
+    if (e.target.closest('[data-open-route]')) { ws.open('route'); return; }
     if (e.target.closest('[data-open-eq]')) { openEqualizer('master'); return; }
     if (e.target.closest('[data-clip]')) { master.clip = false; e.target.closest('[data-clip]').classList.remove('clip', 'hot'); }
   });

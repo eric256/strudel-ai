@@ -1,22 +1,24 @@
 // ---------------------------------------------------------------------------
-// 🎚 Equalizer: a 7-band graphic EQ (60 Hz … 12 kHz, ±12 dB) on the master or on any mixer channel, with presets
-// (Soft top tames harsh highs). The bands sit in the master chain (master.js) and in each channel strip
-// (mixer.js); settings are saved with the master / the channel.
+// 🎚 Equalizer: a 7-band graphic EQ (60 Hz … 12 kHz, ±12 dB) on the master or on any EQ7 node in 🔀 Routing, with
+// presets (Soft top tames harsh highs). The master's bands sit in its chain (master.js), a node's in its block
+// (routing-audio.js); settings are saved with the master / the routing.
 // ---------------------------------------------------------------------------
 import { $, docks, isPlaying, setupDock, ws } from '../app.js';
 import { render } from '../html.js';
 import { T, onTemplatesChange } from '../templates/index.js';
 import { EQ_BANDS, EQ_PRESETS, normEq, presetOf } from '../lib/eq.js';
 import { master, masterChain, setMasterEq } from './master-panel.js';
-import { chOf, channelAnalyser, mixerChannels, setChannelEq, drawChannelSpectrum } from './mixer.js';
+import { drawChannelSpectrum } from './mixer.js';
+import { eqNodes, nodeAnalyser, nodeParams, setNodeParams } from './routing.js';
 import { audioCtx } from './hum-ui.js';
 import { themeColor } from '../theme.js';
 
 const eq = { target: 'master', raf: 0 };
-const gainsOf = (t) => (t === 'master' ? normEq(master.eq) : normEq(chOf(t).geq));
-function setGains(t, g) { if (t === 'master') setMasterEq(g); else setChannelEq(t, g); }
+const BANDS = [0, 1, 2, 3, 4, 5, 6];
+const gainsOf = (t) => (t === 'master' ? normEq(master.eq) : normEq(BANDS.map((i) => nodeParams(t)?.[`b${i}`] || 0)));
+function setGains(t, g) { if (t === 'master') setMasterEq(g); else setNodeParams(t, Object.fromEntries(normEq(g).map((v, i) => [`b${i}`, v]))); }
 
-/** Open the Equalizer on the master or a channel. */
+/** Open the Equalizer on the master or an EQ7 node of 🔀 Routing (its id). */
 export function openEqualizer(target = 'master') {
   eq.target = target;
   ws.open('eq');
@@ -31,12 +33,12 @@ const act = {
 export function renderEqualizer() {
   const el = $('eqBody');
   if (!el) return;
-  const chans = mixerChannels().map((c) => c.base);
-  if (eq.target !== 'master' && !chans.includes(eq.target)) chans.push(eq.target);
+  const nodes = eqNodes();
+  if (eq.target !== 'master' && !nodes.some((n) => n.id === eq.target)) eq.target = 'master';
   const g = gainsOf(eq.target);
   render(T.equalizer({
     target: eq.target,
-    targets: [{ value: 'master', label: '🎛 master (the whole mix)' }, ...chans.map((c) => ({ value: c, label: `🎚 ${c}` }))],
+    targets: [{ value: 'master', label: '🎛 master (the whole mix)' }, ...nodes.map((n) => ({ value: n.id, label: `🔀 ${n.label}` }))],
     bands: EQ_BANDS.map((b, i) => ({ i, label: b.label, f: b.f, gain: g[i] })),
     preset: presetOf(g),
     presets: Object.entries(EQ_PRESETS).map(([key, p]) => ({ key, label: p.label, title: p.title })),
@@ -75,7 +77,7 @@ function draw() {
   for (const db of [-12, -6, 6, 12]) { const y = yOf(db); g.beginPath(); g.moveTo(0, y); g.lineTo(w, y); g.stroke(); g.fillText(`${db > 0 ? '+' : ''}${db}`, 2, y - 2); }
   g.strokeStyle = themeColor('muted');
   g.beginPath(); g.moveTo(0, h / 2); g.lineTo(w, h / 2); g.stroke();
-  const an = eq.target === 'master' ? masterChain()?.analyser : channelAnalyser(eq.target);
+  const an = eq.target === 'master' ? masterChain()?.analyser : nodeAnalyser(eq.target);
   if (an && isPlaying()) drawChannelSpectrum(g, an, w, h, themeColor('accent-2'));
   const gains = gainsOf(eq.target);
   const curve = response(gains, w);

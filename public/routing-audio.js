@@ -2,6 +2,8 @@
 // an output, an analyser on its output (for the panel's little scope), set(params) and off (bypass: the sound goes
 // straight through). features/routing.js wires the blocks together between the mixer's channels and the master.
 
+import { EQ_BANDS } from './lib/eq.js';
+
 const dbToGain = (db) => Math.pow(10, db / 20);
 const glide = (param, v, t) => param.setTargetAtTime(v, t, 0.02);
 
@@ -71,6 +73,12 @@ export function createBlock(ac, node) {
       const lo = mk(new BiquadFilterNode(ac, { type: 'lowshelf', frequency: 200 })), mid = mk(new BiquadFilterNode(ac, { type: 'peaking', frequency: 1000, Q: 0.8 })), hi = mk(new BiquadFilterNode(ac, { type: 'highshelf', frequency: 4000 }));
       input.connect(lo).connect(mid).connect(hi).connect(wet);
       set = (p, t) => { glide(lo.gain, p.low, t); glide(mid.gain, p.mid, t); glide(hi.gain, p.high, t); };
+      break;
+    }
+    case 'geq': {
+      const bands = EQ_BANDS.map((b) => mk(new BiquadFilterNode(ac, { type: b.type, frequency: b.f, Q: b.q || 0.7, gain: 0 })));
+      bands.reduce((a, b) => a.connect(b), input).connect(wet);
+      set = (p, t) => bands.forEach((b, i) => glide(b.gain, p[`b${i}`] || 0, t));
       break;
     }
     case 'filter': {
