@@ -514,7 +514,7 @@ The status bar watches the whole mix. **● HOT** (amber) means it peaks within 
   - **Split** has two outputs (two parallel paths) and comes with its **Sum**, which has two inputs: part → Split ⇒ both paths → Sum → on. **＋** on a selected Split puts the effect on its second path (the one you process), keeping the first dry. Wire several parts into one Sum to make a bus.
   - **Comp** (threshold, ratio, attack, release, makeup; its card shows the gain reduction live), **Sat** (drive, mix), **EQ** (low / mid / high), **Filter** (high-pass, low-pass), **Verb** (size, mix), **Delay** (time, feedback, mix) and **Gain**.
 - **Editing:**
-  - Click a node for its knobs, ⏻ (bypass) and ✕ remove. Removing a node joins what fed it to what it fed.
+  - **The knobs are on the nodes:** drag one up or down (Shift: fine), or double-click it for the default; it changes the sound at once. **⏻** on a node bypasses it. Click a node for what it does and ✕ remove. Removing a node joins what fed it to what it fed.
   - Click a part for ＋ add after it and ✕ unroute.
   - Click a wire to insert a node into it or remove it.
   - Drag nodes and parts to move them; **tidy** lays the graph out again. Delete removes the selection, Esc unselects.

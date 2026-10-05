@@ -181,6 +181,13 @@ try {
     await add('Split');
     const g = await ev(() => ({ e: strudelAI.routing.graph.edges.map((e) => `${e.from}${e.fp ? '.1' : ''}>${e.to}${e.tp ? '.1' : ''}`).sort().join(' '), outs: document.querySelectorAll('#routeBody .rt-node[data-id="n2"] .output').length, ins: document.querySelectorAll('#routeBody .rt-node[data-id="n3"] .input').length }));
     expect(g.e === 'n1>n2 n2.1>n3.1 n2>n3 n3>master src:bass>n1' && g.outs === 2 && g.ins === 2, JSON.stringify(g));
+    // the knobs are on the node: turning one changes that node's setting (and doesn't drag the node)
+    const kb = await p.locator('#routeBody .rt-node[data-id="n1"] sa-knob[data-p="ratio"]').boundingBox();
+    const nb = await p.locator('#routeBody .rt-node[data-id="n1"]').boundingBox();
+    await p.mouse.move(kb.x + kb.width / 2, kb.y + 8); await p.mouse.down(); await p.mouse.move(kb.x + kb.width / 2, kb.y - 40, { steps: 6 }); await p.mouse.up();
+    const turned = await ev(() => strudelAI.routing.graph.nodes.find((n) => n.id === 'n1').params.ratio);
+    const nb2 = await p.locator('#routeBody .rt-node[data-id="n1"]').boundingBox();
+    expect(turned > 4 && nb2.x === nb.x && nb2.y === nb.y, `knob: ratio ${turned}, node ${nb.x},${nb.y} → ${nb2.x},${nb2.y}`);
     // a node drags (and keeps its place); Delete on a selected node takes it out and joins its chain
     const before = await p.locator('#routeBody .rt-node[data-id="n1"]').boundingBox();
     await p.mouse.move(before.x + 60, before.y + 20); await p.mouse.down(); await p.mouse.move(before.x + 90, before.y + 140, { steps: 8 }); await p.mouse.up();

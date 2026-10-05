@@ -19,7 +19,7 @@ class RangeLike extends HTMLElement {
       this._set(this.valueAsNumber + d * this.step * (e.shiftKey ? 0.2 : 1), true, true);
     });
     this.addEventListener('dblclick', (e) => { if (this.hasAttribute('default')) { e.stopPropagation(); this._set(Number(this.getAttribute('default')), true, true); } });
-    this.addEventListener('wheel', (e) => { if (document.activeElement !== this) return; e.preventDefault(); this._set(this.valueAsNumber - Math.sign(e.deltaY) * this.step, true, true); }, { passive: false });
+    this.addEventListener('wheel', (e) => { if (this.ownerDocument.activeElement !== this) return; e.preventDefault(); this._set(this.valueAsNumber - Math.sign(e.deltaY) * this.step, true, true); }, { passive: false });
   }
   get min() { return Number(this.getAttribute('min') ?? 0); }
   get max() { return Number(this.getAttribute('max') ?? 1); }
@@ -39,14 +39,23 @@ class RangeLike extends HTMLElement {
     if (input) this.dispatchEvent(new Event('input', { bubbles: true }));
     if (change) this.dispatchEvent(new Event('change', { bubbles: true }));
   }
+  // the pointer is captured by the control: the drag follows it anywhere, in whichever window the control is
+  // (a popped-out panel has its own), and nothing under it (a canvas, a node) takes the drag
   _drag(e, onMove) {
     e.preventDefault();
+    e.stopPropagation();
     this.focus({ preventScroll: true });
+    try { this.setPointerCapture(e.pointerId); } catch {}
     const move = (ev) => onMove(ev);
-    const up = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); this.classList.remove('dragging'); this.dispatchEvent(new Event('change', { bubbles: true })); };
+    const up = (ev) => {
+      try { this.releasePointerCapture(ev.pointerId); } catch {}
+      this.removeEventListener('pointermove', move); this.removeEventListener('pointerup', up); this.removeEventListener('pointercancel', up);
+      this.classList.remove('dragging'); this.dispatchEvent(new Event('change', { bubbles: true }));
+    };
     this.classList.add('dragging');
-    window.addEventListener('pointermove', move);
-    window.addEventListener('pointerup', up);
+    this.addEventListener('pointermove', move);
+    this.addEventListener('pointerup', up);
+    this.addEventListener('pointercancel', up);
   }
 }
 
@@ -62,6 +71,7 @@ class SaKnob extends RangeLike {
       .cap { fill: url(#g); stroke: var(--border, #444); }
       .tick { stroke: var(--text, #ddd); stroke-width: 2; stroke-linecap: round; }
       .txt { display: flex; gap: 3px; align-items: baseline; line-height: 1; white-space: nowrap; }
+      :host([stack]) .txt { flex-direction: column; align-items: center; gap: 1px; } /* (narrow: the value under the label) */
       .lbl { font: 600 9px var(--mono, monospace); color: var(--muted, #999); text-transform: uppercase; letter-spacing: .04em; }
       .val { font: 9px var(--mono, monospace); color: var(--text, #ddd); }
     </style>

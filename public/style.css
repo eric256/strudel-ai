@@ -936,6 +936,12 @@ body.hydra-behind .code-bar { background: color-mix(in srgb, var(--panel-2) 80%,
 .rt-df .drawflow .drawflow-node .drawflow_content_node { display: flex; min-width: 0; }
 .rt-in { flex: 1; min-width: 0; display: flex; flex-direction: column; padding: 5px 10px; }
 .rt-in b { font-size: 14px; color: var(--text); line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rt-head { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.rt-head b { flex: 1; min-width: 0; }
+.rt-pow { flex: none; width: 20px; height: 20px; padding: 0; border-radius: 50%; font-size: 11px; line-height: 1; color: var(--accent-2); border-color: color-mix(in srgb, var(--accent-2) 50%, var(--border)); background: var(--sunken); cursor: pointer; }
+.rt-pow.off { color: var(--faint); border-color: var(--border); }
+.rt-knobs-on { display: flex; gap: 2px; margin-top: 3px; cursor: default; }
+.rt-knobs-on sa-knob { flex: 1 1 0; min-width: 0; --size: 24px; }
 .rt-sub { font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .rt-scope { width: 128px; height: 18px; margin-top: auto; color: var(--muted); }
 .rt-df .drawflow .drawflow-node.selected { background: var(--raised); outline: 2px solid var(--warn); outline-offset: 3px; }
@@ -943,7 +949,7 @@ body.hydra-behind .code-bar { background: color-mix(in srgb, var(--panel-2) 80%,
 .rt-df .k-dyn .rt-sub, .rt-df .k-dyn .rt-scope { color: var(--accent-2); }
 .rt-df .drawflow .drawflow-node.k-space { background: color-mix(in srgb, var(--accent) 35%, var(--panel)); border-color: color-mix(in srgb, var(--accent) 60%, var(--border)); }
 .rt-df .k-space .rt-sub, .rt-df .k-space .rt-scope { color: color-mix(in srgb, var(--accent) 45%, var(--text)); }
-.rt-df .drawflow .drawflow-node.off { opacity: .45; }
+.rt-df .drawflow .drawflow-node.off .rt-in > :not(.rt-head) { opacity: .4; }
 .rt-df .drawflow .drawflow-node.dead { border-style: dashed; border-color: var(--warn); }
 .rt-df .drawflow .drawflow-node.rt-part { background: color-mix(in srgb, var(--c, var(--danger)) 30%, var(--panel)); border-color: color-mix(in srgb, var(--c, var(--danger)) 60%, var(--border)); }
 .rt-df .rt-part .rt-sub, .rt-df .rt-part .rt-scope { color: color-mix(in srgb, var(--c, var(--danger)) 70%, var(--text)); }
