@@ -1,6 +1,6 @@
 {
   "name": "strudel-ai",
-  "version": "1.54.2",
+  "version": "1.55.0",
   "description": "Strudel live-coding REPL with an AI chat co-pilot (llama.cpp / OpenWebUI)",
   "main": "server.js",
   "type": "module",
@@ -16,6 +16,7 @@
     "@anthropic-ai/sdk": "^0.131.0",
     "@strudel/repl": "1.3.0",
     "dockview-core": "^8.4.0",
+    "drawflow": "^0.0.60",
     "express": "^5.2.1",
     "hydra-synth": "^1.4.0",
     "lamejs": "^1.2.1",

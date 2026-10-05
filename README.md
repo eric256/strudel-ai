@@ -518,6 +518,7 @@ The status bar watches the whole mix. **● HOT** (amber) means it peaks within 
   - Click a part for ＋ add after it and ✕ unroute.
   - Click a wire to insert a node into it or remove it.
   - Drag nodes and parts to move them; **tidy** lays the graph out again. Delete removes the selection, Esc unselects.
+  - Drag the background to move around the canvas; **Ctrl + wheel** (or pinch, or **− ⟲ ＋** in the bar) zooms.
 - **Ready-made chains** for the part picked in the bar:
   - **Parallel comp:** New York compression, a squashed, driven copy under the dry sound.
   - **Wet space:** comp, then a 100 % wet reverb path summed under the dry sound.
@@ -528,7 +529,7 @@ The status bar watches the whole mix. **● HOT** (amber) means it peaks within 
 - A node that never reaches the master is outlined in amber (⚠): you won't hear what goes into it.
 - Kept in the browser by part name, like the mixer, so `drums` keeps its chain from song to song.
 
-How it works: each part's channel strip ends in its fader, then a *direct* path to the master. Routing closes that path and wires the fader's output into Web Audio nodes (`DynamicsCompressorNode`, `WaveShaperNode`, biquads, `ConvolverNode`, `DelayNode`). Their sum goes into the master chain, so 🎛 Master and the master volume still apply. Node changes are instant; adding or removing nodes rebuilds the graph. The graph rules (no loops, values in range, templates, layout) are in `lib/routing.js` and the audio blocks in `routing-audio.js`.
+How it works: each part's channel strip ends in its fader, then a *direct* path to the master. Routing closes that path and wires the fader's output into Web Audio nodes (`DynamicsCompressorNode`, `WaveShaperNode`, biquads, `ConvolverNode`, `DelayNode`). Their sum goes into the master chain, so 🎛 Master and the master volume still apply. Node changes are instant; adding or removing nodes rebuilds the graph. The graph rules (no loops, values in range, templates, layout) are in `lib/routing.js` and the audio blocks in `routing-audio.js`. The canvas is [Drawflow](https://github.com/jerosoler/Drawflow), which only shows the graph: what you do on it comes back as changes to the graph, which are checked against its rules before the canvas is redrawn from it.
 
 ## 🎛 Master (mastering style)
 Every song has a **master style**: post-processing on the whole mix, picked by the songwriter (or the band) and shown in the song's details as 🎛. Styles: clean, lo-fi, warm, acoustic (natural and open: a wooden room, gentle compression), pop, techno, house, edm, dnb, hiphop, synthwave, ambient, dub, cinematic, rock, chiptune and radio.

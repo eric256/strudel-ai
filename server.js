@@ -119,6 +119,8 @@ app.use('/vendor/hydra', express.static(path.join(__dirname, 'node_modules/hydra
 // lit-html: the HTML templates of the panels (served locally, no build step)
 app.use('/vendor/lit-html', express.static(path.join(__dirname, 'node_modules/lit-html'), { maxAge: '7d' }));
 app.use('/vendor/lamejs', express.static(path.join(__dirname, 'node_modules/lamejs'), { maxAge: '7d' }));
+// Drawflow: the node canvas of 🔀 Routing (a plain script + its CSS)
+app.use('/vendor/drawflow', express.static(path.join(__dirname, 'node_modules/drawflow/dist'), { maxAge: '7d' }));
 // app files: always revalidate, so a new build is picked up on the next load
 app.use(express.static(PUBLIC_DIR, { setHeaders: (res) => res.set('Cache-Control', 'no-cache') }));
 
