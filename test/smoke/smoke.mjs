@@ -661,9 +661,13 @@ try {
     expect(target === 'song', `the chat target after a new song: ${target}`);
     // the song plays to its end (the playlist finishes): a chat edit still adds its sections — to the sheet, the
     // arrangement and the editor (all its sections had been played, so none were re-arranged before)
+    // (songs left in the playlist from earlier steps would play on after it: clear them)
+    await p.waitForFunction(() => strudelAI.queue.running && strudelAI.queue.songs[strudelAI.queue.current] === strudelAI.activeSong(), null, { timeout: 30000 });
+    await ev(() => document.getElementById('plClear').click());
     await ev(() => { const secs = document.querySelectorAll('#editForm .se-sec'); secs[secs.length - 1].click(); });
     await ev(() => [...document.querySelectorAll('#editForm .se-selrow button')].find((b) => /go/.test(b.textContent)).click());
-    await p.waitForFunction(() => !strudelAI.queue.running, null, { timeout: 90000 });
+    await p.waitForFunction(() => !strudelAI.queue.running, null, { timeout: 90000 })
+      .catch(async () => { throw new Error(`the playlist didn't finish: ${await ev(() => `current ${strudelAI.queue.current} · station ${!!strudelAI.queue.station} · ${strudelAI.queue.songs.map((s) => `${s.title}:${s.status}:${s.from}`).join(', ')} · playing ${strudelAI.engine.steps.find((x) => x.status === 'playing')?.prompt}`)}`); });
     const before = await ev(() => { const sg = strudelAI.activeSong(); return { secs: sg.sheet.sections.length, blocks: sg.blocks.filter((b) => !b.fillStep && !b.gap).length, ed: document.querySelectorAll('#editForm .se-sec').length }; });
     await ev(() => { document.getElementById('input').value = 'ADDVERSES build out a couple more verses'; document.getElementById('chat-form').requestSubmit(); });
     await p.waitForFunction((n) => strudelAI.activeSong()?.sheet.sections.length === n + 2, before.secs, { timeout: 20000 });
