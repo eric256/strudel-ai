@@ -6,13 +6,22 @@ import { T } from './index.js';
 
 /**
  * A song's buttons. tb: { state: 'writing' | 'failed' | 'written', error, canPlay, canEdit, editing, fav, mine,
- *   hasPads, padsFollow, canPromote (a written sheet song: 🎸 Band / 📻 Station), mp3: { kind: 'take' | 'recording' | 'next' | 'record', time, mb, running }, sharing }
+ *   hasPads, padsFollow, canPromote (a written sheet song: 🎸 Band / 📻 Station), mp3: { kind: 'take' | 'recording' | 'next' | 'record', time, mb, running }, sharing,
+ *   renaming, naming: null | { title } (typing a new name) }
  */
 export function songToolbar(tb) {
   const btn = (act, label, title) => html`<button data-act=${act} title=${title}>${label}</button>`;
   if (tb.state === 'failed') return html`<div class="sv-toolbar">${btn('retry', '↻ Try again', `Write this song again from scratch${tb.error ? ` (last time: ${tb.error})` : ''}`)}</div>`;
   if (tb.state !== 'written') return nothing;
   const m = tb.mp3;
+  // typing a new name: Enter saves, Escape cancels
+  if (tb.naming) return html`<div class="sv-toolbar sv-naming">
+      <input class="sv-name" maxlength="60" .value=${tb.naming.title} aria-label="The song's new name"
+        @keydown=${(e) => { if (e.key === 'Enter' || e.key === 'Escape') { e.preventDefault(); e.target.parentElement.querySelector(e.key === 'Enter' ? '[data-act="name-save"]' : '[data-act="name-cancel"]').click(); } }} />
+      ${btn('name-save', '✓ Save', 'Give the song this name')}
+      ${btn('name-cancel', '✕', 'Keep its name')}
+      ${tb.renaming ? html`<button disabled>🎲 naming…</button>` : btn('rename', '🎲', 'Let the AI name it instead')}
+    </div>`;
   return html`<div class="sv-toolbar">
       ${tb.canPlay ? btn('play', '▶ Play', 'Play this song from the start now (already written — no AI needed)') : nothing}
       ${tb.canPlay ? btn('next', '⤴ Play next', 'Play this song after the one playing now (📃 Playlist)') : nothing}
@@ -26,6 +35,8 @@ export function songToolbar(tb) {
         : btn('mp3', m.kind === 'next' ? '🎙 MP3 next time' : '🎙 MP3', m.running ? 'Record this song the next time it plays from the start (the music keeps playing)' : 'Play this song from the start and record it — download the MP3 when it ends')}
       ${tb.canPromote ? btn('band', '🎸 Band', 'Save this song\'s line-up (its sounds, roles and master sound) as a band, to write more songs with') : nothing}
       ${tb.canPromote ? btn('station', '📻 Station', 'Start a station that writes music like this song, played by its band') : nothing}
+      ${btn('name', '✏ Name', 'Type a new name for this song')}
+      ${tb.renaming ? html`<button disabled>🎲 naming…</button>` : btn('rename', '🎲 Rename', 'Give this song a new title: the AI names it again, in another shape (a place, a name, a time, a phrase …), clear of the titles already used')}
       ${btn('json', '⬇ JSON', 'Download the whole song (sheet, parts, sections, pads) as a .json file — import it on any Strudel AI server')}
       ${tb.sharing ? html`<button disabled>creating link…</button>` : btn('link', '🔗 Link', 'Create a link that plays this whole song on this server')}
     </div>`;

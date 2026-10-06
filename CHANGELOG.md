@@ -2,6 +2,25 @@
 
 The version is in `package.json`. Bump it when you release. Open pages also notice *any* redeploy through the build id, which is a hash of the app files, even if the version wasn't bumped.
 
+## 1.61.0
+- **🎲 Song titles: no more look-alike names.**
+  - **A title request of its own** for every song the AI names (a description without a title, a station's songs). It runs alongside the song sheet, and it is short.
+  - **The app picks the title's shape at random**, never one of the last few. The 16 shapes include a named place, a person's name, a time, a number and things, a question, one uncommon word, "The …", "… of …", a foreign word, an everyday object and a code or sign. Now and then it adds a world to take the image from (a bakery, a ferry, a chess club …) and a letter to start with.
+  - **Examples in the song's style:** 3 titles in the way its genre names tracks (a set for each genre), or the band's own.
+  - **Bands have "Song titles":** examples of their naming style, in ⚙ Settings → Bands. A band made from a song starts with that song's title.
+  - **Checked:** the same title, a key word shared with a recent title, or a worn-out word (neon, midnight, echo, dreams …) is refused and asked again with the reason, up to 3 times. After that, the last try gets a number.
+  - **Remembered:** titles are kept across sessions (with My songs), so names don't come back session after session.
+  - **Stations:** each song is named in the background, one after another so they keep clear of each other, and written once named. The list prompt only gives working titles now.
+  - **The fixed example titles are gone** from the prompts that steered every song towards "Material Place" names.
+- **🎲 Rename** on a song's toolbar names it again, in another shape. **✏ Name** lets you type one yourself (Enter saves, Escape cancels).
+- **Fix:** a song renamed while open in ✎ Edit song kept its new name when you applied edits (✓ apply put the old one back).
+- **⚙ Settings → Prompts:** the new *Titles* prompt can be edited like the others.
+- **Tests:**
+  - unit tests for key words, the check, the pattern, the examples and the request;
+  - a smoke step names a song, renames it (a refused title asked again with the reason), types a name, and checks that the station's songs get their own titles;
+  - the dynamics smoke step restarts its song first, so the next song can't take over while it edits;
+  - the song editor's transport step says what state it was in when it times out.
+
 ## 1.60.0
 - **Polyphonic parts: voices and layers.** A part can play more than one line, or more than one sound, and still be one part (one mixer channel, one 🔀 Routing chain).
   - **Voices:** the song sheet can give a melodic part `voices` — a harmony a third or sixth below, a third above, an octave below or above, or a counter-line. The part's code plays them together: `stack(n("line"), n("harmony")).scale(…).s(…)`.

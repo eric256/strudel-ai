@@ -18,6 +18,7 @@ import { jumpToSong, retrySong } from './song-writer.js';
 import { addToPlaylist, renderPlaylist, sessionSongs } from './playlist.js';
 import { currentStation } from './stations.js';
 import { bandFromSong, stationFromSong } from './promote.js';
+import { renameSong, setTitle } from './titles.js';
 import { $, STATUS_ICON, addMsg, cps, engine, fmtTime, isPlaying, jumpTo, nowCycle, player, queue, setHold, showPanel, ws } from '../app.js';
 // ---------------------------------------------------------------------------
 // 🎵 Song lists and song views: the Songs and Station panels, 🎶 Now playing and the section progress bars.
@@ -58,6 +59,8 @@ export function toolbarView(sg, live) {
       : mp3.seg?.sg === sg ? { kind: 'recording' }
       : { kind: mp3.want.has(sg) ? 'next' : 'record', running: queue.running },
     sharing: !!sg.sharing,
+    renaming: !!sg.renaming,
+    naming: sg.editingName ? { title: sg.title } : null,
   };
 }
 /** The buttons inside a selected song row (templates/songs.js → songRowTools). */
@@ -285,6 +288,28 @@ export function songAction(act, sg, btn, view) {
   else if (act === 'mp3') songMp3(sg);
   else if (act === 'json') download(`${slug(sg.title)}.strudel-song.json`, JSON.stringify(songToJSON(sg), null, 1));
   else if (act === 'link') shareSong(sg);
+  else if (act === 'name') { sg.editingName = true; songsChanged(); requestAnimationFrame(() => { const i = view?.querySelector('.sv-name'); i?.focus(); i?.select(); }); }
+  else if (act === 'name-cancel') { sg.editingName = false; songsChanged(); }
+  else if (act === 'name-save') {
+    const t = String(btn.closest('.sv-toolbar')?.querySelector('.sv-name')?.value || '').replace(/\s+/g, ' ').trim().slice(0, 60);
+    sg.editingName = false;
+    if (t && t !== sg.title) {
+      const before = sg.title;
+      setTitle(sg, t);
+      addMsg('info', `✏ “${before}” is now “${t}”`);
+      renderPlaylist();
+      if (songEdit.sg === sg) renderSongEditor();
+    }
+    songsChanged();
+  }
+  else if (act === 'rename') {
+    sg.editingName = false;
+    const before = sg.title;
+    const done = renameSong(sg);
+    songsChanged(); renderPlaylist();
+    done.then(() => { addMsg('info', `🎲 “${before}” is now “${sg.title}”`); }, (e) => addMsg('error', `🎲 couldn't rename it: ${e.message}`))
+      .finally(() => { songsChanged(); renderPlaylist(); if (songEdit.sg === sg) renderSongEditor(); });
+  }
   else if (act === 'band') bandFromSong(sg);
   else if (act === 'station') stationFromSong(sg);
   songsChanged();

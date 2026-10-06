@@ -34,6 +34,16 @@ function library(req) {
   return '```javascript\n' + lines.join('\n') + '\n```';
 }
 
+// titles: the first one not mentioned in the request — except that a request with titles already used first gets a
+// used one back (so the app's check refuses it and asks again, with the reason)
+const TITLES = ['Smoke Signal', 'Borrowed Umbrella', 'Gate B12', 'Hail on Tuesday', 'Marisol', 'Seven Paper Lanterns', 'Route 9 Diner', 'Salt and Copper',
+  'Mind the Gap', 'Painting the Pier', 'Who Took the Ferry?', 'Map of Small Rivers', 'Saudade', 'Late August', 'The Lighthouse Keeper'];
+function title(last) {
+  const used = (last.match(/^ALREADY USED[^:]*: (.*)$/m) || [])[1];
+  if (used && !/^NOT THESE/m.test(last)) return used.split(' · ')[0];
+  return TITLES.find((t) => !last.includes(t)) || `Song ${last.length}`;
+}
+
 export const log = [];
 let failSheets = 0;
 export function startMockAI(port) {
@@ -49,6 +59,7 @@ export function startMockAI(port) {
       if (sys.startsWith('You are a songwriter') && /FAILSHEET/.test(last) && failSheets++ < 6) { kind = 'sheet'; content = 'Sorry, no sheet today.'; }
       else if (sys.startsWith('You are a songwriter')) { kind = 'sheet'; content = JSON.stringify(sheet(last)); }
       else if (sys.startsWith('You write the PART LIBRARY')) { kind = 'library'; content = library(last); }
+      else if (sys.startsWith('You name ONE instrumental song')) { kind = 'title'; content = title(last); }
       else if (sys.startsWith('You are the music director')) { kind = 'songs'; content = 'Night Drive | synthwave with a driving bass\nRain Loop | slow lo-fi with soft keys\nSky Steps | bright house with piano chords'; }
       // a whole-song chat edit asking for ADDVERSES: the active song's sheet with two more verses before its last section
       // (repeats of the verse, with its name — songs repeat names: A, B, A)

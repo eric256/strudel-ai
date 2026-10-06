@@ -52,7 +52,9 @@ const PARTS = {
   hook_main: 'n("<[7 ~ 9 7] [5 4 2 4]>").scale("A:minor").s("gm_lead_2_sawtooth").room(slider(0.3, 0, 1)).gain(slider(0.4, 0, 1.2))',
 };
 const JAM = 'setcpm(96/4)\nkick: s("bd ~ ~ bd, ~ sd").bank("RolandTR808").gain(slider(0.8, 0, 1.2))\nhats: s("hh*8").bank("RolandTR808").velocity("0.5 1").gain(slider(0.4, 0, 1.2))\nbass: note("<a1 f1 c2 g1>").struct("x ~ x x").s("sawtooth").lpf(slider(800, 200, 3000)).gain(slider(0.5, 0, 1.2))\nchords: chord("<Am F C G>").voicing().s("triangle").room(0.4).gain(slider(0.3, 0, 1.2))\nlead: n("0 2 4 <7 6>").scale("A:minor").s("square").delay(0.3).gain(slider(0.25, 0, 1.2))';
+const TITLES = ['Route 9 Diner', 'Borrowed Umbrella', 'Hail on Tuesday', 'Marisol', 'Gate B12', 'Salt and Copper', 'Late August'];
 function aiReply(sys, last) {
+  if (sys.startsWith('You name ONE instrumental song')) return TITLES.find((t) => !last.includes(t)) || 'Map of Small Rivers';
   if (sys.startsWith('You are a songwriter')) return JSON.stringify(SHEET);
   if (sys.startsWith('You write the PART LIBRARY')) {
     const ids = [...last.matchAll(/^- (\w+)\s+\[/gm)].map((m) => m[1]);

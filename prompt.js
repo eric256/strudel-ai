@@ -153,11 +153,8 @@ Output ONLY song lines, one per line, exactly:
 
 Rules:
 - No intro text, no numbering, no markdown, no blank lines between songs.
-- Title: unique and VARIED (never reuse a title, or its key word, from the "already played" list). Mix the shapes from song
-  to song: a single word ("Monsoon"), a place ("Route 9 Diner"), a time ("4:12 AM"), a name ("Marisol"), a phrase
-  ("Don't Wait Up"), an object ("Brass Compass"), a question, a foreign word that fits the style (Japanese for Japanese
-  fusion, Portuguese for bossa nova). Avoid worn-out words: neon, midnight, echo(es), dreams, drift, horizon, velvet,
-  pulse, glow, nocturne, eclipse, cascade, odyssey, journey, starlight, reverie.
+- Title: a short working title (1–4 words, different from the "already played" ones). The app gives each song its
+  final name, so put your effort into the description.
 - Description (25–45 words): genre/style, tempo in bpm, key and scale (e.g. "A minor", "D dorian"), mood,
   3–5 main instruments/sounds, and the energy shape of the song (e.g. "slow build to a peak, then a soft outro").
 - Stay within the theme but vary tempo, key, groove and instrumentation from song to song.
@@ -218,9 +215,8 @@ Example:
 }
 
 Rules:
-- TITLE: a short title (1–4 words) that fits the description — not the genre name, and not like the titles the request
-  says were already used. Vary the shape: a single word, a place, a time, a name, a phrase, an object, a foreign word that
-  fits the style. Avoid worn-out words: neon, midnight, echo, dreams, drift, horizon, velvet, pulse, glow, eclipse, odyssey.
+- TITLE: a short working title (1–4 words) when the request asks for one — the app names the song itself, so keep it
+  simple: concrete, not the genre name, none of the titles already used.
 - FORM: the request lists the SONG FORMS you may use (or names the one to use). Pick the one that fits the genre and set
   "form" to its name. A form is a GUIDE, not a template: keep its overall shape (how it opens, builds, peaks and ends),
   but make THIS song its own — two songs in the same form should not have the same sections and lengths:
@@ -318,6 +314,15 @@ Rules:
   * use "half" or alt variants as a bridge between a sparse and a full section.
   Keep drums and bass through most of the song; intro, breakdown and outro thin out.
 - Use the "space" sample rarely. Stay true to the song description: genre, tempo, key and mood.`;
+
+export const TITLE_PROMPT = `You name ONE instrumental song. The request gives the song, the SHAPE its title must have, and
+sometimes a world to take the image from and a letter to start with. Follow all of them.
+- 1–5 words, concrete and specific: a real thing, place, person, moment or phrase — something you could photograph or
+  overhear. Not abstract mood words, not the genre, not the instruments.
+- Fit the song's style and feeling (the example titles show the style), but never reuse their words or the words of the
+  titles already used.
+- Never: neon, midnight, echo, dreams, drift, horizon, velvet, pulse, glow, shadows, whispers, twilight, aurora, infinity.
+Reply with the title only — no quotes, no explanation.`;
 
 export const LIBRARY_PROMPT = String.raw`You write the PART LIBRARY for one song that is performed live in Strudel (strudel.cc, the JavaScript port of TidalCycles).
 The app arranges the song from your parts: each section plays a selection of them with that section's chord progression.
