@@ -178,7 +178,7 @@ const ENTER_TITLE = { in: 'comes in halfway through', out: 'drops out halfway th
 /** Start editing a song: a copy of its sheet and its parts code, one definition per part and variant. */
 function openDraft(sg, keep = null) {
   const { defs } = splitLibrary(sg.library);
-  draft = { sg, title: sg.title, raw: rawSheet(sg.sheet), defs, sel: keep?.sel ?? 0, open: keep?.open ?? new Set(), dirty: false, msg: keep?.msg || '', bad: false, drag: null };
+  draft = { sg, title: sg.title, origTitle: sg.title, raw: rawSheet(sg.sheet), defs, sel: keep?.sel ?? 0, open: keep?.open ?? new Set(), dirty: false, msg: keep?.msg || '', bad: false, drag: null };
   draft.sel = Math.min(draft.sel, draft.raw.sections.length - 1);
 }
 function changed(msg = '') { draft.dirty = true; draft.msg = msg; draft.bad = false; renderSongEditor(); }
@@ -370,7 +370,8 @@ const edit = {
     renderSongEditor();
     const err = await applySongEdit(sg, JSON.parse(JSON.stringify(draft.raw)), joinLibrary({ defs: draft.defs }));
     if (err) { draft.msg = `⚠ ${err}`; draft.bad = true; renderSongEditor(); return; }
-    for (const x of [sg, ...linkedSongs(sg)]) x.title = draft.title;
+    // (a title you changed here; a 🎲 rename meanwhile stays)
+    if (draft.title !== draft.origTitle) for (const x of [sg, ...linkedSongs(sg)]) x.title = draft.title;
     if ([sg, ...linkedSongs(sg)].some(isMine)) saveMySongs();
     const live = [sg, ...linkedSongs(sg)].find((x) => queue.running && queue.songs[queue.current] === x);
     const playing = !!live;
@@ -471,6 +472,8 @@ export function renderSongEditor() {
   const sg = songEdit.sg;
   if (!sg?.sheet || !sg.library) { draft = null; render(nothing, $('editForm')); renderPartEditor(); return; }
   if (draft?.sg !== sg) openDraft(sg);
+  // renamed (🎲) while open: show the new title, unless you are changing it here
+  if (draft.title === draft.origTitle && sg.title !== draft.origTitle) draft.title = draft.origTitle = sg.title;
   const r = draft.raw;
   const playing = queue.running && [sg, ...linkedSongs(sg)].includes(queue.songs[queue.current]);
   const parts = r.parts.map((p) => p.name);

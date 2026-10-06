@@ -12,9 +12,14 @@ The version is in `package.json`. Bump it when you release. Open pages also noti
   - **Remembered:** titles are kept across sessions (with My songs), so names don't come back session after session.
   - **Stations:** each song is named in the background, one after another so they keep clear of each other, and written once named. The list prompt only gives working titles now.
   - **The fixed example titles are gone** from the prompts that steered every song towards "Material Place" names.
-- **🎲 Rename** on a song's toolbar names it again, in another shape.
+- **🎲 Rename** on a song's toolbar names it again, in another shape. **✏ Name** lets you type one yourself (Enter saves, Escape cancels).
+- **Fix:** a song renamed while open in ✎ Edit song kept its new name when you applied edits (✓ apply put the old one back).
 - **⚙ Settings → Prompts:** the new *Titles* prompt can be edited like the others.
-- **Tests:** unit tests for key words, the check, the pattern, the examples and the request. A smoke step names a song, renames it (a refused title asked again with the reason), and checks that the station's songs get their own titles.
+- **Tests:**
+  - unit tests for key words, the check, the pattern, the examples and the request;
+  - a smoke step names a song, renames it (a refused title asked again with the reason), types a name, and checks that the station's songs get their own titles;
+  - the dynamics smoke step restarts its song first, so the next song can't take over while it edits;
+  - the song editor's transport step says what state it was in when it times out.
 
 ## 1.60.0
 - **Polyphonic parts: voices and layers.** A part can play more than one line, or more than one sound, and still be one part (one mixer channel, one 🔀 Routing chain).

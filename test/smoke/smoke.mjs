@@ -77,11 +77,19 @@ try {
     const asks = log.filter((x) => x.kind === 'title').slice(n);
     // the mock first answers with a title already used: it's refused and asked again, with the reason
     expect(asks.length === 2 && /ALREADY USED[^\n]*Smoke Signal/.test(asks[0].last) && /NOT THESE \(refused\): "Smoke Signal" \("Smoke Signal" was already used\)/.test(asks[1].last), `the rename requests: ${asks.map((a) => a.last).join('\n---\n')}`);
+    // (the mock's first title not in the request: which one depends on the random shape's example)
     const t = await ev(() => strudelAI.queue.songs[0].title);
-    expect(t === 'Borrowed Umbrella', `renamed to ${t}`);
-    expect(await ev(() => /Borrowed Umbrella/.test(document.getElementById('nowSongView').textContent)), 'the new title isn\'t shown');
-    // put the old name back for the steps that follow
-    await ev(() => { strudelAI.queue.songs[0].title = 'Smoke Signal'; strudelAI.player.emit('songs'); });
+    expect(t && t !== 'Smoke Signal' && asks[1].last && !asks[1].last.includes(`"${t}"`), `renamed to ${t}`);
+    expect(await ev((t) => document.getElementById('nowSongView').textContent.includes(t), t), 'the new title isn\'t shown');
+    // ✏ Name: type one yourself (Enter saves), then back to the old name the same way
+    for (const name of ['My Own Name', 'Smoke Signal']) {
+      await ev(() => document.querySelector('#nowSongView [data-act="name"]').click());
+      await p.waitForSelector('#nowSongView .sv-name', { timeout: 5000 });
+      await p.fill('#nowSongView .sv-name', name);
+      await p.press('#nowSongView .sv-name', 'Enter');
+      await p.waitForFunction((n) => strudelAI.queue.songs[0].title === n && !document.querySelector('#nowSongView .sv-name'), name, { timeout: 5000 })
+        .catch(async () => { throw new Error(`✏ Name didn't set “${name}”: ${await ev(() => strudelAI.queue.songs[0].title)}`); });
+    }
   });
 
   await step('now playing shows the sections and the master style', async () => {
@@ -566,6 +574,9 @@ try {
     // a written song playing, open in the song editor
     await ev(() => { strudelAI.ws.open('song'); });
     await p.waitForFunction(() => strudelAI.queue.running && strudelAI.queue.songs[strudelAI.queue.current]?.sheet && document.querySelector('#nowSongView [data-act="edit"]'), null, { timeout: 30000 });
+    // from its start, so it doesn't end (and the next song take over) while this step edits it
+    await ev(() => strudelAI.restartSong());
+    await p.waitForFunction(() => strudelAI.queue.running && strudelAI.engine.steps.some((x) => x.status === 'playing') && document.querySelector('#nowSongView [data-act="edit"]'), null, { timeout: 30000 });
     await ev(() => document.querySelector('#nowSongView [data-act="edit"]').click());
     await p.waitForFunction(() => document.querySelectorAll('#editForm .se-sec').length >= 2, null, { timeout: 5000 });
     await ev(() => { const s = [...document.querySelectorAll('#editForm .se-head select')].find((x) => [...x.options].some((o) => o.value === 'cut')); s.value = 'cut'; s.dispatchEvent(new Event('change')); });
@@ -577,7 +588,7 @@ try {
     await ev(() => document.querySelector('#editForm .se-apply').click());
     await p.waitForFunction(() => /applied|⚠/.test(document.querySelector('#editForm .se-msg')?.textContent || ''), null, { timeout: 15000 });
     const sg = await ev(() => { const x = strudelAI.queue.songs[strudelAI.queue.current]; return { ending: x.sheet.ending, solo: x.sheet.sections[1].solo, level: x.sheet.sections[1].level, gap: !!x.blocks[x.blocks.length - 1].gap, feel: x.sheet.feel, felt: /\.mul\(velocity\(rand/.test(x.blocks[0].code) }; });
-    expect(sg.ending === 'cut' && sg.solo && sg.level === 0.8 && sg.gap, `the sheet: ${JSON.stringify(sg)}`);
+    expect(sg.ending === 'cut' && sg.solo && sg.level === 0.8 && sg.gap, `the sheet: ${JSON.stringify(sg)} — editor: ${await ev(() => `${document.querySelector('#editForm .se-msg')?.textContent} · editing ${strudelAI.activeSong?.()?.title} · playing ${strudelAI.queue.songs[strudelAI.queue.current]?.title} `)}`);
     expect(sg.feel === 0.7 && sg.felt, `the feel is in the sheet and the parts' code: ${JSON.stringify(sg)}`);
     // go to the solo section: the mixer brings its part forward
     await ev(() => [...document.querySelectorAll('#editForm .se-selrow button')].find((b) => /go/.test(b.textContent)).click());
@@ -682,8 +693,10 @@ try {
   await step('✎ song editor: its own ▶ ⏸ ■ ↺ work on the song being edited, with a live line', async () => {
     const bar = () => ev(() => { const b = document.querySelector('#editForm .se-transport'); return { line: b?.querySelector('.se-tline').textContent || '', play: b?.querySelector('[data-et="play"]').disabled, pause: b?.querySelector('[data-et="pause"]').disabled }; });
     const click = (k) => ev((k) => document.querySelector(`#editForm .se-transport [data-et="${k}"]`).click(), k);
+    const state = () => ev(() => `line “${document.querySelector('#editForm .se-tline')?.textContent}” · song ${strudelAI.activeSong()?.title} ${strudelAI.activeSong()?.status} ${strudelAI.activeSong()?.phase || ''} · running ${strudelAI.queue.running} · steps ${strudelAI.engine.steps.map((x) => x.status).join(',')}`);
     await click('play');
-    await p.waitForFunction(() => /^▶ .* · bar \d+\/\d+/.test(document.querySelector('#editForm .se-tline')?.textContent || ''), null, { timeout: 20000 });
+    await p.waitForFunction(() => /^▶ .* · bar \d+\/\d+/.test(document.querySelector('#editForm .se-tline')?.textContent || ''), null, { timeout: 20000 })
+      .catch(async () => { throw new Error(`▶ didn't play: ${await state()}`); });
     await click('pause');
     await p.waitForFunction(() => /^⏸ paused/.test(document.querySelector('#editForm .se-tline').textContent), null, { timeout: 5000 });
     let b = await bar();
@@ -693,7 +706,8 @@ try {
     await click('stop');
     await p.waitForFunction(() => /not playing/.test(document.querySelector('#editForm .se-tline').textContent), null, { timeout: 5000 });
     await click('restart');
-    await p.waitForFunction(() => /^▶ /.test(document.querySelector('#editForm .se-tline').textContent), null, { timeout: 20000 });
+    await p.waitForFunction(() => /^▶ /.test(document.querySelector('#editForm .se-tline').textContent), null, { timeout: 20000 })
+      .catch(async () => { throw new Error(`↺ didn't play: ${await state()}`); });
     b = await bar();
     expect(b.play && !b.pause, `after ↺: ${JSON.stringify(b)}`);
   });

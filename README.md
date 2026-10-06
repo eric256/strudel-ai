@@ -347,6 +347,7 @@ Every finished song has a toolbar:
 | ⬇ MP3 / 🎙 MP3 | **⬇ MP3** downloads the song's recording once it has played to its end. With no recording yet, **🎙 MP3** plays the song now if nothing is playing, or records it the next time it plays from the start (the station keeps playing) |
 | ⬇ JSON | downloads the whole song (sheet, parts, sections, pads) as a `.json` file. **⬆ import** loads such a file — or a session log — on any Strudel AI server |
 | 🔗 Link | a short link to the song on this server |
+| ✏ Name | type a new name yourself (Enter saves, Escape keeps the old one) |
 | 🎲 Rename | names the song again: a new title request, in another shape, clear of its old title and the titles already used |
 
 **🎯 Chat target:** the selector under the chat says what the chat works on:
