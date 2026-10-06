@@ -26,6 +26,8 @@ The chat changes the song open in ✎ Edit song; a new song described in the cha
 **Arrangement:** which parts play in each section (variants, coming in / dropping out). The playhead line follows the song.
 ![Arrangement with playhead](screenshots/08-arrangement-playhead.png)
 
+**🎲 Song titles:** every song the AI names gets its own short request with a title shape picked at random (a place, a name, a time, a phrase …), examples in its genre's or band's style, and a check against the titles already used. 🎲 Rename names a song again.
+
 **🧩 Part editor:** one part on its own — ▶ loop it (solo or with its section), shape its effects with sliders, and change its notes.
 
 Melodies on a staff (click to place or move a note, Shift-click for a chord, arrows / octave / length / rest on the selected one). A part with voices shows each in its own colour, ＋ voice adds a harmony, and ＋ layer doubles it on another sound:

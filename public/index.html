@@ -446,6 +446,7 @@
           <option value="sheet">Song sheet — plans a song</option>
           <option value="library">Parts — writes a song's parts</option>
           <option value="songs">Songs — invents songs for a set / station</option>
+          <option value="title">Titles — names a song</option>
         </select>
         <span id="promptState" class="muted small"></span>
         <button id="promptReset" class="link" title="Go back to the built-in prompt">reset to built-in</button>
@@ -486,6 +487,7 @@
       <label class="field">Its own sound — <span class="muted">tweaks of the style</span> <input id="bandTweaks" maxlength="120" placeholder="high 2.5, space 0.3" /></label></div>
     <div class="field-row"><label class="field">Meters — <span class="muted">the usual one first</span> <input id="bandMeters" maxlength="60" placeholder="4/4, 3/4" /></label>
       <label class="field">Keys <input id="bandKeys" maxlength="200" placeholder="Bb major, F major, C minor" /></label></div>
+    <label class="field" title="A few titles in the way this band names its songs (comma-separated). The AI names each new song in this style — never with these words. Empty: the genre's style.">Song titles — <span class="muted">examples of its naming style</span> <input id="bandTitles" maxlength="300" placeholder="Porch Light, Cider Orchard, The Ferryman's Daughter" /></label>
     <label class="field">Instruments — <span class="muted">one per line: <code>role: sound — what it plays</code> (roles: drums, perc, bass, chords, pad, arp, melody, counter, fx); start a line with <code>+</code> for an optional one</span>
       <textarea id="bandInstruments" rows="8" spellcheck="false" placeholder="drums: akaimpc60 — dusty boom-bap kit&#10;bass: gm_acoustic_bass — upright, round"></textarea></label>
     <div id="bandPreview" class="form-preview"></div>

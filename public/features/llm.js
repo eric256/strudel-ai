@@ -47,13 +47,14 @@ export function syntaxError(code) {
 
 /**
  * Stream a completion. onUpdate({content, thinking}) is called as tokens arrive.
- * mode: 'code' (edit the given code) | 'songs' | 'sheet' | 'library' (the song writer's steps)
+ * mode: 'code' (edit the given code) | 'songs' | 'sheet' | 'library' (the song writer's steps) | 'title' (names a song)
+ * temperature / effort: this request's own (else the ⚙ Settings ones).
  */
-export async function requestLLM({ messages, code = '', mode = 'code', onUpdate, signal, edited = false, label = '', sounds = null, onError = null, fixing = false }) {
-  try { return await requestLLMLogged({ messages, code, mode, onUpdate, signal, edited, label, sounds, fixing }); }
+export async function requestLLM({ messages, code = '', mode = 'code', onUpdate, signal, edited = false, label = '', sounds = null, onError = null, fixing = false, temperature = null, effort = null }) {
+  try { return await requestLLMLogged({ messages, code, mode, onUpdate, signal, edited, label, sounds, fixing, temperature, effort }); }
   catch (e) { onError?.(e); throw e; }
 }
-async function requestLLMLogged({ messages, code, mode, onUpdate, signal, edited, label, sounds, fixing }) {
+async function requestLLMLogged({ messages, code, mode, onUpdate, signal, edited, label, sounds, fixing, temperature, effort }) {
   // session budget (Claude reports usage, so its cost is known): stop before spending more
   const budget = Number(load().aiBudget ?? 2);
   if (budget > 0 && session.cost >= budget) {
@@ -69,7 +70,7 @@ async function requestLLMLogged({ messages, code, mode, onUpdate, signal, edited
   onUpdate = (u) => { entry.stream((u.thinking ? `[thinking] ${u.thinking.slice(-600)}\n\n` : '') + u.content); update?.(u); };
   try {
     lastUsage = null;
-    const text = await requestLLMRaw({ messages, code, mode, onUpdate, signal, edited, sounds, fixing });
+    const text = await requestLLMRaw({ messages, code, mode, onUpdate, signal, edited, sounds, fixing, temperature, effort });
     entry.done(`✓ AI · ${mode}${label ? ` · ${label}` : ''}: ${text.length} chars in ${((performance.now() - t0) / 1000).toFixed(1)}s${usageText(lastUsage)}`, 'ok');
     addSessionCost(lastUsage);
     return text;
@@ -102,7 +103,7 @@ function usageText(u) {
   return ` · ${u.input + u.cache_read + u.cache_write} in (${u.cache_read} cached) / ${u.output} out` + (cost != null ? ` · ≈${(cost * 100).toFixed(1)}¢` : '');
 }
 
-async function requestLLMRaw({ messages, code, mode, onUpdate, signal, edited, sounds, fixing }) {
+async function requestLLMRaw({ messages, code, mode, onUpdate, signal, edited, sounds, fixing, temperature, effort }) {
   const res = await fetch('/api/chat', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -116,9 +117,9 @@ async function requestLLMRaw({ messages, code, mode, onUpdate, signal, edited, s
       sounds,
       fixing: !!fixing,
       systemPrompt: promptOverride(mode),
-      promptExtra: [promptHints(mode), tasteForPrompt(getTaste())].filter(Boolean).join('\n\n'),
-      temperature: Number($('temp').value),
-      effort: $('claudeEffort').value,
+      promptExtra: [promptHints(mode), mode === 'title' ? '' : tasteForPrompt(getTaste())].filter(Boolean).join('\n\n'),
+      temperature: temperature ?? Number($('temp').value),
+      effort: effort || $('claudeEffort').value,
     }),
     signal,
   });

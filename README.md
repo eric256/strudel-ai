@@ -194,6 +194,13 @@ Encoding happens in the browser while you record (lamejs, 192 kbps stereo), so n
    - **Meter and key:** ones the form and band both allow (each lists its usual **meters** and **keys**). A meter or key the description names wins.
 
    The plan goes to the AI as decided. The 🖥 Console shows it (🧭).
+   - **🎲 Title:** a song the AI names (a description without a title, a station's song) gets its own short title request, alongside the sheet:
+     - **a shape the app picks at random**, never one of the last few: a named place, a person's name, a time, a number and things, something someone says, a question, one uncommon word, "The …", "… of …", "… and …", an instruction, a foreign word, an everyday object, the weather, a code or sign;
+     - now and then **a world to take the image from** (a bakery, a ferry, a chess club …) and **a letter to start with**;
+     - **3 example titles** in the style of the song's genre, or the band's own (⚙ Settings → Bands → *Song titles*);
+     - the titles already used, which the reply is **checked** against: the same title, a key word shared with a recent title, or a worn-out word (neon, midnight, echo, dreams …) is refused and asked again with the reason, up to 3 times.
+
+     Titles are remembered across sessions (with My songs). A station's songs are named in the background, one after another, and are written once named.
 1. **Song sheet.** The AI plans the whole song as data:
    - tempo, **meter** (4/4 for most dance music; 3/4, 6/8, 12/8, 5/4 or 7/8 where the genre or description calls for it), key and scale;
    - 2–3 chord progressions, e.g. *verse* `Am F C G`, *chorus* `F G Am Am`;
@@ -340,6 +347,7 @@ Every finished song has a toolbar:
 | ⬇ MP3 / 🎙 MP3 | **⬇ MP3** downloads the song's recording once it has played to its end. With no recording yet, **🎙 MP3** plays the song now if nothing is playing, or records it the next time it plays from the start (the station keeps playing) |
 | ⬇ JSON | downloads the whole song (sheet, parts, sections, pads) as a `.json` file. **⬆ import** loads such a file — or a session log — on any Strudel AI server |
 | 🔗 Link | a short link to the song on this server |
+| 🎲 Rename | names the song again: a new title request, in another shape, clear of its old title and the titles already used |
 
 **🎯 Chat target:** the selector under the chat says what the chat works on:
 - **🎛 code in the editor:** the section playing now, as before.

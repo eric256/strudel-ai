@@ -49,6 +49,7 @@ export function renderBandsEditor() {
   $('bandMeters').value = b.meters || '';
   $('bandKeys').value = b.keys || '';
   $('bandTweaks').value = b.tweaks || '';
+  $('bandTitles').value = b.titles || '';
   renderBandPreview();
 }
 async function renderBandPreview() {
@@ -79,7 +80,7 @@ export function setup() {
     if (d && b.genres === undefined) b.genres = d.genres;
   }
   save({ bands });
-  for (const id of ['bandName', 'bandGenres', 'bandUse', 'bandInstruments', 'bandMaster', 'bandMeters', 'bandKeys', 'bandTweaks']) {
+  for (const id of ['bandName', 'bandGenres', 'bandUse', 'bandInstruments', 'bandMaster', 'bandMeters', 'bandKeys', 'bandTweaks', 'bandTitles']) {
     $(id)[id === 'bandMaster' ? 'onchange' : 'oninput'] = () => {
       const b = bands[bandIdx];
       if (!b) return;
@@ -91,6 +92,7 @@ export function setup() {
       b.meters = $('bandMeters').value.trim();
       b.keys = $('bandKeys').value.trim();
       b.tweaks = $('bandTweaks').value.trim();
+      b.titles = $('bandTitles').value.trim();
       if (id === 'bandName') renderOptions($('bandSelect'), bands.map((x, i) => ({ value: i, label: x.name || 'untitled' })), bandIdx);
       if (id === 'bandInstruments' || id === 'bandMaster') renderBandPreview();
       saveBands();

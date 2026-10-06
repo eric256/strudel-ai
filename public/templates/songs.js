@@ -6,7 +6,8 @@ import { T } from './index.js';
 
 /**
  * A song's buttons. tb: { state: 'writing' | 'failed' | 'written', error, canPlay, canEdit, editing, fav, mine,
- *   hasPads, padsFollow, canPromote (a written sheet song: 🎸 Band / 📻 Station), mp3: { kind: 'take' | 'recording' | 'next' | 'record', time, mb, running }, sharing }
+ *   hasPads, padsFollow, canPromote (a written sheet song: 🎸 Band / 📻 Station), mp3: { kind: 'take' | 'recording' | 'next' | 'record', time, mb, running }, sharing,
+ *   renaming }
  */
 export function songToolbar(tb) {
   const btn = (act, label, title) => html`<button data-act=${act} title=${title}>${label}</button>`;
@@ -26,6 +27,7 @@ export function songToolbar(tb) {
         : btn('mp3', m.kind === 'next' ? '🎙 MP3 next time' : '🎙 MP3', m.running ? 'Record this song the next time it plays from the start (the music keeps playing)' : 'Play this song from the start and record it — download the MP3 when it ends')}
       ${tb.canPromote ? btn('band', '🎸 Band', 'Save this song\'s line-up (its sounds, roles and master sound) as a band, to write more songs with') : nothing}
       ${tb.canPromote ? btn('station', '📻 Station', 'Start a station that writes music like this song, played by its band') : nothing}
+      ${tb.renaming ? html`<button disabled>🎲 naming…</button>` : btn('rename', '🎲 Rename', 'Give this song a new title: the AI names it again, in another shape (a place, a name, a time, a phrase …), clear of the titles already used')}
       ${btn('json', '⬇ JSON', 'Download the whole song (sheet, parts, sections, pads) as a .json file — import it on any Strudel AI server')}
       ${tb.sharing ? html`<button disabled>creating link…</button>` : btn('link', '🔗 Link', 'Create a link that plays this whole song on this server')}
     </div>`;

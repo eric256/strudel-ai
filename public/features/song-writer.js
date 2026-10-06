@@ -17,6 +17,8 @@ import { patternLines } from '../lib/labels.js';
 import { wrapCode } from '../format.js';
 import { splitLibrary, joinLibrary } from '../lib/library.js';
 import { VOICES, ensurePoly } from '../lib/poly.js';
+import { nameSong, setTitle, rememberTitle } from './titles.js';
+import { checkTitle, fallbackTitle } from '../lib/titles.js';
 import { arrangeSong, sectionCode } from '../lib/arrange.js';
 import { songPads } from './song-pads.js';
 import { songsChanged, updateSetButtons, setNowSong } from './song-lists.js';
@@ -65,6 +67,8 @@ async function sheetSounds() {
 /** The titles of the other songs this session (so a new one gets a title of its own). */
 const usedTitles = (song) => [...new Set([...sessionSongs, ...queue.songs].filter((x) => x !== song && !x.autoTitle).map((x) => x.title))].slice(-30);
 async function writeSongSheet(song, signal) {
+  // (a station's song is named first)
+  if (song.naming) await song.naming.catch(() => {});
   // the plan: the form and band (yours, or ones that fit the genre), and a meter and key they allow
   // a station's song whose description names no genre takes the station's genre
   const stGenre = song.from === 'station' && !detectGenre(`${song.title} ${song.desc}`) ? detectGenre(queue.station?.theme) : null;
@@ -72,6 +76,9 @@ async function writeSongSheet(song, signal) {
   const choice = plan.form?.name || formChoice(song), bandPick = plan.band?.name || bandChoice(song);
   clog('info', `🧭 “${song.title}”: ${[plan.genre && `genre ${plan.genre}`, plan.form && `form ${plan.form.name}`, plan.band && `band ${plan.band.name}`, plan.meter, plan.key].filter(Boolean).join(' · ') || 'the AI picks form, band, meter and key'}`);
   const prev = queue.songs[queue.songs.indexOf(song) - 1]?.sheet;
+  // 🎲 a song from a description is named by its own short request, alongside the sheet (the sheet's title is the spare)
+  if (!song.autoTitle) rememberTitle(song.title);
+  const naming = song.autoTitle ? nameSong(song, { signal, genre: plan.genre, band: plan.band }).catch((e) => { clog('warn', `🎲 naming failed: ${e.message}`); return null; }) : null;
   let msg = (song.autoTitle ? `SONG (no title yet — give it one in "title"): ${song.desc}\n` : `SONG: "${song.title}" — ${song.desc}\n`) +
     (prev ? `The previous song was ${prev.bpm} bpm, ${normMeter(prev.meter)}, in ${prev.key}; this one should flow from it (a related key or a nearby tempo is nice).\n` : '') +
     (song.seed?.code ? `\nJAM — build this song from the live-coded jam below. Keep its tempo, meter, key, sounds and the character of its
@@ -89,8 +96,13 @@ parts (same names, roles that fit), and add a melody and a hook that suit it:\n\
       const raw = parseJSONLoose(text);
       const sh = normalizeSheet(raw, choice, { band: bandPick });
       for (const p of sh.parts) p.sound = swapSound(p.sound, getTaste()); // 🎧 your taste (a band's sound too)
-      // a song created from a description gets its name from the songwriter
-      if (song.autoTitle && typeof raw.title === 'string' && raw.title.trim()) { song.title = raw.title.trim().slice(0, 60); song.autoTitle = false; }
+      // a song created from a description: its own title request's name (else the songwriter's, if it's a fresh one)
+      if (song.autoTitle) {
+        const named = await naming;
+        const spare = typeof raw.title === 'string' ? raw.title.trim().slice(0, 60) : '';
+        const t = named || (spare && !checkTitle(spare, usedTitles(song)) ? spare : fallbackTitle(spare || 'Untitled', usedTitles(song)));
+        setTitle(song, t);
+      }
       clog('ok', `✓ “${song.title}” sheet: ${sh.form || 'form ?'}${sh.band ? ` · 🎸 ${sh.band}` : ''} · 🎛 ${sh.master} · ${sh.bpm} bpm · ${sh.key} · ${sh.sections.length} sections · parts ${sh.parts.map((p) => p.id).join(', ')}`);
       return sh;
     } catch (e) {
@@ -323,6 +335,20 @@ async function stationMoreSongs() {
   if (!songs.length) throw new Error('the model did not return songs as "title | description" lines');
   if (queue.station !== station) return; // stopped or switched while it was planning
   for (const sg of songs) Object.assign(sg, { from: 'station', station: station.name || 'Station' });
+  // 🎲 each song gets its own title (a shape of its own, checked against the titles already used), in the background
+  // and one after another so each keeps clear of the ones before it; a song is written once it has its name. A song
+  // whose naming fails keeps the list's title if it is a fresh one.
+  let chain = Promise.resolve();
+  for (const sg of songs) {
+    sg.naming = chain = chain.then(async () => {
+      const listed = sg.title;
+      let t = await nameSong(sg, { signal: queue.abort?.signal }).catch(() => null);
+      if (!t) t = checkTitle(listed, usedTitles(sg)) ? fallbackTitle(listed, usedTitles(sg)) : listed;
+      setTitle(sg, t);
+      sg.naming = null;
+      songsChanged();
+    });
+  }
   queue.songs.push(...songs);
   songsChanged();
 }

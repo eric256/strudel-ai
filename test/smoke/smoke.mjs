@@ -67,6 +67,23 @@ try {
     expect(/SOUND GUIDE/.test(req.sys) && /BAND — write the song for this band/.test(req.last), 'the sheet request has the band and the sound guide');
   });
 
+  await step('🎲 titles: a song from a description is named by its own request (a shape, the genre\'s examples); 🎲 Rename names it again, clear of the old title', async () => {
+    const req = log.find((x) => x.kind === 'title');
+    expect(req && /TITLE SHAPE: /.test(req.last) && /TITLES IN THIS STYLE/.test(req.last) && /GENRE: techno/.test(req.last), `the title request: ${req?.last}`);
+    await p.waitForSelector('#nowSongView [data-act="rename"]', { timeout: 10000 });
+    const n = log.filter((x) => x.kind === 'title').length;
+    await ev(() => document.querySelector('#nowSongView [data-act="rename"]').click());
+    await p.waitForFunction(() => strudelAI.queue.songs[0].title !== 'Smoke Signal' && !strudelAI.queue.songs[0].renaming, null, { timeout: 10000 });
+    const asks = log.filter((x) => x.kind === 'title').slice(n);
+    // the mock first answers with a title already used: it's refused and asked again, with the reason
+    expect(asks.length === 2 && /ALREADY USED[^\n]*Smoke Signal/.test(asks[0].last) && /NOT THESE \(refused\): "Smoke Signal" \("Smoke Signal" was already used\)/.test(asks[1].last), `the rename requests: ${asks.map((a) => a.last).join('\n---\n')}`);
+    const t = await ev(() => strudelAI.queue.songs[0].title);
+    expect(t === 'Borrowed Umbrella', `renamed to ${t}`);
+    expect(await ev(() => /Borrowed Umbrella/.test(document.getElementById('nowSongView').textContent)), 'the new title isn\'t shown');
+    // put the old name back for the steps that follow
+    await ev(() => { strudelAI.queue.songs[0].title = 'Smoke Signal'; strudelAI.player.emit('songs'); });
+  });
+
   await step('now playing shows the sections and the master style', async () => {
     await p.waitForTimeout(1000);
     const v = await ev(() => ({ secs: document.querySelectorAll('#nowSongView .sv-sections > *').length, chip: document.querySelector('#nowSongView .master-chip')?.textContent }));
@@ -529,6 +546,9 @@ try {
     await ev(() => document.getElementById('stationStart').click());
     await p.waitForFunction(() => strudelAI.queue.station && strudelAI.queue.songs.some((s) => s.from === 'station' && s.status === 'playing'), null, { timeout: 40000 });
     expect(log.some((x) => x.kind === 'songs'), 'the station did not ask for songs');
+    // its songs get their own titles (not the list's working ones)
+    const titles = await ev(() => strudelAI.queue.songs.filter((s) => s.from === 'station' && !s.naming).map((s) => s.title));
+    expect(titles.length && titles.every((t) => !['Night Drive', 'Rain Loop', 'Sky Steps'].includes(t)), `the station's songs keep the list's titles: ${titles}`);
     await ev(() => document.getElementById('stationStop').click());
   });
 

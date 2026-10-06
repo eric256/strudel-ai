@@ -59,6 +59,7 @@ export function bandFromSong(sg) {
     use: `music like “${sg.title}”: ${sg.desc}`.slice(0, 200),
     master: sh.master || 'clean',
     tweaks: tweaksText(sh.masterParams),
+    titles: sg.title, // its naming style starts from the song it came from
     meters: normMeter(sh.meter),
     keys: '',
     instruments: sh.parts.map((p) => `${BAND_ROLES.includes(p.role) ? p.role : 'melody'}: ${p.sound} — ${p.desc || p.id}`).join('\n'),
