@@ -2,6 +2,7 @@
 // block-by-block songs, + its pads) is plain JSON, so it can be exported to a file,
 // imported on any Strudel AI server, kept in "My songs", edited and logged.
 // (split out of app.js: start-up code runs in setup(), called from app.js)
+import { importerFor, runImporter, acceptList, onImportersChange } from './importers.js';
 import { addSessionSong, addToPlaylist } from './playlist.js';
 import { APP_VERSION } from './share.js';
 import { arrangeSong } from '../lib/arrange.js';
@@ -170,10 +171,31 @@ export function setup() {
     const row = e.target.closest('[data-mine]');
     if (row) { const v = `mine:${row.dataset.mine}`; songSel.set = songSel.set === v ? null : v; songsChanged(); renderSongs(); }
   });
+  // ⬆ import offers the importers' files too
+  const accept = () => { $('songImport').accept = acceptList(); };
+  accept();
+  onImportersChange(accept);
   $('songImport').onchange = async () => {
     const f = $('songImport').files[0];
     $('songImport').value = '';
     if (!f) return;
+    // a file a 🧩 plugin's importer reads (MusicXML …)
+    const imp = importerFor(f);
+    if (imp) {
+      try {
+        clog('info', `⬆ ${imp.icon || ''} ${imp.label || imp.id}: reading ${f.name}…`);
+        const list = (await runImporter(imp, f)).map((j) => songFromJSON(j));
+        mySongs.unshift(...list);
+        saveMySongs();
+        songSel.set = 'mine:0';
+        renderSongs();
+        clog('ok', `📁 imported ${list.map((x) => `“${x.title}”`).join(', ')} from ${f.name}`);
+        addMsg('info', `📁 ${imp.icon || '⬆'} imported ${list.map((x) => `“${x.title}”`).join(', ')} from ${f.name} into My songs`);
+      } catch (e) {
+        warnUser(`Couldn't import ${f.name} (${imp.label || imp.id}): ${e.message}`);
+      }
+      return;
+    }
     try {
       const text = await f.text();
       let data;

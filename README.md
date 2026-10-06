@@ -345,10 +345,18 @@ Every finished song has a toolbar:
 | ✎ Edit | open the song editor (see *✎ Edit song* above) |
 | 🔲 Song pads | loads the song's own 16 pads into the pad dock to jam along, and keeps following: as songs change, the dock switches to each new song's pads (**follow song** in the pad dock; click again or **↩ my pads** to stop) |
 | ⬇ MP3 / 🎙 MP3 | **⬇ MP3** downloads the song's recording once it has played to its end. With no recording yet, **🎙 MP3** plays the song now if nothing is playing, or records it the next time it plays from the start (the station keeps playing) |
-| ⬇ JSON | downloads the whole song (sheet, parts, sections, pads) as a `.json` file. **⬆ import** loads such a file — or a session log — on any Strudel AI server |
+| ⬇ JSON | downloads the whole song (sheet, parts, sections, pads) as a `.json` file. **⬆ import** loads such a file — or a session log — on any Strudel AI server. With the 🧩 *MusicXML import* plugin on, it also reads scores (see below) |
 | 🔗 Link | a short link to the song on this server |
 | ✏ Name | type a new name yourself (Enter saves, Escape keeps the old one) |
 | 🎲 Rename | names the song again: a new title request, in another shape, clear of its old title and the titles already used |
+
+**🎼 MusicXML import** (an example 🧩 plugin; turn it on in ⚙ Settings → 🧩 Plugins): **⬆ import** reads `.musicxml`, `.xml` and compressed `.mxl` scores. They can come from MuseScore, Finale, Sibelius, Dorico, Noteflight and others. The score becomes a song in 📁 My songs, ready to play, edit, remix or hand to the AI:
+- **Parts:** every part becomes a song part. Each staff of a piano is its own part (`piano_rh`, `piano_lh`), and a staff's voices play together (`stack`).
+- **Sounds:** each part's General MIDI sound, or one guessed from its name (violin, flute, alto sax …). Percussion becomes drums (`bd`, `sd`, `hh` …).
+- **Form:** repeats and 1st / 2nd endings are played out. The piece is cut into sections at rehearsal marks and double bar lines (else every 8 bars). Sections that repeat share their parts and their name.
+- **Chords:** chord symbols become the sections' progressions, and a lead sheet's chord symbols get a part of their own. Without chord symbols, chords are worked out from the notes.
+- **Tempo, meter and key** come from the score. A section with a different tempo keeps it.
+- **Not carried over:** dynamics, articulations, grace notes, lyrics. A note tied across a bar line sounds again in the next bar. At most 10 parts are kept (the busiest).
 
 **🎯 Chat target:** the selector under the chat says what the chat works on:
 - **🎛 code in the editor:** the section playing now, as before.

@@ -449,6 +449,31 @@ try {
     await ev(() => document.getElementById('settingsDlg').close());
   });
 
+  await step('🧩 MusicXML import (example plugin): ⬆ import reads a score into My songs — parts per staff, drums, chords, repeats — and it plays', async () => {
+    await ev(() => { document.getElementById('settingsBtn').click(); document.querySelector('.settings-tabs [data-sec="setPlugins"]').click(); });
+    await p.waitForFunction(() => [...document.querySelectorAll('.plugin-card')].some((x) => x.textContent.includes('MusicXML import')), null, { timeout: 10000 });
+    const toggle = () => ev(() => [...document.querySelectorAll('.plugin-card')].find((x) => x.textContent.includes('MusicXML import')).querySelector('input').click());
+    await toggle();
+    await p.waitForFunction(() => /\.musicxml/.test(document.getElementById('songImport').accept), null, { timeout: 5000 });
+    await ev(() => document.getElementById('settingsDlg').close());
+    const path = await import('node:path'), url = await import('node:url');
+    await p.setInputFiles('#songImport', path.join(path.dirname(url.fileURLToPath(import.meta.url)), '..', 'fixtures', 'little-tune.musicxml'));
+    await p.waitForFunction(() => strudelAI.mySongs.some((s) => s.title === 'Little Tune'), null, { timeout: 10000 })
+      .catch(async () => { throw new Error(`not imported: ${await ev(() => [...document.querySelectorAll('#messages .msg')].slice(-3).map((m) => m.textContent.slice(0, 160)).join(' ⏎ '))}`); });
+    const sg = await ev(() => { const s = strudelAI.mySongs.find((x) => x.title === 'Little Tune'); return { parts: s.sheet.parts.map((x) => x.id), sections: s.sheet.sections.map((x) => x.name).join(' '), bpm: s.sheet.bpm }; });
+    expect(sg.parts.join() === 'piano_rh,piano_lh,drum_set,chords' && sg.sections === 'A B C B D' && sg.bpm === 96, `the imported song: ${JSON.stringify(sg)}`);
+    await ev(() => strudelAI.playSong(strudelAI.mySongs.find((x) => x.title === 'Little Tune')));
+    await p.waitForFunction(() => strudelAI.engine.steps.some((x) => x.status === 'playing' && /piano_rh: piano_rh_main/.test(x.code)) && document.querySelector('strudel-editor').editor.repl.scheduler.started, null, { timeout: 20000 });
+    await p.waitForTimeout(800);
+    expect(!(await ev(() => document.querySelector('#status')?.textContent || '')).match(/error/i), 'playing the imported song errored');
+    await ev(() => document.getElementById('stop').click());
+    // off: ⬆ import no longer offers scores
+    await ev(() => { document.getElementById('settingsBtn').click(); document.querySelector('.settings-tabs [data-sec="setPlugins"]').click(); });
+    await toggle();
+    await p.waitForFunction(() => !/\.musicxml/.test(document.getElementById('songImport').accept), null, { timeout: 5000 });
+    await ev(() => document.getElementById('settingsDlg').close());
+  });
+
   await step('every panel opens (visualizer, keys, pads, console …)', async () => {
     const ids = await ev(() => strudelAI.ws.panels().map((x) => x.id));
     for (const id of ids) { await ev((id) => strudelAI.ws.open(id), id); await p.waitForTimeout(150); }

@@ -2,6 +2,23 @@
 
 The version is in `package.json`. Bump it when you release. Open pages also notice *any* redeploy through the build id, which is a hash of the app files, even if the version wasn't bumped.
 
+## 1.62.0
+- **🎼 MusicXML import** (a new example 🧩 plugin; turn it on in ⚙ Settings → 🧩 Plugins). **⬆ import** in 🎵 Songs reads `.musicxml`, `.xml` and compressed `.mxl` scores as songs in 📁 My songs:
+  - **Parts:** a part per staff (a piano's two hands are two parts), with a staff's voices played together (`stack`).
+  - **Sounds:** General MIDI programs become Strudel soundfonts, with sounds guessed from part names otherwise. Percussion maps to `bd` / `sd` / `hh` … by its GM drum number.
+  - **Form:** repeats and 1st / 2nd endings are played out. Sections are cut at rehearsal marks, double bar lines and repeats (else every 8 bars). Repeated music shares its section name and part variants.
+  - **Chords:** chord symbols become progressions, plus a chords part for lead sheets. Without them, chords are worked out from the notes.
+  - **Tempo, meter, key and transposing instruments** come from the score. A pickup bar sits at the end of its bar.
+  - **Not carried over:** dynamics, articulations, grace notes, lyrics, ties across bar lines.
+- **🧩 Plugins can add importers:** `api.addImporter({ id, label, icon, accept, import(file, tools) })`.
+  - **⬆ import** offers their file types while they're on, and hands each file to the importer for its extension.
+  - **`tools`:** a zip reader, mini-notation from bars of notes, note names, General MIDI sounds and drums, and the app's meter / tempo / chord helpers.
+  - Documented in PLUGINS.md (*Importing songs*).
+- **New `lib/zip.js`** reads .zip archives with the browser's own decompression.
+- **Tests:**
+  - unit tests for the XML reader, repeats, chord guessing, a whole test score, error messages, the zip reader and the importer registry (plain and `.mxl`);
+  - a smoke step turns the plugin on, imports the score, plays it, and checks ⬆ import stops offering scores when the plugin is off.
+
 ## 1.61.0
 - **🎲 Song titles: no more look-alike names.**
   - **A title request of its own** for every song the AI names (a description without a title, a station's songs). It runs alongside the song sheet, and it is short.
