@@ -32,6 +32,7 @@ export default {
 Two examples come with the app. Both are off until you turn them on:
 - [`public/plugins/bar-counter.js`](public/plugins/bar-counter.js) adds a panel, a header button, a settings page and its own setting, and redraws with the player's events.
 - [`public/plugins/paper-pack.js`](public/plugins/paper-pack.js) adds a theme, a band, a song form, a station and an AI instruction.
+- [`public/plugins/musicxml-import.js`](public/plugins/musicxml-import.js) adds an importer: ⬆ import reads MusicXML scores as songs.
 
 ## Where plugins come from
 
@@ -109,6 +110,29 @@ For colours that follow the user's theme:
 | `api.addStations([{ name, theme }])` | Stations. |
 | `api.addPromptHint(mode, text)` | Extra instructions added to the AI's system prompt. `mode` is `'code'` (chat edits), `'sheet'` (song sheets), `'library'` (song parts), `'songs'` (inventing songs) or `'*'` (all of them). |
 | `await api.addSounds(map, baseUrl)` | Loads samples, like Strudel's `samples()`. `map` is a sample map or a `strudel.json` URL. |
+
+### Importing songs
+
+`api.addImporter({ id, label, icon, accept, title, import(file, tools) })` adds a kind of file that **⬆ import** in 🎵 Songs can read. `accept` lists the file extensions (`['.musicxml', '.mxl']`), and ⬆ import offers them while the plugin is on. A chosen file with one of them goes to `import`, which returns a song as JSON (or a list of them). The songs land in 📁 My songs.
+
+A song is `{ title, desc, sheet, library }`:
+- **`library`** is the parts code: a tempo line (`tools.tempoLine(bpm, meter)`), then one `const <part>_<variant> = …` per part and variant. A part that follows the chords is a function of the progression: `(prog) => chord(prog).voicing()…`.
+- **`sheet`** is the plan, in the same form the AI writes:
+  - `bpm`, `meter`, `key`, `scale`;
+  - `chords: { name: "Am F C G" }`;
+  - `parts: [{ name, role, sound, variants: ['main', …], desc }]`;
+  - `sections: [{ name, bars, chords: <a chords name>, play: ['drums', 'bass.v2', …], bpm? }]`.
+
+  The app checks it and arranges the sections as it does for written songs.
+
+`tools` has helpers, so a plugin needs none of the app's modules:
+
+| | |
+| --- | --- |
+| `unzip(bytes)`, `zipText(files, name)` | read a .zip (an `.mxl`, say): `Map(name → bytes)` |
+| `serializeMini({ alt, bars })`, `parseMini(text)` | bars of notes `{ res, events: [{ t, len, vals }] }` ↔ mini-notation (`<[c4 e4] [g4@2]>`) |
+| `midiToNote(midi, flats)`, `gmSound(program)`, `GM_SOUNDS`, `GM_DRUMS` | note names; General MIDI programs → Strudel soundfonts, GM drum notes → `bd` / `sd` / `hh` … |
+| `ident`, `normProgression`, `normMeter`, `meterBeats`, `tempoLine`, `METERS` | names, chord progressions, meters and the tempo line as the app writes them |
 
 Bands, forms and stations are added to your own lists **once**. After that they're yours to edit or delete, and a deleted one doesn't come back.
 

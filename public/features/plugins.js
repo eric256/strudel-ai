@@ -26,6 +26,7 @@ import { addToPlaylist } from './playlist.js';
 import { playSong, songFromJSON } from './song-library.js';
 import { meterBeats, songMeter } from '../lib/music.js';
 import { T, overrideTemplate, templateNames } from '../templates/index.js';
+import { addImporter } from './importers.js';
 
 const INSTALLED_KEY = 'strudel-ai:plugins';
 const ID_RE = /^[a-z0-9][a-z0-9_-]{0,39}$/i;
@@ -152,6 +153,14 @@ function makeApi(p, id) {
       const h = { plugin: id, modes: mode === '*' ? PROMPT_MODES : [].concat(mode), text: String(text) };
       hints.push(h);
       later(() => { const i = hints.indexOf(h); if (i >= 0) hints.splice(i, 1); });
+    },
+    /**
+     * An importer: files ⬆ import in 🎵 Songs can now read. { id, label, icon, accept: ['.musicxml', …], title,
+     * async import(file, tools) → song JSON (or a list) }. tools: helpers (unzip, serializeMini, gmSound …).
+     */
+    addImporter(def) {
+      if (!def || typeof def.import !== 'function' || !def.accept) throw new Error('addImporter needs accept and import(file, tools)');
+      later(addImporter({ ...def, id: def.id || id, plugin: id, import: def.import }));
     },
     /** Load samples, like Strudel's samples(): a map ({ name: [urls] }) or a strudel.json URL, and a base URL. */
     async addSounds(map, base) {
