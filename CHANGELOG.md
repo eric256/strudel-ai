@@ -2,6 +2,34 @@
 
 The version is in `package.json`. Bump it when you release. Open pages also notice *any* redeploy through the build id, which is a hash of the app files, even if the version wasn't bumped.
 
+## 1.63.0
+- **⬇ Export menu** on a song's toolbar (it replaces ⬇ JSON). It lists:
+  - **📄 Song (JSON)**, as before;
+  - every format the 🧩 export plugins add. Each downloads its file, and where it can, 📋 copies the text or ↗ opens a link.
+- **🌀 Strudel REPL export** (a new example plugin): the whole song as one Strudel program for strudel.cc.
+  - **What's in it:** the part library, then `part: arrange([bars, pattern], …)` per part with each section's chords, fills, key lifts, parts coming in and out, levels, and the bar of silence after a hard ending.
+  - **↗** opens it in strudel.cc with the code in the link, and **📋** copies it.
+  - **Before it's handed over,** the program is built as patterns and a bar of each part is played silently.
+  - **What can't carry over** (the master, routing, faders, tempo changes, solos, crossfades) is listed in its header.
+- **🎹 MIDI export** (a new example plugin): a format-1 `.mid` file.
+  - A track per part, with its General MIDI program; drums map to GM drum notes on channel 10.
+  - It carries the song's tempo and meter, plus note velocities from the patterns.
+  - The notes are read from the song's own patterns, so they're exactly what the app plays.
+- **📝 Lead sheet export** (a new example plugin): the song on one page in Markdown.
+  - Facts: key, tempo, meter, form, band, master, ending.
+  - A form table with each section's moves and which parts play.
+  - A chord chart per section, in its own key.
+  - The melody and hook, and the parts with their sounds, voices and layers.
+- **🧩 Plugins can add exporters:** `api.addExporter({ id, label, icon, ext, mime, copy, open, export(song, tools) })`.
+  - **`tools`:** the song as one program (layout, REPL code, live patterns, every note), a strudel.cc link, GM program and drum lookups.
+  - Documented in PLUGINS.md (*Exporting songs*).
+- **New `lib/song-program.js`:** the whole song as one program.
+  - **What it adds:** a section's part line now comes from one helper (`partCall` in `lib/arrange.js`), shared by the player and the exports.
+  - **What stays the same:** the code the app plays.
+- **Tests:**
+  - unit tests for the song program (fills, key lifts, masks, levels, the hard ending, an imported score), the REPL / JS code, the MIDI writer and tracks, and the lead sheet;
+  - a smoke step turns the plugins on and checks the ⬇ Export menu. It downloads the program and plays it in the editor, checks the strudel.cc link and 📋 copy, the MIDI file and the lead sheet, and that the menu shrinks back when the plugins are off.
+
 ## 1.62.0
 - **🎼 MusicXML import** (a new example 🧩 plugin; turn it on in ⚙ Settings → 🧩 Plugins). **⬆ import** in 🎵 Songs reads `.musicxml`, `.xml` and compressed `.mxl` scores as songs in 📁 My songs:
   - **Parts:** a part per staff (a piano's two hands are two parts), with a staff's voices played together (`stack`).

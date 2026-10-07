@@ -19,6 +19,7 @@ import { addToPlaylist, renderPlaylist, sessionSongs } from './playlist.js';
 import { currentStation } from './stations.js';
 import { bandFromSong, stationFromSong } from './promote.js';
 import { renameSong, setTitle } from './titles.js';
+import { exportSong, exporterList } from './exporters.js';
 import { $, STATUS_ICON, addMsg, cps, engine, fmtTime, isPlaying, jumpTo, nowCycle, player, queue, setHold, showPanel, ws } from '../app.js';
 // ---------------------------------------------------------------------------
 // 🎵 Song lists and song views: the Songs and Station panels, 🎶 Now playing and the section progress bars.
@@ -61,6 +62,7 @@ export function toolbarView(sg, live) {
     sharing: !!sg.sharing,
     renaming: !!sg.renaming,
     naming: sg.editingName ? { title: sg.title } : null,
+    exports: exporterList().filter((x) => x.builtin || (sg.sheet && sg.library)).map(({ id, icon, label, title, copy, open, openTitle }) => ({ id, icon, label, title, copy: !!copy, open: !!open, openTitle })),
   };
 }
 /** The buttons inside a selected song row (templates/songs.js → songRowTools). */
@@ -287,6 +289,11 @@ export function songAction(act, sg, btn, view) {
   }
   else if (act === 'mp3') songMp3(sg);
   else if (act === 'json') download(`${slug(sg.title)}.strudel-song.json`, JSON.stringify(songToJSON(sg), null, 1));
+  else if (act === 'export') {
+    const menu = btn.closest('details');
+    if (menu) menu.open = false;
+    exportSong(btn.dataset.exp, btn.dataset.how || 'download', sg).then((m) => addMsg('info', m), (e) => addMsg('error', `⬇ couldn't export “${sg.title}”: ${e.message}`));
+  }
   else if (act === 'link') shareSong(sg);
   else if (act === 'name') { sg.editingName = true; songsChanged(); requestAnimationFrame(() => { const i = view?.querySelector('.sv-name'); i?.focus(); i?.select(); }); }
   else if (act === 'name-cancel') { sg.editingName = false; songsChanged(); }
