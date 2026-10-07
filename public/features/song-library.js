@@ -9,6 +9,7 @@ import { arrangeSong } from '../lib/arrange.js';
 import { JAM_ARP, JAM_LEAD, padProg, songPads } from './song-pads.js';
 import { $, LOG_JSON_MARK, addMsg, clog, queue, showPanel, warnUser } from '../app.js';
 import { normalizeSheet } from './bands.js';
+import { songRouting } from '../lib/routing.js';
 import { rowTools, songSel, songsChanged, renderSongs, songAction, songMeta } from './song-lists.js';
 
 export let mySongs;
@@ -21,6 +22,7 @@ export function songToJSON(sg) {
     title: sg.title, desc: sg.desc || '',
     sheet: sg.sheet || null, library: sg.library || null,
     pads: sg.pads || null,
+    routing: sg.routing || undefined, // (its own 🔀 Routing board, if it keeps one)
     steps: arranged ? undefined : (sg.blocks || []).filter((b) => b.code).map((b) => ({ bars: b.bars, prompt: b.prompt, code: b.code, fade: b.fade ?? null })),
   };
 }
@@ -37,6 +39,8 @@ export function songFromJSON(j) {
     song.blocks = j.steps.filter((st) => typeof st.code === 'string').map((st) => ({ bars: Number(st.bars) || 8, prompt: String(st.prompt || ''), code: st.code, fade: st.fade ?? undefined, fillStep: !!st.fillStep, section: st.section || undefined, status: 'ready', error: null }));
   } else throw new Error('the song has no sheet and no sections');
   if (!song.blocks.length) throw new Error('the song has no sections');
+  const routing = songRouting(j.routing);
+  if (routing) song.routing = routing;
   song.bars = song.blocks.reduce((a, b) => a + b.bars, 0);
   song.firstStep = song.blocks[0];
   const fresh = songPads(song);

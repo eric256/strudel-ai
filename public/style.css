@@ -967,6 +967,9 @@ body.hydra-behind .code-bar { background: color-mix(in srgb, var(--panel-2) 80%,
 .rt-add, .rt-tpl { display: flex; flex-wrap: wrap; align-items: center; gap: 3px; }
 .rt-tpl select { font-size: 11px; }
 .rt-right { margin-left: auto; display: flex; align-items: center; gap: 8px; }
+.rt-board { display: flex; align-items: center; gap: 6px; }
+.rt-board b { color: var(--fg); font-weight: 600; max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rt-key { display: flex; align-items: center; gap: 6px; margin: 6px 0 2px; font-size: 12px; }
 .rt-zoom { display: flex; gap: 2px; }
 .rt-zoom button { min-width: 24px; }
 .rt-main { flex: 1; min-height: 0; display: flex; }

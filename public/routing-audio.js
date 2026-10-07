@@ -27,6 +27,45 @@ function impulse(ac, size) {
   return buf;
 }
 
+// 🦆 Duck: an envelope follower (an AudioWorklet, loaded once per AudioContext) that listens to the key and turns its
+// level into gain reduction: it outputs -amount·min(1, env·sens), added to a gain of 1.
+const DUCK_WORKLET = `
+class DuckEnv extends AudioWorkletProcessor {
+  static get parameterDescriptors() {
+    return [{ name: 'amount', defaultValue: 0.7, minValue: 0, maxValue: 1, automationRate: 'k-rate' },
+      { name: 'attack', defaultValue: 0.005, minValue: 0.0005, maxValue: 1, automationRate: 'k-rate' },
+      { name: 'release', defaultValue: 0.18, minValue: 0.005, maxValue: 5, automationRate: 'k-rate' },
+      { name: 'sens', defaultValue: 3, minValue: 0, maxValue: 100, automationRate: 'k-rate' }];
+  }
+  constructor() { super(); this.env = 0; }
+  process(inputs, outputs, p) {
+    const ins = inputs[0] || [], out = outputs[0][0];
+    const a = Math.exp(-1 / (sampleRate * p.attack[0])), r = Math.exp(-1 / (sampleRate * p.release[0]));
+    const amount = p.amount[0], sens = p.sens[0];
+    let env = this.env;
+    for (let i = 0; i < out.length; i++) {
+      let x = 0;
+      for (let c = 0; c < ins.length; c++) { const v = Math.abs(ins[c][i]); if (v > x) x = v; }
+      const k = x > env ? a : r;
+      env = x + (env - x) * k;
+      out[i] = -amount * Math.min(1, env * sens);
+    }
+    this.env = env;
+    return true;
+  }
+}
+registerProcessor('strudel-ai-duck', DuckEnv);
+`;
+const duckModules = new WeakMap();
+function duckModule(ac) {
+  if (!ac.audioWorklet) return Promise.reject(new Error('no AudioWorklet'));
+  if (!duckModules.has(ac)) {
+    const url = URL.createObjectURL(new Blob([DUCK_WORKLET], { type: 'text/javascript' }));
+    duckModules.set(ac, ac.audioWorklet.addModule(url));
+  }
+  return duckModules.get(ac);
+}
+
 /** One node's audio block. node: { type, params, off } */
 export function createBlock(ac, node) {
   const input = new GainNode(ac), output = new GainNode(ac);
@@ -38,7 +77,7 @@ export function createBlock(ac, node) {
   output.connect(analyser);
   const own = [input, output, wet, gate, through, analyser];
   const mk = (n) => { own.push(n); return n; };
-  let set = () => {}, live = () => ({});
+  let set = () => {}, live = () => ({}), key = null, ready = Promise.resolve();
 
   // effects with a dry / wet mix: input → dry → wet-out, input → fx → mixWet → wet-out
   const mixed = (fxIn, fxOut) => {
@@ -105,12 +144,41 @@ export function createBlock(ac, node) {
       set = (p, t) => { glide(d.delayTime, p.time, t); glide(fb.gain, p.feedback, t); mix(p.mix, t); };
       break;
     }
+    case 'duck': {
+      // the sound through a gain the key pulls down; the key comes in on the block's `key` input (port 2)
+      const g = mk(new GainNode(ac)), probe = mk(new AnalyserNode(ac, { fftSize: 256 }));
+      key = mk(new GainNode(ac));
+      input.connect(g).connect(wet);
+      let env = null, last = null;
+      const apply = (p, t) => {
+        last = p;
+        if (!env) return;
+        const at = (name, v) => env.parameters.get(name).setValueAtTime(v, t);
+        at('amount', 1 - dbToGain(p.depth)); at('attack', p.attack / 1000); at('release', p.release / 1000); at('sens', p.sens);
+      };
+      ready = duckModule(ac).then(() => {
+        env = mk(new AudioWorkletNode(ac, 'strudel-ai-duck', { numberOfInputs: 1, numberOfOutputs: 1, outputChannelCount: [1] }));
+        key.connect(env);
+        env.connect(g.gain);
+        env.connect(probe);
+        if (last) apply(last, ac.currentTime);
+      }).catch(() => {}); // no worklet: the sound passes as it is
+      set = apply;
+      const buf = new Float32Array(probe.fftSize);
+      live = () => {
+        if (!env) return {};
+        probe.getFloatTimeDomainData(buf);
+        const gain = Math.max(1e-4, 1 + buf[buf.length - 1]);
+        return { duck: Math.round(20 * Math.log10(gain) * 10) / 10 };
+      };
+      break;
+    }
     default: // split, sum: the sound as it is
       input.connect(wet);
   }
 
   const block = {
-    input, output, analyser, type: node.type, live,
+    input, output, analyser, type: node.type, live, key, ready,
     set(params, off) {
       const t = ac.currentTime;
       set(params, t);

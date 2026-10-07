@@ -31,7 +31,7 @@ export function rawSheet(sh) {
     chords: Object.fromEntries(Object.entries(sh.chords).map(([k, v]) => [k, v.replace(/^<|>$/g, '')])),
     parts: sh.parts.map((p) => ({ name: p.id, role: p.role, sound: p.sound, variants: p.variants, desc: p.desc, ...(p.tune ? { tune: p.tune } : {}), ...(p.voices ? { voices: p.voices } : {}), ...(p.layers ? { layers: p.layers } : {}) })),
     sections: sh.sections.map((x) => ({ name: x.name, bars: x.bars, chords: x.chords, play: x.play.map((y) => (y.variant === 'main' ? y.part : `${y.part}.${y.variant}`) + (y.enter ? `@${y.enter}` : '')), ...(x.shift ? { shift: x.shift } : {}), ...(x.bpm ? { bpm: x.bpm } : {}), ...(x.level ? { level: x.level } : {}), ...(x.solo ? { solo: x.solo } : {}) })),
-    ending: sh.ending || 'fade', ...(sh.feel != null ? { feel: sh.feel } : {}),
+    ending: sh.ending || 'fade', ...(sh.feel != null ? { feel: sh.feel } : {}), ...(sh.routing ? { routing: sh.routing } : {}),
   };
 }
 /**

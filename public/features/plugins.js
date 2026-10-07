@@ -32,7 +32,7 @@ import { songsChanged } from './song-lists.js';
 
 const INSTALLED_KEY = 'strudel-ai:plugins';
 const ID_RE = /^[a-z0-9][a-z0-9_-]{0,39}$/i;
-const PROMPT_MODES = ['code', 'sheet', 'library', 'songs'];
+const PROMPT_MODES = ['code', 'sheet', 'library', 'songs', 'routing'];
 
 /** Every plugin we know of: src → { src, kind, url, name, file, def, on, error, cleanup }. */
 const plugins = new Map();

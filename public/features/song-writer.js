@@ -21,6 +21,7 @@ import { nameSong, setTitle, rememberTitle } from './titles.js';
 import { checkTitle, fallbackTitle } from '../lib/titles.js';
 import { arrangeSong, sectionCode } from '../lib/arrange.js';
 import { songPads } from './song-pads.js';
+import { parseChains } from '../lib/routing.js';
 import { songsChanged, updateSetButtons, setNowSong } from './song-lists.js';
 import { sessionSongs } from './playlist.js';
 import { mp3SongStep, mp3TakeEnd } from './mp3.js';
@@ -267,6 +268,18 @@ export function repairSong(song, err) {
  * and the parts each already had 3 tries); a second failure throws: the song is marked failed (✗, with ↻ Try again)
  * and the set / station moves on. (Songs are no longer written block by block.)
  */
+/** The sheet's 🔀 routing lines → the song's own board (heard while it plays). Lines that don't read are skipped. */
+function sheetRouting(song) {
+  const lines = song.sheet?.routing;
+  if (!lines?.length || song.routing) return;
+  const { graph, errors } = parseChains(lines, song.sheet.parts.map((p) => p.id));
+  for (const e of errors) clog('warn', `🔀 “${song.title}” routing: skipped ${e}`);
+  if (graph.nodes.length) {
+    song.routing = { graph, on: true };
+    clog('ok', `🔀 “${song.title}” comes with its own routing: ${lines.length - errors.length} chain${lines.length - errors.length === 1 ? '' : 's'}`);
+  }
+}
+
 async function sheetSteps(song) {
   song.status = 'writing';
   for (let round = 1; ; round++) {
@@ -274,6 +287,7 @@ async function sheetSteps(song) {
       song.sheet = await writeSongSheet(song, queue.abort.signal);
       song.library = await writeSongLibrary(song, queue.abort.signal);
       song.phase = null;
+      sheetRouting(song);
       const steps = arrangeSong(song);
       song.pads = songPads(song);
       return steps;

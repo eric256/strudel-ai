@@ -14,20 +14,20 @@ export const MODES = {
   radio: {
     label: '📻 Radio', title: 'Radio: stations and the playlist write songs for you; play along on the pads, mixer and master',
     preset: { right: ['chat', 'songs', 'station', 'playlist'], bottom: [], now: true },
-    targets: ['auto', 'song', 'pads', 'new'], target: 'auto',
+    targets: ['auto', 'song', 'routing', 'pads', 'new'], target: 'auto',
     code: '// 📻 Radio: start a 📻 station, or play a song from 🎵 Songs or the 📃 Playlist.\n// The code of the section playing shows here.\n',
   },
   studio: {
     label: '🎼 Studio', title: 'Studio: work on one song with the AI — chat changes that song while it plays',
     // the song editor gets the big space under the code
     preset: { right: ['chat', 'songs'], bottom: ['edit', 'mixer', 'master'], bottomHeight: 0.58, now: true }, layoutVersion: 2,
-    targets: ['song', 'auto', 'pads', 'new'], target: 'song',
+    targets: ['song', 'auto', 'routing', 'pads', 'new'], target: 'song',
     code: '// 🎼 Studio: open a song (🎵 Songs → ✎ Edit, or ✨ new song in the chat) and change it with the chat.\n// The code of the section playing shows here.\n',
   },
   jam: {
     label: '⌨ Jam', title: 'Jam: live-code — you and the AI write the code in the editor together (Ctrl+Enter plays it)',
     preset: { right: ['chat'], bottom: ['keys', 'pads', 'viz'], now: false },
-    targets: ['code', 'pads'], target: 'code',
+    targets: ['code', 'routing', 'pads'], target: 'code',
     code: '// ⌨ Jam: write Strudel code here (Ctrl+Enter plays it), or ask the chat: “a dusty boom bap beat at 88 bpm”.\nsetcpm(90/4)\ndrums: s("bd ~ [~ bd] ~, ~ sd ~ sd, hh*8").bank("RolandTR808").gain(0.8)\n',
   },
 };

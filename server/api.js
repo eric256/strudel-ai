@@ -54,7 +54,18 @@ export function cleanSong(s) {
   return {
     title: String(s.title || '').slice(0, 120), desc: String(s.desc || '').slice(0, 1000), sheet,
     library: typeof s.library === 'string' && s.library.length <= 200_000 ? s.library : null, steps,
+    ...(cleanRouting(s.routing) ? { routing: cleanRouting(s.routing) } : {}),
   };
+}
+
+/** A song's own 🔀 Routing board ({ graph: { nodes, edges, pins }, on }) → a plain copy, or null when it isn't one. */
+export function cleanRouting(r) {
+  if (!r || typeof r !== 'object' || !r.graph || typeof r.graph !== 'object') return null;
+  const { nodes, edges, pins } = r.graph;
+  if (!Array.isArray(nodes) || !Array.isArray(edges) || nodes.length > 200 || edges.length > 600) return null;
+  const graph = { nodes, edges, ...(pins && typeof pins === 'object' ? { pins } : {}) };
+  if (JSON.stringify(graph).length > 100_000) return null;
+  return { graph: JSON.parse(JSON.stringify(graph)), on: r.on !== false };
 }
 
 /** A portable song (format strudel-ai-song) for ★ Favorites → cleaned copy, or false when malformed. */
@@ -70,6 +81,8 @@ export function cleanFavSong(s) {
     if (!steps) return false;
     out.steps = steps.steps;
   }
+  const routing = cleanRouting(s.routing);
+  if (routing) out.routing = routing;
   if (Array.isArray(s.pads)) {
     out.pads = s.pads.slice(0, 16).map((p) => ({
       label: String(p?.label || '').slice(0, 24), code: String(p?.code || '').slice(0, 2000),
