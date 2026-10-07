@@ -2,6 +2,38 @@
 
 The version is in `package.json`. Bump it when you release. Open pages also notice *any* redeploy through the build id, which is a hash of the app files, even if the version wasn't bumped.
 
+## 1.65.0
+- **🦆 Sidechain ducking: the Duck node** (🔀 Routing).
+  - It turns its sound down whenever its **key** plays: the pump of house and techno, or room for the kick under a bass. Settings: depth, attack, release, sensitivity.
+  - The key is the node's second input. Pick a part under **🦆 ducks under** in its inspector, or wire any sound in. A key wire is only listened to: the keying part still reaches the master as before, and isn't counted as routed or as a bus.
+  - Its card shows how far it's ducking now. The envelope follower is an `AudioWorklet`.
+  - **Duck to kick:** a new ready-made chain. A Duck goes first in the chains of the pads, bass and chords, keyed by the kick (or the drums); what they had stays.
+- **📌 Routing saved with each song.**
+  - A song can keep its own board. While it plays, the board shows it (📌 and its title in the bar), and changes go to it. The next song that keeps none brings yours back.
+  - In the bar: **📌 keep with this song** (a copy: yours stays), **↩ my board** and **save as mine**.
+  - The board travels with the song: 📁 My songs, song files, share links and ★ favorites. The server keeps it.
+- **🔀 Routing by the AI.**
+  - **In the chat:** a new 🎯 target, **🔀 routing**. In auto, messages about sidechain, ducking, buses, sends or parallel compression go there too.
+  - **What the AI gets:** the song, its parts and the routing now, written as chains (`pad > duck(key=drums, depth=-12) > verb(mix=0.35) > master`). It replies with chains.
+  - **Where the chains go:** on the song's own board (without a song, on the board shown). What's after the master stays.
+  - **Bad lines:** a line naming a part or effect that doesn't exist is skipped and logged.
+  - **Settings:** a new prompt, ⚙ Settings → Prompts → **Routing**, which plugins can add to as well.
+  - **Songs come with routing:** the song sheet can carry a few chains that fit the genre, such as ducking under the kick, a drum bus or an echo send. A song written with them plays through its own board.
+- **Chains as text** (`lib/routing.js`): `parseChains` reads chain lines, with buses (`kick+snare`), parallel paths (`par(…)`), Ducks with their keys and aliases (`reverb`, `echo`, `sidechain` …). `describeChains` writes them back.
+- **Tests:**
+  - **Unit:**
+    - Duck key wires: not routes and not buses. They stay put when adding after the keying part, removing the Duck or unrouting.
+    - Duck to kick.
+    - Parsing chains (bad lines skipped whole) and describing them back, round trip included.
+    - New chains keep what's after the master.
+    - A song's board through songRouting, the sheet and the server.
+    - The routing prompt gets no editor code.
+  - **Smoke:**
+    - Duck to kick dips bass and pad under the playing drums. The worklet is heard, and the inspector shows the key.
+    - 📌 keep with this song and ↩ my board.
+    - The AI's chains through the 🔀 routing chat: the request carries the parts and chains, and a bad line is skipped.
+    - A song written with routing brings its board, and the previous song's board comes back with it.
+
 ## 1.64.0
 - **☁ Netlify:** the app deploys to Netlify as it is (`netlify.toml`, README → *Deploy to Netlify*).
   - **The site:** a static site built into `dist/` by `npm run build:netlify`.

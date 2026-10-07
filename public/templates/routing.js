@@ -6,8 +6,11 @@ import { html } from '../html.js';
  * v: { on,
  *      sel: null | { node: { id, label, title, off, controls: [{ key, label, min, max, step, def, value, unit }] } }
  *                | { part: { base, routed } } | { master: { name, style } } | { edge: { from, to, fromLabel, toLabel } },
- *      add: [{ type, label, title }], templates: [{ key, label, title }], targets: [string], target }
- * act: { toggle(on), add(type), template(key), target(part), tidy(), clear(), remove(), off(), insert(type), zoom(-1 | 0 | 1) }
+ *      (a Duck's node also has duck: { key (the part it listens to, or ''), parts })
+ *      add: [{ type, label, title }], templates: [{ key, label, title }], targets: [string], target,
+ *      board: { song (the title of the song whose own board this is, or null: yours), playing (the song playing's title) } }
+ * act: { toggle(on), add(type), template(key), target(part), tidy(), clear(), remove(), off(), insert(type), zoom(-1 | 0 | 1),
+ *        keep() (📌 the board goes with the song playing), mine() (↩ back to yours), asDefault(), duckKey(part) }
  */
 const esc = (t) => String(t ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 const attrs = (o) => Object.entries(o || {}).map(([k, v]) => ` data-${k}="${esc(v)}"`).join('');
@@ -71,6 +74,12 @@ export function routing(v, act) {
         <select @change=${(e) => act.target(e.target.value)}>${v.targets.map((t) => html`<option ?selected=${t === v.target}>${t}</option>`)}</select>
         ${v.templates.map((t) => html`<button title=${t.title} @click=${() => act.template(t.key)}>${t.label}</button>`)}
       </span>
+      <span class="rt-board">${v.board.song
+        ? html`<b title="This song keeps its own board: changes stay with it">📌 ${v.board.song}</b>
+          <button class="link" title="Let the song go back to your board (its own is dropped)" @click=${act.mine}>↩ my board</button>
+          <button class="link" title="Make this board yours too (for songs that keep none)" @click=${act.asDefault}>save as mine</button>`
+        : html`<span class="muted" title="Your board: every song that doesn't keep its own plays through it">your board</span>${v.board.playing
+          ? html` <button class="link" title=${`Keep this board with “${v.board.playing}” (a copy: yours stays as it is)`} @click=${act.keep}>📌 keep with this song</button>` : ''}`}</span>
       <span class="rt-right">
         <span class="rt-zoom"><button title="Zoom out (Ctrl + wheel)" @click=${() => act.zoom(-1)}>−</button><button title="Fit: the whole graph in view" @click=${() => act.zoom(0)}>⟲</button><button title="Zoom in (Ctrl + wheel)" @click=${() => act.zoom(1)}>＋</button></span>
         <button class="link" title="Lay the graph out again" @click=${act.tidy}>tidy</button>
@@ -81,6 +90,10 @@ export function routing(v, act) {
       <div class="rt-insp">${sel?.node ? html`
           <div class="rt-insp-head"><b>${sel.node.label}</b><span class="muted small">${sel.node.title}</span></div>
           <div class="muted small">${sel.node.controls.length ? 'Its knobs are on the node: drag up / down (Shift: fine), double-click for the default.' : sel.node.label === 'Split' ? 'No settings: it copies the sound to both of its outputs.' : 'No settings: it adds what comes into it.'}</div>
+          ${sel.node.duck ? html`<label class="rt-key" title="The part it listens to: when that part hits, this one dips">🦆 ducks under
+            <select @change=${(e) => act.duckKey(e.target.value)}><option value="" ?selected=${!sel.node.duck.key}>— pick a part —</option>
+              ${sel.node.duck.parts.map((p) => html`<option ?selected=${p === sel.node.duck.key}>${p}</option>`)}</select></label>
+            <div class="muted small">Or wire any sound into its second input (●₂).</div>` : ''}
           <div class="rt-insp-btns"><button class=${sel.node.off ? 'on' : ''} title="Bypass: the sound passes through untouched" @click=${act.off}>⏻ ${sel.node.off ? 'off' : 'on'}</button>
             <button title="Remove it (what fed it then feeds what it fed)" @click=${act.remove}>✕ remove</button></div>`
         : sel?.part ? html`

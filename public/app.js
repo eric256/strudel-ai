@@ -43,6 +43,7 @@ import { bandFromSong, promoteJam, stationFromSong, setup as setup_promote } fro
 import { openPartEditor, setup as setup_part_editor } from './features/part-editor.js';
 import { openEqualizer, setup as setup_equalizer } from './features/equalizer.js';
 import { routing, applyRouting, setup as setup_routing } from './features/routing.js';
+import { setup as setup_routing_ai } from './features/routing-ai.js';
 import { signInWithCredential, setup as setup_account } from './features/account.js';
 import { getTaste, setTaste, avoidSound, likeSound, setup as setup_taste } from './features/taste.js';
 import { html, nothing, render, renderOptions } from './html.js';
@@ -1641,6 +1642,7 @@ setup_mixer(); // features/mixer.js
 setup_master_panel(); // features/master-panel.js
 setup_equalizer(); // features/equalizer.js
 setup_routing(); // features/routing.js
+setup_routing_ai(); // features/routing-ai.js
 // ---------------------------------------------------------------------------
 // Status bar (bottom): bar.beat + tempo, the song / section playing, the pending
 // change, the recording, replay and update notices.
@@ -1740,7 +1742,7 @@ export function chatContext(text) {
   return out.join('\n\n');
 }
 /**
- * 🎯 What the chat works on: auto | code | song | pads. "song" falls back to auto when no song is open; auto means the
+ * 🎯 What the chat works on: auto | code | song | routing | pads. "song" falls back to auto when no song is open; auto means the
  * whole song while the editor shows a section of the song that's playing (an edit to just that section's code would
  * be replaced at the next section), otherwise the code.
  */
@@ -1781,7 +1783,7 @@ function renderChatTarget() {
   }
   $('chatTarget').querySelector('option[value="auto"]').textContent = auto ? 'auto → whole song' : 'auto';
   if ($('chatTarget').value === 'new') { $('input').placeholder = 'Describe a new song: style, tempo, key, mood, instruments… (or “Title | description”)'; return; }
-  $('input').placeholder = { song: sg ? `Change the whole song “${sg.title}”… (sections, chords, parts)` : 'No song is open — open one in 🎵 Songs (Enter to send)', pads: 'Program or press the pads… (Enter to send)', code: 'Change the code in the editor… (Enter to send, Shift+Enter for newline)' }[auto ? 'song' : $('chatTarget').value]
+  $('input').placeholder = { song: sg ? `Change the whole song “${sg.title}”… (sections, chords, parts)` : 'No song is open — open one in 🎵 Songs (Enter to send)', pads: 'Program or press the pads… (Enter to send)', routing: 'Ask for effect chains: “duck the bass and pad under the kick”, “a drum bus”, “dub echo on the keys”…', code: 'Change the code in the editor… (Enter to send, Shift+Enter for newline)' }[auto ? 'song' : $('chatTarget').value]
     || 'Make it groovier… (Enter to send, Shift+Enter for newline)';
 }
 player.on('song', onceAFrame(renderChatTarget));

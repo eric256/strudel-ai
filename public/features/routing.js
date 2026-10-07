@@ -5,15 +5,17 @@
 //   the master's sections (right: EQ7, Tone, Filter, Colour, Space, Echo, Dynamics, Output) → out (master volume).
 // The graph and its rules are lib/routing.js, the effect blocks routing-audio.js; the parts' sources and the master's
 // inputs (strips) are features/mixer.js, the master's chain features/master-panel.js + master.js — the 🎚 Mixer
-// and 🎛 Master panels are simpler views of the same. Kept per part name in the browser, like the mixer.
+// and 🎛 Master panels are simpler views of the same. Kept per part name in the browser, like the mixer — your board —
+// or, for a song that keeps its own (📌, or the one the AI wrote with it), with the song: it's shown while it plays.
 // ---------------------------------------------------------------------------
-import { $, addMsg, docks, isPlaying, load, player, save, setupDock, ws } from '../app.js';
+import { $, addMsg, docks, isPlaying, load, player, queue, save, setupDock, ws } from '../app.js';
+import { isMine, saveMySongs } from './song-library.js';
 import { render } from '../html.js';
 import { T, onTemplatesChange } from '../templates/index.js';
 import {
   MFX, NODE_TYPES, OUT, SINK, TEMPLATES, addNode, canConnect, connect, deadEnds, edgeKey, freeInput, inPorts, inputKey, layoutGraph,
   masterInputs, nodeSummary, normGraph, outPorts, partOf, removeEdge, removeNode, routedParts, srcId, unfed, unplace,
-  unroutePart, visibleGraph, withPost, postNodes, layoutPost,
+  unroutePart, visibleGraph, isKey, describeChains, withChains, withPost, postNodes, layoutPost,
 } from '../lib/routing.js';
 import { createBlock } from '../routing-audio.js';
 import { busList, busStrip, channelHooks, channelIfAny, chOf, fxHook, masterAnalyser, mixer, mixerChannels, sdController, setChannel, stripIfAny } from './mixer.js';
@@ -29,8 +31,54 @@ export const routing = {
   live: null,       // the audio: { ctrl, ac, blocks: { id: block }, wired: [[a, b]], closed: [part] }
   df: null,         // the canvas (Drawflow)
   raf: 0, hist: {},
+  owner: null,      // whose board is shown: null (yours) or the song playing, which keeps its own
 };
-const saveRouting = () => save({ routing: { graph: routing.graph, on: routing.on } });
+const board = () => JSON.parse(JSON.stringify({ graph: routing.graph, on: routing.on }));
+let mineSoon = 0;
+/** Keep the board: with the song that owns it (My songs are saved too), or as yours. */
+const saveRouting = () => {
+  const sg = routing.owner;
+  if (!sg) { save({ routing: board() }); return; }
+  sg.routing = board();
+  if (isMine(sg)) { clearTimeout(mineSoon); mineSoon = setTimeout(saveMySongs, 500); }
+};
+const nowPlaying = () => (queue.running && queue.songs[queue.current]) || null;
+/** Show the board of a song (its own, or yours when it keeps none) — and hear it. */
+export function followSong(sg, { force = false } = {}) {
+  const owner = sg?.routing ? sg : null;
+  if (!force && owner === routing.owner) return;
+  routing.owner = owner;
+  const b = owner ? owner.routing : load().routing;
+  routing.graph = normGraph(b?.graph);
+  routing.on = b?.on !== false;
+  routing.sel = null;
+  df.key = '';
+  df.fitted = false;
+  applyRouting();
+  renderRouting();
+}
+/** Give a song its own board (the AI's chains): heard now if it's playing. */
+export function setSongBoard(sg, graph) {
+  sg.routing = { graph: normGraph(graph), on: true };
+  if (isMine(sg)) saveMySongs();
+  if (nowPlaying() === sg || routing.owner === sg) followSong(sg, { force: true });
+}
+/** The board shown now as chain lines (what the AI reads). */
+export const boardChains = () => describeChains(routing.graph);
+/**
+ * The AI's chains (parseChains' graph) on a board — what's after the master stays: the song's own board when a song
+ * is given (heard when it plays), else the board shown now. Returns where they went: 'song' | 'board'.
+ */
+export function applyChains(chains, sg = null) {
+  if (sg) {
+    const base = sg.routing?.graph || (routing.owner === sg ? routing.graph : load().routing?.graph) || { nodes: [], edges: [] };
+    setSongBoard(sg, withChains(normGraph(base), chains));
+    return 'song';
+  }
+  routing.on = true;
+  setGraph(withChains(routing.graph, chains));
+  return 'board';
+}
 
 // ---- audio ----
 function ctxOf(ctrl) { return ctrl?.output?.channelMerger?.context || null; }
@@ -85,6 +133,7 @@ export function applyRouting() {
   const inOf = (e) => {
     if (e.to === MFX) return L.post?.chain.input;
     if (e.to === OUT) return L.post?.dest;
+    if (isKey(g, e)) return L.blocks[e.to]?.key; // a 🦆 Duck's key (the sound it listens to)
     if (e.to !== SINK) return L.blocks[e.to]?.input;
     const key = inputKey(g, e.from);
     return key.startsWith('bus:') ? busStrip(key, ctrl, returnBus(ctrl)).in : channelIfAny(key)?.in;
@@ -188,11 +237,40 @@ const act = {
     const t = TEMPLATES[key];
     const chans = mixerChannels();
     const parts = t.needs === 'parts' ? t.pick(chans) : [routing.target || chans[0]?.base].filter(Boolean);
-    if (!parts.length) { flash(t.needs === 'parts' ? 'no drum parts here' : 'no part to route'); return; }
+    if (!parts.length) { flash(t.needs === 'parts' ? t.none || 'no drum parts here' : 'no part to route'); return; }
     routing.sel = null;
     setGraph(t.build(routing.graph, parts));
   },
   target(p) { routing.target = p; },
+  // 📌 the board goes with the song playing (it's a copy of what's shown: yours stays as it is)
+  keep() {
+    const sg = nowPlaying();
+    if (!sg) { flash('play a song first: its board is kept with it'); return; }
+    routing.owner = sg;
+    saveRouting();
+    if (isMine(sg)) saveMySongs();
+    flash(`this board now goes with “${sg.title}”${isMine(sg) ? '' : ' (save the song to 📁 My songs to keep it)'}`);
+    renderRouting();
+  },
+  // ↩ the song lets its board go: yours again
+  mine() {
+    const sg = routing.owner;
+    if (!sg) return;
+    delete sg.routing;
+    if (isMine(sg)) saveMySongs();
+    followSong(null);
+    flash(`“${sg.title}” plays through your board again`);
+  },
+  // the song's board becomes yours too
+  asDefault() { save({ routing: board() }); flash('this board is now your board for songs that keep none'); },
+  // 🦆 which part a Duck listens to
+  duckKey(part) {
+    const id = routing.sel?.node;
+    if (!id) return;
+    let g = { ...routing.graph, edges: routing.graph.edges.filter((e) => !(e.to === id && isKey(routing.graph, e) && partOf(e.from) != null)) };
+    if (part) g = connect(withPost(g), srcId(part), id, { tp: 1 });
+    setGraph(g);
+  },
   tidy() { setGraph(unplace(routing.graph), { rebuild: false }); }, // (parts and the master go back to their places too)
   clear() { routing.sel = null; setGraph({ nodes: [], edges: [] }); },
   remove() {
@@ -233,6 +311,7 @@ export function renderRouting() {
   const s = routing.sel;
   const routed = routedParts(g);
   const selNode = s?.node && g.nodes.find((n) => n.id === s.node);
+  const playingSong = nowPlaying();
   const post = isPost(s?.node) ? s.node : null;
   const view = {
     on: routing.on,
@@ -240,6 +319,10 @@ export function renderRouting() {
       node: {
         id: selNode.id, label: NODE_TYPES[selNode.type].label, title: NODE_TYPES[selNode.type].title, off: !!selNode.off,
         controls: Object.entries(NODE_TYPES[selNode.type].params).map(([key, [min, max, step, def, lbl, unit]]) => ({ key, label: lbl, min, max, step, def, unit, value: selNode.params[key] })),
+        duck: selNode.type === 'duck' ? {
+          key: g.edges.filter((e) => e.to === selNode.id && isKey(g, e)).map((e) => partOf(e.from)).find((p) => p != null) || '',
+          parts: chans.map((c) => c.base),
+        } : null,
       },
     } : s?.node && partOf(s.node) != null ? { part: { base: partOf(s.node), routed: routed.includes(partOf(s.node)) } }
       : s?.node === SINK || post ? { master: { name: post === MFX ? '🎛 Master FX' : post === OUT ? '🔊 Out' : 'Master', style: master.style } }
@@ -248,6 +331,7 @@ export function renderRouting() {
     templates: Object.entries(TEMPLATES).map(([key, t]) => ({ key, label: t.label, title: t.title })),
     targets: chans.map((c) => c.base),
     target: routing.target || chans[0]?.base || '',
+    board: { song: routing.owner?.title || null, playing: playingSong?.title || null },
   };
   render(T.routing(view, act), el);
   syncCanvas(el.querySelector('.rt-df'));
@@ -546,9 +630,9 @@ function draw() {
     h.forEach((v, i) => { const x = (i / (HIST - 1)) * w, y = ht - 2 - v * (ht - 4); i ? g.lineTo(x, y) : g.moveTo(x, y); });
     g.stroke();
   }
-  // compressors: their gain reduction now
+  // compressors and ducks: their gain reduction now
   for (const n of routing.graph.nodes) {
-    if (n.type !== 'comp') continue;
+    if (n.type !== 'comp' && n.type !== 'duck') continue;
     const b = routing.live?.blocks[n.id];
     const sub = el.querySelector(`.rt-sub[data-id="${n.id}"]`);
     if (sub && b) sub.textContent = nodeSummary(routing.graph, n, playing ? b.live() : {});
@@ -626,6 +710,8 @@ export function setup() {
   // the music changes (a new song, a section, the code): the board follows — its parts, and their inputs on the master
   const soon = (() => { let t = 0; return () => { if (!t) t = setTimeout(() => { t = 0; if (docks.route?.on && !routing.df?.drag && !routing.df?.connection) renderRouting(); }, 60); }; })();
   for (const ev of ['song', 'section', 'mode', 'transport']) player.on(ev, soon);
+  // a song that keeps its own board brings it; the next one that doesn't brings yours back
+  player.on('song', (e) => followSong(e?.song || nowPlaying()));
   // the audio engine can be rebuilt (and channels come and go): keep the graph wired, and the board current
   setInterval(() => {
     const ctrl = sdController();

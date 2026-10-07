@@ -2,9 +2,9 @@
 // server) and on Netlify (functions and edge functions) alike. It builds the chat request (system prompt, the
 // editor's code, the loaded sounds), sends it to the chosen provider, and streams the reply back as OpenAI-style
 // server-sent events, which the browser parses. Claude is called through its HTTP API directly.
-import { SYSTEM_PROMPT, SONGS_PROMPT, SHEET_PROMPT, LIBRARY_PROMPT, TITLE_PROMPT } from '../prompt.js';
+import { SYSTEM_PROMPT, SONGS_PROMPT, SHEET_PROMPT, LIBRARY_PROMPT, TITLE_PROMPT, ROUTING_PROMPT } from '../prompt.js';
 
-export const PROMPTS = { code: SYSTEM_PROMPT, songs: SONGS_PROMPT, sheet: SHEET_PROMPT, library: LIBRARY_PROMPT, title: TITLE_PROMPT };
+export const PROMPTS = { code: SYSTEM_PROMPT, songs: SONGS_PROMPT, sheet: SHEET_PROMPT, library: LIBRARY_PROMPT, title: TITLE_PROMPT, routing: ROUTING_PROMPT };
 const trimSlash = (s) => (s || '').replace(/\/+$/, '');
 
 /** The providers, from the environment (all OpenAI-compatible chat APIs, plus Claude). */
@@ -124,7 +124,7 @@ export function chatBody(s, req) {
   const p = s.providers[provider] || s.providers[s.defaultProvider];
   const history = (Array.isArray(messages) ? messages : []).slice(-12).map((m) => ({ role: m.role, content: String(m.content) }));
   // the live editor contents go into the latest user turn, so the model always edits the real code
-  if (!['songs', 'sheet', 'library', 'title'].includes(mode) && history.length && history[history.length - 1].role === 'user') {
+  if (!['songs', 'sheet', 'library', 'title', 'routing'].includes(mode) && history.length && history[history.length - 1].role === 'user') {
     const last = history[history.length - 1];
     last.content =
       (fixing

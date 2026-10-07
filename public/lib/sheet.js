@@ -105,7 +105,13 @@ export function normalizeSheet(raw, choice = 'auto', { enforceForm = true, band:
   // the feel: the sheet's, else the band's, else its master style's
   const feel = normFeel(raw.feel) ?? normFeel(band?.feel) ?? STYLE_FEEL[masterStyle] ?? 0;
   return { form: form?.name || String(raw.form || ''), ...(band ? { band: band.name } : {}), master: masterStyle, ...(Object.keys(tweaks).length ? { masterParams: tweaks } : {}),
-    bpm, meter, key: String(raw.key || scale.replace(':', ' ')), scale, chords, hook, ...(melody ? { melody } : {}), parts, sections, ending, feel };
+    bpm, meter, key: String(raw.key || scale.replace(':', ' ')), scale, chords, hook, ...(melody ? { melody } : {}), parts, sections, ending, feel,
+    ...(routingLines(raw.routing).length ? { routing: routingLines(raw.routing) } : {}) };
+}
+/** The sheet's 🔀 routing: chain lines (lib/routing.js parseChains reads them) — an array, or one text of lines. */
+export function routingLines(r) {
+  const lines = Array.isArray(r) ? r : typeof r === 'string' ? r.split('\n') : [];
+  return lines.filter((l) => typeof l === 'string' && l.trim()).map((l) => l.trim().slice(0, 400)).slice(0, 16);
 }
 
 /**

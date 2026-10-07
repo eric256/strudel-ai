@@ -344,7 +344,7 @@ async function shareSong(sg) {
       body: JSON.stringify({
         code: steps[0].code,
         title: sg.title,
-        song: { title: sg.title, desc: sg.desc, sheet: sg.sheet || null, library: sg.library || null, steps },
+        song: { title: sg.title, desc: sg.desc, sheet: sg.sheet || null, library: sg.library || null, routing: sg.routing || null, steps },
       }),
     });
     const j = await r.json();

@@ -20,6 +20,8 @@ const sheet = (last) => ({
     { name: 'chorus', bars: 4, chords: 'chorus', play: ['drums', 'bass', 'pad', 'hook'] },
     { name: 'outro', bars: 4, chords: 'verse', play: ['pad'] },
   ],
+  // a song described with ROUTED comes with its own routing
+  ...(/ROUTED/.test(last) ? { routing: ['pad > duck(key=drums, depth=-12) > master', 'drums > comp(thresh=-20) > master'] } : {}),
 });
 function library(req) {
   const ids = [...req.matchAll(/^- (\w+)\s+\[(function of prog|plain pattern)\]/gm)].map((m) => [m[1], m[2]]);
@@ -93,6 +95,10 @@ export function startMockAI(port) {
       else if (sys.startsWith('You are a songwriter')) { kind = 'sheet'; content = JSON.stringify(sheet(last)); }
       else if (sys.startsWith('You write the PART LIBRARY')) { kind = 'library'; content = library(last); }
       else if (sys.startsWith('You name ONE instrumental song')) { kind = 'title'; content = title(last); }
+      else if (sys.startsWith('You are the mix engineer')) {
+        kind = 'routing';
+        content = 'A pumping mix: bass and pad duck under the drums.\n```routing\nbass > duck(key=drums, depth=-14) > master\npad > duck(key=drums) > verb(size=3, mix=0.3) > master\nghost > comp > master\n```';
+      }
       else if (sys.startsWith('You are the music director')) { kind = 'songs'; content = 'Night Drive | synthwave with a driving bass\nRain Loop | slow lo-fi with soft keys\nSky Steps | bright house with piano chords'; }
       // a whole-song chat edit asking for ADDVERSES: the active song's sheet with two more verses before its last section
       // (repeats of the verse, with its name — songs repeat names: A, B, A)

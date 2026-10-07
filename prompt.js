@@ -160,6 +160,41 @@ Glass Harbor | lo-fi house, 118 bpm, C dorian, warm Rhodes chords, soft kick, sh
 // Song sheets (Songs tab / Station): the AI plans the whole song as data, then
 // writes every part once; the app arranges the sections from those parts.
 // ---------------------------------------------------------------------------
+// 🔀 Routing chains: the text form of the routing board (public/lib/routing.js → parseChains), in two prompts
+const ROUTING_DSL = `One line per chain, left to right, from a part (or several parts joined with +, a bus) through
+effects to the master:
+  drums > comp(thresh=-18, ratio=4) > sat(drive=3) > master
+  kick+snare > comp(ratio=3, attack=20) > master                  several parts into one bus
+  pad > duck(key=drums, depth=-12, release=200) > verb(size=4, mix=0.35) > master
+  keys > par(verb(size=6, mix=1) > filter(lp=3000)) > master     a parallel path summed under the dry sound
+Effects and their settings (anything left out keeps its default):
+  comp(thresh -60…0 dB, ratio 1…20, attack 0…100 ms, release 10…1000 ms, makeup 0…24 dB)
+  sat(drive 0…30 dB, mix 0…1)          filter(hp 20…2000 Hz, lp 200…20000 Hz)
+  eq(low, mid, high: -12…12 dB)        eq7(60, 150, 400, 1k, 2.5k, 6k, 12k: -12…12 dB per band)
+  verb(size 0.2…8 s, mix 0…1)          delay(time 0.02…1 s, feedback 0…0.9, mix 0…1)
+  gain(db -24…12)
+  duck(key=<part>, depth -30…0 dB, attack 1…100 ms, release 20…1000 ms, sens 0.5…10): sidechain ducking — the part
+    dips whenever the key part plays (the pump of house, techno, EDM; room for the kick under a bass or a pad)
+  par(<effects> > …): a parallel path (New York compression, a wet reverb or echo under the dry sound)
+Use only the parts that exist (their exact names). Each part at most once; a part not listed goes straight to the master.`;
+
+export const ROUTING_PROMPT = `You are the mix engineer of a song performed live in Strudel. You design its ROUTING: the
+effect chains each part goes through on its way to the master (the master's own mastering comes after; don't add it).
+The request gives the parts (name, role, sound), the song's genre and mood, the routing it has now (maybe none) and
+what the performer wants.
+
+${ROUTING_DSL}
+
+Guidance:
+- Do what the request asks; otherwise make the mix sound like the genre: dance music ducks bass and pads under the kick
+  (depth -6 to -14 dB, release 120–250 ms); drums often share a bus with glue compression; vocals-like leads get a
+  little compression and space; pads and keys sit back with reverb; dub and reggae send to echo; lo-fi saturates and
+  rolls off the highs; rock and funk drive their bass and guitars; ambient goes wide and wet.
+- Keep it musical and modest: 1–4 effects per chain, only the parts that need something. Changing the routing that is
+  there: keep the lines that are fine and change what's asked.
+Reply with one short sentence about the mix, then ONE fenced code block with language "routing" holding the chain
+lines — the complete routing (every chain you want kept), nothing else in it.`;
+
 export const SHEET_PROMPT = `You are a songwriter and arranger planning ONE instrumental song that will be performed live
 with Strudel (synths, drum machines, recorded acoustic instruments, samples and General-MIDI soundfonts; no vocals) —
 electronic, a band or acoustic, whatever the description asks for.
@@ -200,6 +235,11 @@ Example:
     { "name": "solo", "bars": 8, "chords": "bridge", "play": ["pad", "keys.alt1", "drums.half", "bass", "counter.solo"], "solo": "counter" },
     { "name": "chorus", "bars": 4, "chords": "chorus", "play": ["drums", "bass", "keys", "hook", "hook.harmony", "counter"], "shift": 2, "bpm": 106, "level": 1.15 },
     { "name": "outro", "bars": 4, "chords": "verse", "play": ["pad", "hook@out", "riff"], "shift": 2, "level": 0.8 }
+  ],
+  "routing": [
+    "drums > comp(thresh=-20, ratio=3) > master",
+    "pad > duck(key=drums, depth=-9) > verb(size=4, mix=0.35) > master",
+    "hook > par(delay(time=0.43, feedback=0.4, mix=1) > filter(hp=400)) > master"
   ]
 }
 
@@ -302,6 +342,9 @@ Rules:
   * step the "level" gradually (0.7 → 0.85 → 1 → 1.1), not from soft to loud in one jump, except for a deliberate drop;
   * use "half" or alt variants as a bridge between a sparse and a full section.
   Keep drums and bass through most of the song; intro, breakdown and outro thin out.
+- ROUTING (optional): effect chains for a few parts, the way the genre mixes them — ducking under the kick for dance
+  music, a drum bus, a reverb or echo path. Leave it out (or []) when the parts sound right as they are. The lines:
+${ROUTING_DSL.replace(/^/gm, '  ')}
 - Use the "space" sample rarely. Stay true to the song description: genre, tempo, key and mood.`;
 
 export const TITLE_PROMPT = `You name ONE instrumental song. The request gives the song, the SHAPE its title must have, and

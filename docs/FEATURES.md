@@ -68,6 +68,9 @@ You and the AI write one piece of code in the editor; 🎼 Make it a song grows 
 ![Equalizer](screenshots/16b-equalizer.png)
 
 **🔀 Routing:** the whole signal path on one board. The parts (left) go through their effects (Split / Sum, Comp, Sat, EQ, EQ7, Filter, Verb, Delay) into the **Master** block, a row per channel with its fader, pan and mute / solo, level with its part. Then **Master FX** (all the master's sections, with knobs and ⏻) and **Out**. Here the drums share a bus, and the lead has a 100 % wet reverb path summed under it.
+- **🦆 Duck:** sidechain ducking. A part dips whenever its key part plays: the pump of dance music, or room for the kick. **Duck to kick** puts one on the pads, bass and chords at once.
+- **📌 A song's own board:** a song can keep its routing, and it travels with the song (My songs, files, shares, favorites). Other songs play through yours.
+- **The AI routes too:** set the chat's 🎯 to **🔀 routing** and ask for “a drum bus” or “duck the bass under the kick”. New songs can come with routing that fits their genre.
 ![Routing](screenshots/16c-routing.png)
 
 ## Visuals

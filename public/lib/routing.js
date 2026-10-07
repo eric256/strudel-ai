@@ -25,6 +25,10 @@ export const NODE_TYPES = {
   filter: { label: 'Filter', kind: 'dyn', title: 'High-pass and low-pass', params: { hp: [20, 2000, 1, 20, 'hp', 'Hz'], lp: [200, 20000, 10, 20000, 'lp', 'Hz'] } },
   verb: { label: 'Verb', kind: 'space', title: 'Reverb', params: { size: [0.2, 8, 0.1, 2, 'size', 's'], mix: [0, 1, 0.05, 0.3, 'mix', ''] } },
   delay: { label: 'Delay', kind: 'space', title: 'Echo', params: { time: [0.02, 1, 0.01, 0.25, 'time', 's'], feedback: [0, 0.9, 0.01, 0.35, 'fdbk', ''], mix: [0, 1, 0.05, 0.3, 'mix', ''] } },
+  duck: {
+    label: 'Duck', kind: 'dyn', title: 'Sidechain ducking: turns this sound down whenever the key (its 2nd input, e.g. the kick) plays — the pump of house and EDM, room for the kick in a busy mix',
+    params: { depth: [-30, 0, 0.5, -10, 'depth', 'dB'], attack: [1, 100, 1, 5, 'attack', 'ms'], release: [20, 1000, 5, 180, 'release', 'ms'], sens: [0.5, 10, 0.1, 3, 'sens', '×'] },
+  },
 };
 export const SINK = 'master';
 /**
@@ -49,7 +53,21 @@ const clamp = (v, [min, max, step, def]) => {
 // Ports: a Split has two outputs (fp: 0 | 1), a Sum two inputs (tp: 0 | 1). Both are visual (each output of a
 // Split carries the same sound; a Sum adds everything that comes in), so a path's place is clear on the canvas.
 export const outPorts = (type) => (type === 'split' ? 2 : 1);
-export const inPorts = (type) => (type === 'sum' ? 2 : 1);
+export const inPorts = (type) => (type === 'sum' || type === 'duck' ? 2 : 1);
+/**
+ * A Duck's second input is its key (the sidechain): what comes in there only steers the ducking — it isn't heard
+ * through the Duck. So a key wire doesn't route its part (the part still goes its own way to the master), doesn't
+ * make a bus, and stays when its part is unrouted.
+ */
+/** A song's own board from its JSON ({ graph, on }) → normalised, or null (none, or nothing on it). */
+export function songRouting(r) {
+  if (!r || typeof r !== 'object' || !r.graph) return null;
+  const graph = normGraph(r.graph);
+  return graph.nodes.length || graph.edges.length ? { graph, on: r.on !== false } : null;
+}
+export const isKey = (g, e) => e.tp === 1 && typeOf(g.nodes, e.to) === 'duck';
+/** The wires that carry sound (all but the Ducks' keys). */
+export const audioEdges = (g) => g.edges.filter((e) => !isKey(g, e));
 const typeOf = (nodes, id) => nodes.find((n) => n.id === id)?.type;
 export const edgeKey = (e) => `${e.from}:${e.fp || 0}>${e.to}:${e.tp || 0}`;
 const sameEdge = (a, b) => a.from === b.from && a.to === b.to && (a.fp || 0) === (b.fp || 0) && (a.tp || 0) === (b.tp || 0);
@@ -78,7 +96,7 @@ export function normGraph(g) {
     if (!ok(from) || !ok(to) || from === to || from === OUT || partOf(to) != null) continue;
     const edge = { from, to };
     if (e.fp === 1 && typeOf(nodes, from) === 'split') edge.fp = 1;
-    if (e.tp === 1 && typeOf(nodes, to) === 'sum') edge.tp = 1;
+    if (e.tp === 1 && ['sum', 'duck'].includes(typeOf(nodes, to))) edge.tp = 1;
     if (edges.some((x) => sameEdge(x, edge))) continue;
     if (reaches({ edges }, to, from)) continue; // would close a loop
     edges.push(edge);
@@ -129,7 +147,7 @@ export const canConnect = (g, from, to, { fp = 0, tp = 0 } = {}) => from !== to 
   && !g.edges.some((e) => sameEdge(e, { from, to, fp, tp })) && !reaches(g, to, from);
 
 /** The parts that are routed (have an edge from their source): the others go straight to the master. */
-export const routedParts = (g) => [...new Set(g.edges.map((e) => partOf(e.from)).filter((p) => p != null))];
+export const routedParts = (g) => [...new Set(audioEdges(g).map((e) => partOf(e.from)).filter((p) => p != null))];
 /** Nodes whose sound never reaches the master (a dead end: you won't hear what goes in). */
 export const deadEnds = (g) => g.nodes.filter((n) => !reaches(g, n.id, SINK) && !reaches(g, n.id, OUT)).map((n) => n.id);
 /** Nodes nothing flows into (they make no sound). */
@@ -158,7 +176,7 @@ export function addNode(g, type, { onEdge = null, after = null, x, y } = {}) {
     ins = [{ from: onEdge.from, fp: onEdge.fp || 0 }];
     outs = [{ to: onEdge.to, tp: onEdge.tp || 0 }];
   } else if (after) {
-    let mine = edges.filter((e) => e.from === after);
+    let mine = edges.filter((e) => e.from === after && !isKey(g, e)); // (its key wires stay where they are)
     if (typeOf(g.nodes, after) === 'split') {
       const second = mine.filter((e) => e.fp === 1);
       if (second.length) mine = second;
@@ -187,7 +205,7 @@ export function addNode(g, type, { onEdge = null, after = null, x, y } = {}) {
 }
 /** Remove a node and heal the chain: what fed it now feeds what it fed (once per pair). */
 export function removeNode(g, id) {
-  const ins = g.edges.filter((e) => e.to === id);
+  const ins = g.edges.filter((e) => e.to === id && !isKey(g, e)); // (a Duck's key doesn't carry on past it)
   const outs = g.edges.filter((e) => e.from === id);
   const edges = g.edges.filter((e) => e.from !== id && e.to !== id);
   for (const a of ins) for (const b of outs) if (!edges.some((e) => e.from === a.from && e.to === b.to)) edges.push({ from: a.from, fp: a.fp, to: b.to, tp: b.tp });
@@ -199,12 +217,15 @@ export const connect = (g, from, to, ports = {}) => (canConnect(g, from, to, por
 export function unroutePart(g, part) {
   const src = srcId(part);
   const mine = new Set();
-  const others = g.edges.filter((e) => partOf(e.from) != null && e.from !== src).map((e) => e.from);
+  // (whose sound reaches what: along the sound's wires, not the Ducks' keys)
+  const ag = { ...g, edges: audioEdges(g) };
+  const others = ag.edges.filter((e) => partOf(e.from) != null && e.from !== src).map((e) => e.from);
   const fromOthers = new Set();
   // (only before the master: what's after it belongs to everyone)
-  for (const o of others) for (const n of g.nodes) if (reachesPre(g, o, n.id)) fromOthers.add(n.id);
-  for (const n of g.nodes) if (reachesPre(g, src, n.id) && !fromOthers.has(n.id)) mine.add(n.id);
-  return normGraph({ ...g, nodes: g.nodes.filter((n) => !mine.has(n.id)), edges: g.edges.filter((e) => e.from !== src && !mine.has(e.from) && !mine.has(e.to)) });
+  for (const o of others) for (const n of g.nodes) if (reachesPre(ag, o, n.id)) fromOthers.add(n.id);
+  for (const n of g.nodes) if (reachesPre(ag, src, n.id) && !fromOthers.has(n.id)) mine.add(n.id);
+  // (the part's key wires stay: it still steers the Ducks it keys)
+  return normGraph({ ...g, nodes: g.nodes.filter((n) => !mine.has(n.id)), edges: g.edges.filter((e) => (e.from !== src || isKey(g, e)) && !mine.has(e.from) && !mine.has(e.to)) });
 }
 
 /** The line under a node's name: what it's doing (live readouts come from the audio: gr = gain reduction). */
@@ -222,6 +243,10 @@ export function nodeSummary(g, n, live = {}) {
     case 'filter': return [p.hp > 20 && `HP ${Math.round(p.hp)}`, p.lp < 20000 && `LP ${p.lp >= 1000 ? `${(p.lp / 1000).toFixed(1)}k` : p.lp}`].filter(Boolean).join(' · ') || 'open';
     case 'verb': return `Mix ${pct(p.mix)} · ${p.size}s`;
     case 'delay': return `${Math.round(p.time * 1000)} ms · Mix ${pct(p.mix)}`;
+    case 'duck': {
+      const keys = [...new Set(g.edges.filter((e) => e.to === n.id && e.tp === 1).flatMap((e) => upstreamParts({ ...g, edges: audioEdges(g) }, e.from)))];
+      return `${p.depth} dB · ${keys.length ? `to ${keys.join(' + ')}` : 'no key yet'}${live.duck != null ? ` · −${Math.abs(live.duck).toFixed(1)}` : ''}`;
+    }
     default: return '';
   }
 }
@@ -230,9 +255,10 @@ export function nodeSummary(g, n, live = {}) {
 export function upstreamParts(g, id) {
   if (partOf(id) != null) return [partOf(id)];
   const out = new Set(), seen = new Set([id]), todo = [id];
+  const edges = audioEdges(g);
   while (todo.length) {
     const x = todo.pop();
-    for (const e of g.edges) if (e.to === x && !seen.has(e.from) && e.from !== SINK) { seen.add(e.from); if (partOf(e.from) != null) out.add(partOf(e.from)); else todo.push(e.from); }
+    for (const e of edges) if (e.to === x && !seen.has(e.from) && e.from !== SINK) { seen.add(e.from); if (partOf(e.from) != null) out.add(partOf(e.from)); else todo.push(e.from); }
   }
   return [...out];
 }
@@ -344,8 +370,9 @@ export const unplace = (g) => ({ nodes: g.nodes.map(({ x, y, ...n }) => n), edge
 const looksLike = (re) => (c) => re.test(c.role || '') || re.test(c.base);
 const DRUMS = looksLike(/drum|kick|snare|hat|perc|clap|beat|bd|sd|hh/i);
 /**
- * TEMPLATES[key]: { label, title, needs: 'part' | 'parts', build(g, parts) → graph }.
- * Built onto the graph as it is: the part's old routing is taken out first.
+ * TEMPLATES[key]: { label, title, needs: 'part' | 'parts', pick(channels) (for 'parts'), none (when it picks nothing),
+ * build(g, parts) → graph }. Built onto the graph as it is: the part's old routing is taken out first (Duck to kick
+ * keeps it, and goes in front).
  */
 export const TEMPLATES = {
   nycomp: {
@@ -397,6 +424,29 @@ export const TEMPLATES = {
       });
     },
   },
+  duck: {
+    label: 'Duck to kick', title: 'Sidechain: the pads, bass and chords dip whenever the kick hits — a Duck first in each of their chains (what they have stays), keyed by the kick', needs: 'parts',
+    none: 'needs a kick (or drum) part and something to duck under it',
+    pick(chans) {
+      const key = chans.find(looksLike(/kick|\bbd\b/i)) || chans.find(DRUMS);
+      if (!key) return [];
+      const rest = chans.filter((c) => c !== key && !DRUMS(c));
+      const under = rest.filter(looksLike(/pad|bass|chord|key|string|synth|organ|piano|rhodes|stab|drone|texture/i));
+      const pick = under.length ? under : rest;
+      return pick.length ? [key.base, ...pick.map((c) => c.base)] : [];
+    },
+    build(g, [key, ...parts]) {
+      let graph = g;
+      for (const p of parts) {
+        // (already ducked under it, first thing: leave it)
+        const first = audioEdges(graph).filter((e) => e.from === srcId(p)).map((e) => graph.nodes.find((n) => n.id === e.to));
+        if (first.some((n) => n?.type === 'duck' && graph.edges.some((e) => e.to === n.id && e.from === srcId(key) && e.tp === 1))) continue;
+        const r = addNode(graph, 'duck', { after: srcId(p) });
+        graph = connect(r.graph, srcId(key), r.id, { tp: 1 });
+      }
+      return graph;
+    },
+  },
 };
 function chain(g, _part, fn) {
   const graph = { ...g, nodes: [...g.nodes], edges: [...g.edges] };
@@ -404,4 +454,204 @@ function chain(g, _part, fn) {
   const link = (from, to) => graph.edges.push({ from, to });
   fn(add, link);
   return normGraph(graph);
+}
+
+// ---- chains as text: what the AI writes (and reads) ----
+// One line per chain, left to right, ending at the master:
+//   drums > comp(thresh=-18, ratio=4) > sat(drive=3) > master      a part's effects
+//   kick+snare > comp(ratio=4) > master                             several parts into one bus
+//   pad > duck(key=kick, depth=-12) > verb(size=4, mix=0.4)         ducked under the kick (> master is implied)
+//   keys > par(verb(mix=1) > filter(lp=3000)) > master              a parallel path summed under the dry sound
+/** Names the AI may use for the node types and their settings. */
+const TYPE_ALIASES = { eq7: 'geq', geq: 'geq', reverb: 'verb', verb: 'verb', echo: 'delay', delay: 'delay', compressor: 'comp', comp: 'comp', compress: 'comp',
+  saturation: 'sat', saturate: 'sat', drive: 'sat', sat: 'sat', filter: 'filter', gain: 'gain', eq: 'eq', duck: 'duck', sidechain: 'duck', ducker: 'duck' };
+const PARAM_ALIASES = {
+  verb: { size: 'size', time: 'size', decay: 'size', mix: 'mix', wet: 'mix' },
+  delay: { time: 'time', feedback: 'feedback', fb: 'feedback', fdbk: 'feedback', mix: 'mix', wet: 'mix' },
+  comp: { thresh: 'thresh', threshold: 'thresh', ratio: 'ratio', attack: 'attack', release: 'release', makeup: 'makeup', gain: 'makeup' },
+  sat: { drive: 'drive', mix: 'mix' },
+  filter: { hp: 'hp', highpass: 'hp', lp: 'lp', lowpass: 'lp' },
+  gain: { db: 'db', gain: 'db', level: 'db' },
+  eq: { low: 'low', mid: 'mid', high: 'high' },
+  geq: { b0: 'b0', b1: 'b1', b2: 'b2', b3: 'b3', b4: 'b4', b5: 'b5', b6: 'b6', 60: 'b0', 150: 'b1', 400: 'b2', '1k': 'b3', '2.5k': 'b4', '6k': 'b5', '12k': 'b6' },
+  duck: { depth: 'depth', amount: 'depth', attack: 'attack', release: 'release', sens: 'sens', sensitivity: 'sens' },
+};
+/** Split on a separator, outside parentheses. */
+function splitTop(text, sep) {
+  const out = [];
+  let depth = 0, from = 0;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (c === '(') depth++;
+    else if (c === ')') depth = Math.max(0, depth - 1);
+    else if (c === sep && !depth) { out.push(text.slice(from, i)); from = i + 1; }
+  }
+  out.push(text.slice(from));
+  return out.map((t) => t.trim()).filter(Boolean);
+}
+const nameKey = (s) => String(s || '').trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
+
+/**
+ * Chains (lines of text, as above) → a graph, for the parts there are. { graph, errors: [what was left out and why] }.
+ * A line naming a part or a type there isn't is left out (and said so); an unknown setting is dropped; values are
+ * kept in range.
+ */
+export function parseChains(lines, parts = []) {
+  const byName = new Map(parts.map((p) => [nameKey(p), p]));
+  const nodes = [], edges = [], errors = [];
+  let bad = false; // (a line with an unknown part or type is left out whole; an unknown setting only loses that setting)
+  const fail = (msg) => { errors.push(msg); bad = true; };
+  const add = (type, params = {}) => { const id = `n${nodes.length + 1}`; nodes.push({ id, type, params: { ...defaultParams(type), ...params } }); return id; };
+  const link = (from, to, ports = {}) => edges.push({ from, to, ...(ports.fp ? { fp: 1 } : {}), ...(ports.tp ? { tp: 1 } : {}) });
+  const partIds = (text, where) => {
+    const ids = [];
+    for (const n of String(text).split('+')) {
+      const p = byName.get(nameKey(n));
+      if (p) ids.push(srcId(p)); else fail(`${where}: no part "${n.trim()}"`);
+    }
+    return ids;
+  };
+  /** Steps from `prev` (ids, with the port to leave by): returns where the chain ends. */
+  const steps = (tokens, prev, line) => {
+    for (const tok of tokens) {
+      if (/^master$/i.test(tok)) return { prev, ended: true };
+      const m = /^([a-z0-9]+)\s*(?:\((.*)\))?$/i.exec(tok);
+      if (!m) { fail(`${line}: can't read "${tok}"`); continue; }
+      const word = m[1].toLowerCase();
+      if (word === 'par') {
+        // a parallel path: split → (dry) → sum, split → path → sum
+        const sp = add('split'), sum = add('sum');
+        for (const p of prev) link(p.id, sp, { fp: p.fp });
+        link(sp, sum);
+        const inner = steps(splitTop(m[2] || '', '>'), [{ id: sp, fp: 1 }], line);
+        for (const p of inner.prev) link(p.id, sum, { fp: p.fp, tp: 1 });
+        prev = [{ id: sum }];
+        continue;
+      }
+      const type = TYPE_ALIASES[word];
+      if (!type) { fail(`${line}: no node type "${m[1]}"`); continue; }
+      const params = {};
+      let keys = [], keyed = false;
+      for (const kv of splitTop(m[2] || '', ',')) {
+        const [k, v] = kv.split('=').map((x) => x.trim());
+        if (type === 'duck' && /^key$/i.test(k)) { keyed = true; keys = partIds(v, line); continue; }
+        const key = PARAM_ALIASES[type]?.[String(k).toLowerCase()];
+        if (!key || v == null || !Number.isFinite(parseFloat(v))) { errors.push(`${line}: ${m[1]} has no setting "${kv}"`); continue; }
+        params[key] = parseFloat(v);
+      }
+      const id = add(type, params);
+      for (const p of prev) link(p.id, id, { fp: p.fp });
+      for (const k of keys) link(k, id, { tp: 1 });
+      if (type === 'duck' && !keyed) fail(`${line}: duck needs key=<part> (what it ducks under)`);
+      prev = [{ id }];
+    }
+    return { prev, ended: false };
+  };
+  for (const raw of [].concat(lines || [])) {
+    const line = String(raw || '').trim().replace(/[→]/g, '>');
+    if (!line || line.startsWith('#') || line.startsWith('//')) continue;
+    const [head, ...rest] = splitTop(line, '>');
+    const mark = [nodes.length, edges.length];
+    bad = false;
+    const srcs = partIds(head, line);
+    const end = steps(rest, srcs.map((id) => ({ id })), line);
+    for (const p of end.prev) link(p.id, SINK, { fp: p.fp });
+    if (bad || !srcs.length) { nodes.length = mark[0]; edges.length = mark[1]; }
+  }
+  return { graph: normGraph({ nodes, edges }), errors };
+}
+
+/** A node as a step of a chain ("comp(thresh=-18, ratio=4)": its settings that aren't the defaults). */
+function stepText(g, n) {
+  const name = { geq: 'eq7' }[n.type] || n.type;
+  const def = defaultParams(n.type);
+  const kv = Object.entries(n.params || {}).filter(([k, v]) => v !== def[k]).map(([k, v]) => `${k}=${v}`);
+  if (n.type === 'duck') {
+    const keys = [...new Set(g.edges.filter((e) => e.to === n.id && e.tp === 1).flatMap((e) => upstreamParts(g, e.from)))];
+    if (keys.length) kv.unshift(`key=${keys.join('+')}`);
+  }
+  return kv.length ? `${name}(${kv.join(', ')})` : name;
+}
+/**
+ * A graph → chains (lines of text, as parseChains reads them): one per part or bus, before the master. Wiring that
+ * isn't a chain (a node feeding two places) is described as far as it goes, then "…".
+ */
+export function describeChains(g) {
+  const nodes = new Map(g.nodes.map((n) => [n.id, n]));
+  const ae = audioEdges(g);
+  const outs = (id) => ae.filter((e) => e.from === id);
+  const ins = (id) => ae.filter((e) => e.to === id);
+  const walk = (id, seen = new Set()) => {
+    const res = [];
+    let cur = id;
+    for (let guard = 0; guard < 40; guard++) {
+      const o = outs(cur);
+      if (!o.length) return res;
+      if (o.length === 1 && o[0].to === SINK) { res.push('master'); return res; }
+      const n = nodes.get(cur);
+      // a Split whose first path goes straight to a Sum and the second through effects into it: par(…)
+      if (n?.type === 'split' && o.length === 2) {
+        const dry = o.find((e) => !e.fp), wet = o.find((e) => e.fp === 1);
+        const sum = dry && nodes.get(dry.to)?.type === 'sum' ? dry.to : null;
+        if (sum && wet) {
+          const inner = [];
+          let x = wet.to, ok = true;
+          for (let k = 0; x !== sum && k < 20; k++) {
+            const xn = nodes.get(x), xo = outs(x);
+            if (!xn || xo.length !== 1) { ok = false; break; }
+            inner.push(stepText(g, xn));
+            x = xo[0].to;
+          }
+          if (ok) { res.push(`par(${inner.join(' > ')})`); cur = sum; continue; }
+        }
+      }
+      if (o.length > 1) { res.push('…'); return res; }
+      const next = nodes.get(o[0].to);
+      if (!next || seen.has(next.id)) { res.push('…'); return res; }
+      // a node several parts come into starts its own (bus) line
+      if (ins(next.id).filter((e) => partOf(e.from) != null).length > 1 && cur !== id) { res.push('…'); return res; }
+      seen.add(next.id);
+      res.push(stepText(g, next));
+      cur = next.id;
+    }
+    return res;
+  };
+  // a node and what follows it (a Split that opens a par(…) prints as just the par)
+  const from = (t) => {
+    const w = walk(t.id);
+    return t.type === 'split' && w[0]?.startsWith('par(') ? w : [stepText(g, t), ...w];
+  };
+  const lines = [];
+  const done = new Set();
+  for (const e of ae) {
+    const p = partOf(e.from);
+    if (p == null || done.has(e.from + '>' + e.to)) continue;
+    const target = nodes.get(e.to);
+    const fromParts = target ? ins(target.id).filter((x) => partOf(x.from) != null).map((x) => partOf(x.from)) : [p];
+    if (target && fromParts.length > 1) {
+      for (const x of ins(target.id)) done.add(x.from + '>' + x.to);
+      lines.push([fromParts.join('+'), ...from(target)].join(' > '));
+    } else {
+      done.add(e.from + '>' + e.to);
+      lines.push([p, ...(e.to === SINK ? ['master'] : target ? from(target) : [])].join(' > '));
+    }
+  }
+  return lines;
+}
+
+/**
+ * A board with new chains (parseChains) in place of its own, before the master: what it has after the master (your
+ * effects on the whole mix, the wiring around Master FX) stays.
+ */
+export function withChains(g, chains) {
+  const post = new Set(postNodes(g));
+  const nodes = g.nodes.filter((n) => post.has(n.id));
+  const ids = {};
+  for (const n of chains.nodes) { const id = newId({ nodes }); ids[n.id] = id; nodes.push({ ...n, id }); }
+  const id = (x) => ids[x] ?? x;
+  const edges = [
+    ...g.edges.filter((e) => e.from === SINK || e.from === MFX || post.has(e.from)),
+    ...chains.edges.map((e) => ({ ...e, from: id(e.from), to: id(e.to) })),
+  ];
+  return normGraph({ nodes, edges, pins: g.pins });
 }

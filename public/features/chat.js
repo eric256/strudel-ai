@@ -3,6 +3,7 @@ import { bubbleRenderer, extractCode, fencedBlock, requestLLM } from './llm.js';
 import { parseJSONLoose, signed, stripThinking } from '../lib/util.js';
 import { applySongEdit, rawSheet, refreshPlayingSection } from './song-editor.js';
 import { prepareCode } from './sound-check.js';
+import { askRouting, wantsRouting } from './routing-ai.js';
 import { scaleHelp } from '../lib/scales.js';
 import { $, MAX_FIX_ATTEMPTS, activeSong, addMsg, applyPadsReply, applyQuantized, chatContext, chatTarget, clog, createSongFromChat, evaluateCode, getCode, historyForModel, libraryFromReply, normCode, queue, renderMarkdownLite, state, warnUser } from '../app.js';
 // ---------------------------------------------------------------------------
@@ -187,7 +188,9 @@ export function setup() {
     setBusy(true);
     state.abort = new AbortController();
     try {
-      await runTurn(text);
+      // 🔀 routing: the effect chains, not the code or the song
+      if (wantsRouting(text)) await askRouting(text, { signal: state.abort.signal });
+      else await runTurn(text);
     } catch (err) {
       if (err.name === 'AbortError') addMsg('info', 'stopped');
       else warnUser(`AI request failed: ${err.message}`);
