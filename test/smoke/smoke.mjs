@@ -43,6 +43,7 @@ try {
   await ctx.route(/^https?:\/\/(?!127\.0\.0\.1|localhost)/, (r) => (/\.json($|\?)/.test(r.request().url()) ? r.fulfill({ status: 200, contentType: 'application/json', body: SAMPLES }) : r.abort()));
   const p = await ctx.newPage();
   p.on('pageerror', (e) => errors.push(e.message));
+  p.on('crash', () => { errors.push('the page crashed'); console.log('‼ the page crashed'); });
   const ev = (fn, arg) => p.evaluate(fn, arg);
 
   await step('the app loads', async () => {
@@ -55,6 +56,42 @@ try {
   await step('chat changes the code', async () => {
     await ev(() => { const $ = (id) => document.getElementById(id); $('chatTarget').value = 'code'; $('input').value = 'a simple beat'; $('chat-form').requestSubmit(); });
     await p.waitForFunction(() => /lead: note/.test(document.querySelector('strudel-editor').editor.code), null, { timeout: 20000 });
+  });
+
+  await step('👤 accounts: sign in with Google, save your own Claude key (a bad one is refused), Claude chats with it; sign out', async () => {
+    const box = () => ev(() => `box hidden=${document.getElementById('accountBox').hidden} “${document.getElementById('accountBox').textContent.replace(/\s+/g, ' ').trim().slice(0, 300)}” auth=${JSON.stringify(window.strudelAI && document.getElementById('accountBox') && null)}`);
+    const wait = (what, fn, arg) => p.waitForFunction(fn, arg, { timeout: 10000 }).catch(async () => { throw new Error(`${what}: ${await box()}`); });
+    const mode0 = await ev(() => strudelAI.currentMode());
+    await ev(() => { document.getElementById('settingsBtn').click(); document.querySelector('.settings-tabs [data-sec="setAI"]').click(); });
+    await wait('the account box', () => !document.getElementById('accountBox').hidden && /Sign in to use Claude/.test(document.getElementById('accountBox').textContent));
+    const token = await googleToken('smoke-client');
+    await ev((t) => strudelAI.signInWithCredential(t), token);
+    await wait('signed in', () => /Ada Lovelace/.test(document.getElementById('accountBox').textContent) && document.querySelector('#accountBox input[type=password]'));
+    expect(await ev(() => !/sai_session/.test(document.cookie)), 'the session cookie is visible to the page (it should be HttpOnly)');
+    const saveKey = async (k) => { await p.fill('#accountBox input[type=password]', k); await ev(() => document.querySelector('#accountBox form').requestSubmit()); };
+    await saveKey('sk-ant-smoke-bad-key-0000000000');
+    await p.waitForFunction(() => /rejected/.test(document.getElementById('accountBox').textContent), null, { timeout: 10000 });
+    await saveKey(GOOD_CLAUDE_KEY);
+    await p.waitForFunction(() => /sk-ant-…6789/.test(document.getElementById('accountBox').textContent) && /in use/.test(document.getElementById('accountBox').textContent), null, { timeout: 10000 });
+    expect(await ev(() => strudelAI.reloadConfig().then(() => true)), 'config');
+    // Claude: its models, then a chat edit with your key
+    await ev(() => { const s = document.getElementById('provider'); s.value = 'anthropic'; s.dispatchEvent(new Event('change')); });
+    await p.waitForFunction(() => [...document.getElementById('model').options].some((o) => o.value === 'claude-smoke'), null, { timeout: 10000 });
+    await ev(() => document.getElementById('settingsDlg').close());
+    await ev(() => strudelAI.setMode('jam'));
+    await p.waitForFunction(() => !document.getElementById('send').classList.contains('stop'), null, { timeout: 20000 });
+    const n = log.filter((x) => x.kind === 'claude').length;
+    await ev(() => { const $ = (id) => document.getElementById(id); $('chatTarget').value = 'code'; $('input').value = 'a tight beat'; $('chat-form').requestSubmit(); });
+    await p.waitForFunction(() => /claude: s\("bd\*2/.test(document.querySelector('strudel-editor').editor.code), null, { timeout: 20000 });
+    const call = log.filter((x) => x.kind === 'claude')[n];
+    expect(call && call.key === GOOD_CLAUDE_KEY && /REQUEST: a tight beat/.test(call.last), `the Claude request: ${JSON.stringify(call)?.slice(0, 200)}`);
+    await ev(() => document.getElementById('stop').click());
+    // back to the mock llama.cpp; sign out
+    await ev(() => { document.getElementById('settingsBtn').click(); document.querySelector('.settings-tabs [data-sec="setAI"]').click(); const s = document.getElementById('provider'); s.value = 'llamacpp'; s.dispatchEvent(new Event('change')); });
+    await ev(() => [...document.querySelectorAll('#accountBox button.link')].find((b) => /sign out/.test(b.textContent)).click());
+    await wait('signed out', () => /Sign in to use Claude/.test(document.getElementById('accountBox').textContent));
+    await ev(() => document.getElementById('settingsDlg').close());
+    await ev((m) => strudelAI.setMode(m), mode0);
   });
 
   await step('a new song is written from the chat and plays (band + master style)', async () => {
@@ -994,40 +1031,6 @@ try {
     await p.waitForFunction(() => strudelAI.getTaste().avoid.length === 1, null, { timeout: 5000 });
     await ev(() => strudelAI.setTaste({}, { quiet: true }));
     await ev(() => document.getElementById('stop').click());
-  });
-
-  await step('👤 accounts: sign in with Google, save your own Claude key (a bad one is refused), Claude chats with it; sign out', async () => {
-    const box = () => ev(() => `box hidden=${document.getElementById('accountBox').hidden} “${document.getElementById('accountBox').textContent.replace(/\s+/g, ' ').trim().slice(0, 300)}” auth=${JSON.stringify(window.strudelAI && document.getElementById('accountBox') && null)}`);
-    const wait = (what, fn, arg) => p.waitForFunction(fn, arg, { timeout: 10000 }).catch(async () => { throw new Error(`${what}: ${await box()}`); });
-    await ev(() => { document.getElementById('settingsBtn').click(); document.querySelector('.settings-tabs [data-sec="setAI"]').click(); });
-    await wait('the account box', () => !document.getElementById('accountBox').hidden && /Sign in to use Claude/.test(document.getElementById('accountBox').textContent));
-    const token = await googleToken('smoke-client');
-    await ev((t) => strudelAI.signInWithCredential(t), token);
-    await wait('signed in', () => /Ada Lovelace/.test(document.getElementById('accountBox').textContent) && document.querySelector('#accountBox input[type=password]'));
-    expect(await ev(() => !/sai_session/.test(document.cookie)), 'the session cookie is visible to the page (it should be HttpOnly)');
-    const saveKey = async (k) => { await p.fill('#accountBox input[type=password]', k); await ev(() => document.querySelector('#accountBox form').requestSubmit()); };
-    await saveKey('sk-ant-smoke-bad-key-0000000000');
-    await p.waitForFunction(() => /rejected/.test(document.getElementById('accountBox').textContent), null, { timeout: 10000 });
-    await saveKey(GOOD_CLAUDE_KEY);
-    await p.waitForFunction(() => /sk-ant-…6789/.test(document.getElementById('accountBox').textContent) && /in use/.test(document.getElementById('accountBox').textContent), null, { timeout: 10000 });
-    expect(await ev(() => strudelAI.reloadConfig().then(() => true)), 'config');
-    // Claude: its models, then a chat edit with your key
-    await ev(() => { const s = document.getElementById('provider'); s.value = 'anthropic'; s.dispatchEvent(new Event('change')); });
-    await p.waitForFunction(() => [...document.getElementById('model').options].some((o) => o.value === 'claude-smoke'), null, { timeout: 10000 });
-    await ev(() => document.getElementById('settingsDlg').close());
-    await ev(() => strudelAI.setMode('jam'));
-    await p.waitForFunction(() => !document.getElementById('send').classList.contains('stop'), null, { timeout: 20000 });
-    const n = log.filter((x) => x.kind === 'claude').length;
-    await ev(() => { const $ = (id) => document.getElementById(id); $('chatTarget').value = 'code'; $('input').value = 'a tight beat'; $('chat-form').requestSubmit(); });
-    await p.waitForFunction(() => /claude: s\("bd\*2/.test(document.querySelector('strudel-editor').editor.code), null, { timeout: 20000 });
-    const call = log.filter((x) => x.kind === 'claude')[n];
-    expect(call && call.key === GOOD_CLAUDE_KEY && /REQUEST: a tight beat/.test(call.last), `the Claude request: ${JSON.stringify(call)?.slice(0, 200)}`);
-    await ev(() => document.getElementById('stop').click());
-    // back to the mock llama.cpp; sign out
-    await ev(() => { document.getElementById('settingsBtn').click(); document.querySelector('.settings-tabs [data-sec="setAI"]').click(); const s = document.getElementById('provider'); s.value = 'llamacpp'; s.dispatchEvent(new Event('change')); });
-    await ev(() => [...document.querySelectorAll('#accountBox button.link')].find((b) => /sign out/.test(b.textContent)).click());
-    await wait('signed out', () => /Sign in to use Claude/.test(document.getElementById('accountBox').textContent));
-    await ev(() => document.getElementById('settingsDlg').close());
   });
 
   await step('no page errors', async () => expect(!errors.length, errors.join(' | ')));
