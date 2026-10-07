@@ -997,11 +997,13 @@ try {
   });
 
   await step('👤 accounts: sign in with Google, save your own Claude key (a bad one is refused), Claude chats with it; sign out', async () => {
+    const box = () => ev(() => `box hidden=${document.getElementById('accountBox').hidden} “${document.getElementById('accountBox').textContent.replace(/\s+/g, ' ').trim().slice(0, 300)}” auth=${JSON.stringify(window.strudelAI && document.getElementById('accountBox') && null)}`);
+    const wait = (what, fn, arg) => p.waitForFunction(fn, arg, { timeout: 10000 }).catch(async () => { throw new Error(`${what}: ${await box()}`); });
     await ev(() => { document.getElementById('settingsBtn').click(); document.querySelector('.settings-tabs [data-sec="setAI"]').click(); });
-    await p.waitForFunction(() => !document.getElementById('accountBox').hidden && /Sign in to use Claude/.test(document.getElementById('accountBox').textContent), null, { timeout: 5000 });
+    await wait('the account box', () => !document.getElementById('accountBox').hidden && /Sign in to use Claude/.test(document.getElementById('accountBox').textContent));
     const token = await googleToken('smoke-client');
     await ev((t) => strudelAI.signInWithCredential(t), token);
-    await p.waitForFunction(() => /Ada Lovelace/.test(document.getElementById('accountBox').textContent) && document.querySelector('#accountBox input[type=password]'), null, { timeout: 5000 });
+    await wait('signed in', () => /Ada Lovelace/.test(document.getElementById('accountBox').textContent) && document.querySelector('#accountBox input[type=password]'));
     expect(await ev(() => !/sai_session/.test(document.cookie)), 'the session cookie is visible to the page (it should be HttpOnly)');
     const saveKey = async (k) => { await p.fill('#accountBox input[type=password]', k); await ev(() => document.querySelector('#accountBox form').requestSubmit()); };
     await saveKey('sk-ant-smoke-bad-key-0000000000');
@@ -1024,7 +1026,7 @@ try {
     // back to the mock llama.cpp; sign out
     await ev(() => { document.getElementById('settingsBtn').click(); document.querySelector('.settings-tabs [data-sec="setAI"]').click(); const s = document.getElementById('provider'); s.value = 'llamacpp'; s.dispatchEvent(new Event('change')); });
     await ev(() => [...document.querySelectorAll('#accountBox button.link')].find((b) => /sign out/.test(b.textContent)).click());
-    await p.waitForFunction(() => /Sign in to use Claude/.test(document.getElementById('accountBox').textContent), null, { timeout: 5000 });
+    await wait('signed out', () => /Sign in to use Claude/.test(document.getElementById('accountBox').textContent));
     await ev(() => document.getElementById('settingsDlg').close());
   });
 
