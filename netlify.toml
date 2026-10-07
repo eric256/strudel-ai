@@ -1,0 +1,32 @@
+# Strudel AI on Netlify: the app as a static site (dist/, built by scripts/build-netlify.mjs), the /api endpoints as
+# a function (netlify/functions/api.mjs) and the chat as an edge function (netlify/edge-functions/chat.mjs) — both
+# use server/, shared with the Express server. Settings (Site configuration → Environment variables): see README →
+# "Deploy to Netlify".
+[build]
+  command = "npm run build:netlify"
+  publish = "dist"
+  functions = "netlify/functions"
+  edge_functions = "netlify/edge-functions"
+
+[build.environment]
+  NODE_VERSION = "22"
+
+[functions]
+  node_bundler = "esbuild"
+  included_files = ["netlify/generated/info.json"]
+
+# a shared song's link opens the app
+[[redirects]]
+  from = "/s/*"
+  to = "/index.html"
+  status = 200
+
+# the app's files: always revalidated (a new deploy is picked up on the next load); the libraries: cached
+[[headers]]
+  for = "/*"
+  [headers.values]
+    Cache-Control = "no-cache"
+[[headers]]
+  for = "/vendor/*"
+  [headers.values]
+    Cache-Control = "public, max-age=604800"

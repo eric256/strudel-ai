@@ -1,5 +1,6 @@
 // About: version, recent changes (from CHANGELOG.md) and project links.
 // (split out of app.js: start-up code runs in setup(), called from app.js)
+import { renderAccount } from './account.js';
 import { esc } from '../lib/util.js';
 import { APP_BUILD, APP_VERSION, saveSession } from './share.js';
 import { MY_SONGS_KEY, mySongs, songToJSON } from './song-library.js';
@@ -64,6 +65,7 @@ export function openSettings(sec = 'setGeneral') {
   if (sec === 'setStations') renderStations();
   if (sec === 'setPrompts') renderPromptEditor();
   if (sec === 'setPlugins') renderPluginSettings();
+  if (sec === 'setAI') renderAccount({ showing: true });
   settingsPages.get(sec)?.();
   $('settingsMsg').textContent = '';
   if (!$('settingsDlg').open) $('settingsDlg').showModal();

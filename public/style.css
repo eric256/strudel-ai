@@ -1066,3 +1066,13 @@ body.hydra-behind .code-bar { background: color-mix(in srgb, var(--panel-2) 80%,
 /* ⌨ Jam only: 🎼 Make it a song */
 .jam-only { display: none; }
 body[data-mode="jam"] .jam-only { display: inline-flex; margin-left: auto; }
+
+/* 👤 Account (⚙ Settings → AI) */
+.account-box { margin-bottom: 10px; }
+.acc { display: flex; flex-direction: column; gap: 6px; padding: 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--panel-2); }
+.acc-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.acc-pic { width: 24px; height: 24px; border-radius: 50%; }
+.acc-key form { display: flex; gap: 6px; margin: 4px 0; }
+.acc-key input { flex: 1; min-width: 12em; font-family: var(--mono, monospace); }
+.acc-ok { color: var(--accent-2); }
+.acc-bad { color: var(--danger); }

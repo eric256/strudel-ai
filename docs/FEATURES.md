@@ -26,6 +26,8 @@ The chat changes the song open in ✎ Edit song; a new song described in the cha
 **Arrangement:** which parts play in each section (variants, coming in / dropping out). The playhead line follows the song.
 ![Arrangement with playhead](screenshots/08-arrangement-playhead.png)
 
+**☁ Netlify and 👤 accounts:** deploy the app to Netlify as it is (a static site, a function, and the chat as an edge function), or run it in Docker. With Google sign-in on, each person saves their own Anthropic API key, kept encrypted with their account.
+
 **⬇ Export** (🧩 plugins): a song's ⬇ Export menu offers its JSON, one **Strudel REPL** program (download, 📋 copy, or ↗ open in strudel.cc), a **MIDI file** (a track per part) and a **lead sheet** (Markdown). Plugins add their own formats (`api.addExporter`).
 
 **🎼 MusicXML import** (🧩 plugin): ⬆ import reads MusicXML scores (`.musicxml`, `.mxl`) as songs: a part per staff, voices together, drums, chord symbols, repeats played out, sections at rehearsal marks. Plugins can add their own importers (`api.addImporter`).

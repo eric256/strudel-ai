@@ -7,6 +7,7 @@ COPY package.json package-lock.json* ./
 RUN npm ci --omit=dev || npm install --omit=dev
 
 COPY server.js prompt.js CHANGELOG.md ./
+COPY server ./server
 COPY public ./public
 # writable dirs for the non-root user: shared songs + (optional) self-signed certs
 # 🧩 plugins: mount your own folder here (see PLUGINS.md)
