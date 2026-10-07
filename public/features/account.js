@@ -9,7 +9,7 @@ import { render, nothing } from '../html.js';
 import { T } from '../templates/index.js';
 
 const ui = { busy: false, msg: '', bad: false };
-let gisLoading = null, gisReady = '';
+let gisLoading = null, gisReady = '', gisFailed = false;
 
 /** Google's sign-in script, loaded once (only on servers with accounts). */
 function loadGis() {
@@ -65,7 +65,8 @@ export function renderAccount({ showing = false } = {}) {
   if (!auth) { render(nothing, el); return; }
   render(T.accountBox({ user: auth.user, key: auth.key, shared: auth.shared, ...ui }, act), el);
   const slot = el.querySelector('.acc-google');
-  if (!slot || auth.user || (!showing && !gisLoading)) return;
+  // (once Google's script has failed to load, say so and don't try again — redrawing would retry forever)
+  if (!slot || auth.user || gisFailed || (!showing && !gisLoading)) return;
   loadGis().then(() => {
     const g = globalThis.google?.accounts?.id;
     if (!g) return;
@@ -74,7 +75,7 @@ export function renderAccount({ showing = false } = {}) {
       gisReady = auth.google;
     }
     if (!slot.childElementCount) g.renderButton(slot, { theme: 'outline', size: 'medium', text: 'signin_with', shape: 'pill' });
-  }).catch((e) => { Object.assign(ui, { msg: `⚠ ${e.message}`, bad: true }); renderAccount(); });
+  }).catch((e) => { gisFailed = true; gisLoading = null; Object.assign(ui, { msg: `⚠ ${e.message}`, bad: true }); renderAccount(); });
 }
 
 export function setup() {
