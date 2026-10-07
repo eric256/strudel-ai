@@ -5,7 +5,10 @@ import assert from 'node:assert/strict';
 import {
   NODE_TYPES, SINK, TEMPLATES, addNode, canConnect, connect, deadEnds, defaultParams, layoutGraph, nodeSummary,
   normGraph, reaches, removeEdge, removeNode, routedParts, srcId, unfed, unroutePart, freeInput, partOf,
+  isKey, audioEdges, masterInputs, upstreamParts, parseChains, describeChains, songRouting, withChains, withPost, MFX, OUT,
 } from '../public/lib/routing.js';
+import { normalizeSheet, routingLines } from '../public/lib/sheet.js';
+import { cleanRouting, cleanFavSong, cleanSong } from '../server/api.js';
 
 const empty = { nodes: [], edges: [] };
 
@@ -216,4 +219,117 @@ test('after the master: its default way out, effects added after it, around Mast
   // and they're not dead ends (they reach out), and the part layout leaves them to the panel
   assert.equal(deadEnds(g).includes(id), false);
   assert.equal(layoutGraph(g, ['drums'])[id], undefined);
+});
+
+// ---- 🦆 Duck (sidechain): its key wires are listened to, not heard ----
+const ducked = () => {
+  // pad → duck → master, keyed by drums; drums straight on → comp → master
+  let { graph, id } = addNode(empty, 'duck', { after: srcId('pad') });
+  graph = connect(graph, srcId('drums'), id, { tp: 1 });
+  return { graph, id };
+};
+test('duck: a key wire is not a route — the keying part is still its own input, not routed through the Duck', () => {
+  const { graph, id } = ducked();
+  assert.ok(graph.edges.some((e) => e.from === srcId('drums') && e.to === id && e.tp === 1));
+  assert.ok(isKey(graph, graph.edges.find((e) => e.from === srcId('drums'))));
+  assert.equal(audioEdges(graph).length, 2);
+  assert.deepEqual(routedParts(graph), ['pad']);
+  assert.deepEqual(upstreamParts(graph, id), ['pad']);
+  assert.deepEqual(masterInputs(graph, ['drums', 'pad']).map((x) => x.key), ['drums', 'pad']); // no "bus" of drums + pad
+  assert.match(nodeSummary(graph, graph.nodes[0]), /-10 dB · to drums/);
+  assert.match(nodeSummary(graph, graph.nodes[0], { duck: -6.5 }), /−6\.5/);
+});
+test('duck: adding after the keying part, removing the Duck and unrouting keep key wires where they belong', () => {
+  const { graph, id } = ducked();
+  // a Comp after drums takes drums' sound, not its key wire
+  const c = addNode(graph, 'comp', { after: srcId('drums') });
+  assert.ok(c.graph.edges.some((e) => e.from === srcId('drums') && e.to === id && e.tp === 1));
+  assert.ok(c.graph.edges.some((e) => e.from === srcId('drums') && e.to === c.id && !e.tp));
+  // removing the Duck: pad straight to the master, the key doesn't carry on into it
+  const r = removeNode(graph, id);
+  assert.deepEqual(r.edges, [{ from: srcId('pad'), to: SINK }]);
+  // unrouting drums keeps its key wire (it still steers the pad's Duck); unrouting pad takes the Duck away
+  assert.ok(unroutePart(c.graph, 'drums').edges.some((e) => e.to === id && e.tp === 1));
+  assert.ok(!unroutePart(graph, 'pad').nodes.length);
+  // normGraph keeps a Duck's second input
+  assert.ok(normGraph(graph).edges.some((e) => e.tp === 1));
+});
+test('template Duck to kick: the kick keys a Duck first in the pads / bass chains, what they had stays; twice adds nothing', () => {
+  const chans = [{ base: 'kick', role: 'drums' }, { base: 'hats', role: 'perc' }, { base: 'bass', role: 'bass' }, { base: 'pad', role: 'pad' }, { base: 'lead', role: 'melody' }];
+  const parts = TEMPLATES.duck.pick(chans);
+  assert.deepEqual(parts, ['kick', 'bass', 'pad']);
+  const withVerb = addNode(empty, 'verb', { after: srcId('pad') }).graph;
+  const g = TEMPLATES.duck.build(withVerb, parts);
+  assert.deepEqual(describeChains(g).sort(), ['bass > duck(key=kick) > master', 'pad > duck(key=kick) > verb > master']);
+  assert.equal(TEMPLATES.duck.build(g, parts).nodes.length, g.nodes.length);
+  assert.deepEqual(TEMPLATES.duck.pick([{ base: 'pad', role: 'pad' }]), []);
+});
+
+// ---- chains as text (the AI's routing) ----
+test('parseChains: chains, buses, Ducks with keys, parallel paths, aliases; bad lines are reported and skipped', () => {
+  const { graph, errors } = parseChains([
+    '# the drums', 'drums > compressor(threshold=-18, ratio=4) > drive(drive=3) > master',
+    'pad → sidechain(key=drums, depth=-12) > reverb(size=4, wet=0.4)',
+    'keys > par(verb(mix=1) > filter(lowpass=3000)) > master',
+    'kick+snare > comp > master', 'bass > eq7(60=3, 12k=-2) > master',
+    'ghost > comp', 'lead > wobble(x=1)', 'hook > duck(key=nobody) > master', '',
+  ], ['drums', 'pad', 'keys', 'kick', 'snare', 'bass', 'lead', 'hook']);
+  assert.equal(errors.length, 3);
+  assert.match(errors.join('\n'), /no part "ghost"/);
+  assert.match(errors.join('\n'), /no node type "wobble"/);
+  assert.deepEqual(describeChains(graph), [
+    'drums > comp(thresh=-18) > sat(drive=3) > master',
+    'pad > duck(key=drums, depth=-12) > verb(size=4, mix=0.4) > master',
+    'keys > par(verb(mix=1) > filter(lp=3000)) > master',
+    'kick+snare > comp > master',
+    'bass > eq7(b0=3, b6=-2) > master',
+  ]);
+  assert.deepEqual(masterInputs(graph, ['drums', 'pad', 'keys', 'kick', 'snare', 'bass']).map((x) => x.key), ['drums', 'pad', 'keys', `bus:${graph.edges.find((e) => e.from === srcId('kick')).to}`, 'bass']);
+  // what describeChains writes, parseChains reads back the same
+  assert.deepEqual(describeChains(parseChains(describeChains(graph), ['drums', 'pad', 'keys', 'kick', 'snare', 'bass']).graph), describeChains(graph));
+});
+test('withChains: new chains replace the board before the master; what is after it stays', () => {
+  let g = addNode(empty, 'comp', { after: srcId('drums') }).graph;
+  const post = addNode(g, 'sat', { after: SINK });
+  g = post.graph;
+  const { graph: chains } = parseChains(['bass > filter(hp=40) > master'], ['bass', 'drums']);
+  const out = withChains(g, chains);
+  assert.deepEqual(describeChains(out), ['bass > filter(hp=40) > master']);
+  assert.ok(out.nodes.some((n) => n.id === post.id && n.type === 'sat'));
+  assert.ok(withPost(out).edges.some((e) => e.from === SINK && e.to === post.id));
+  assert.ok(!out.nodes.some((n) => n.type === 'comp'));
+});
+
+// ---- a song's own board ----
+test('a song keeps its board: songRouting, the sheet\'s routing lines and the server keep it', () => {
+  const { graph } = ducked();
+  assert.equal(songRouting(null), null);
+  assert.equal(songRouting({ graph: empty }), null);
+  assert.deepEqual(songRouting({ graph, on: false }), { graph: normGraph(graph), on: false });
+  assert.deepEqual(routingLines('a > comp\n\n b > verb '), ['a > comp', 'b > verb']);
+  assert.deepEqual(routingLines(['a > comp', 3, '']), ['a > comp']);
+  // the server passes a song's board through shares and favorites (and drops what isn't one)
+  assert.deepEqual(cleanRouting({ graph, on: true }), { graph, on: true });
+  assert.equal(cleanRouting({ graph: { nodes: 'x', edges: [] } }), null);
+  assert.equal(cleanRouting({ graph: { nodes: Array(300).fill({}), edges: [] } }), null);
+  const fav = cleanFavSong({ title: 'T', sheet: { sections: [] }, library: 'const a = 1', routing: { graph } });
+  assert.deepEqual(fav.routing, { graph, on: true });
+  assert.ok(!('routing' in cleanFavSong({ title: 'T', sheet: { sections: [] }, library: 'x' })));
+  assert.deepEqual(cleanSong({ steps: [{ bars: 4, code: 'x' }], routing: { graph } }).routing, { graph, on: true });
+});
+test('the sheet\'s routing lines are kept; the routing prompt gets no editor code', async () => {
+  const raw = {
+    bpm: 120, key: 'A minor', scale: 'A:minor', chords: { verse: 'Am F C G' }, hook: '0 2 4 2',
+    parts: [{ name: 'drums', role: 'drums', sound: 'RolandTR909' }, { name: 'pad', role: 'pad', sound: 'triangle' }],
+    sections: [{ name: 'A', bars: 8, chords: 'verse', play: ['drums', 'pad'] }, { name: 'B', bars: 4, chords: 'verse', play: ['pad'] }],
+  };
+  assert.ok(!('routing' in normalizeSheet(raw, 'auto', { enforceForm: false })));
+  const sh = normalizeSheet({ ...raw, routing: ['pad > duck(key=drums) > master'] }, 'auto', { enforceForm: false });
+  assert.deepEqual(sh.routing, ['pad > duck(key=drums) > master']);
+  assert.deepEqual(describeChains(parseChains(sh.routing, sh.parts.map((p) => p.id)).graph), ['pad > duck(key=drums) > master']);
+  const { chatBody, llmSettings, PROMPTS } = await import('../server/llm.js');
+  const body = chatBody(llmSettings({}), { mode: 'routing', code: 'SECRET_CODE', messages: [{ role: 'user', content: 'duck the pad' }] });
+  assert.ok(!JSON.stringify(body.history).includes('SECRET_CODE'));
+  assert.ok(body.system.startsWith('You are the mix engineer'));
+  assert.match(PROMPTS.sheet, /duck\(key=<part>/);
 });

@@ -1,6 +1,6 @@
 {
   "name": "strudel-ai",
-  "version": "1.64.0",
+  "version": "1.65.0",
   "description": "Strudel live-coding REPL with an AI chat co-pilot (Claude, llama.cpp, OpenWebUI) — Docker or Netlify",
   "main": "server.js",
   "type": "module",

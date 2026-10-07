@@ -313,6 +313,57 @@ try {
     expect(await ev(() => !strudelAI.routing.live?.post), 'clear left the master taken apart');
   });
 
+  await step('🔀 routing: 🦆 Duck to kick dips bass and pad under the drums (heard); 📌 a board kept with the song; ↩ back to yours', async () => {
+    await ev(() => strudelAI.ws.open('route'));
+    await p.waitForFunction(() => document.querySelectorAll('#routeBody .rt-part').length >= 4, null, { timeout: 5000 });
+    await ev(() => [...document.querySelectorAll('#routeBody .rt-tpl button')].find((b) => /Duck to kick/.test(b.textContent)).click());
+    const g = await ev(async () => {
+      const { describeChains } = await import('/lib/routing.js');
+      return describeChains(strudelAI.routing.graph).sort().join(' | ');
+    });
+    expect(g === 'bass > duck(key=drums) > master | pad > duck(key=drums) > master', `chains: ${g}`);
+    // the Duck listens to the drums: its gain dips while they play (the envelope follower is an AudioWorklet)
+    const dip = await ev(async () => {
+      const L = strudelAI.routing.live, ids = strudelAI.routing.graph.nodes.map((n) => n.id);
+      await Promise.all(ids.map((id) => L.blocks[id].ready));
+      let min = 0;
+      for (let i = 0; i < 30; i++) { for (const id of ids) min = Math.min(min, L.blocks[id].live().duck ?? 0); await new Promise((r) => setTimeout(r, 70)); }
+      return { min, key: !!L.blocks[ids[0]].key, closed: L.closed.join(',') };
+    });
+    expect(dip.key && dip.min < -1 && !dip.closed.includes('drums'), `duck: ${JSON.stringify(dip)}`);
+    // its inspector: the part it ducks under
+    await ev(() => { const el = document.querySelector(`#routeBody .drawflow-node[data-id="${strudelAI.routing.graph.nodes[0].id}"] .rt-head b`); for (const t of ['mousedown', 'mouseup']) el.dispatchEvent(new MouseEvent(t, { bubbles: true, button: 0, clientX: 1, clientY: 1 })); });
+    await p.waitForFunction(() => document.querySelector('#routeBody .rt-key select')?.value === 'drums', null, { timeout: 3000 });
+    // 📌 keep it with the song playing: changes now go to the song's board, yours stays
+    const title = await ev(() => strudelAI.queue.songs[strudelAI.queue.current].title);
+    await ev(() => [...document.querySelectorAll('#routeBody .rt-board button')].find((b) => /keep with this song/.test(b.textContent)).click());
+    await p.waitForFunction((t) => document.querySelector('#routeBody .rt-board b')?.textContent.includes(t), title, { timeout: 3000 });
+    await ev(() => [...document.querySelectorAll('#routeBody .rt-right button')].find((b) => b.textContent === 'clear').click());
+    const kept = await ev(async () => {
+      const sg = strudelAI.queue.songs[strudelAI.queue.current], { load } = await import('/app.js');
+      return { song: sg.routing?.graph.nodes.length, mine: load().routing?.graph.nodes.length, owner: strudelAI.routing.owner === sg, json: !!strudelAI.songToJSON(sg).routing };
+    });
+    expect(kept.song === 0 && kept.mine === 2 && kept.owner && kept.json, `kept: ${JSON.stringify(kept)}`);
+    // ↩ my board: the song lets its own go, yours (with the Ducks) is back
+    await ev(() => [...document.querySelectorAll('#routeBody .rt-board button')].find((b) => /my board/.test(b.textContent)).click());
+    const back = await ev(() => ({ nodes: strudelAI.routing.graph.nodes.length, owner: strudelAI.routing.owner, song: 'routing' in strudelAI.queue.songs[strudelAI.queue.current], ducks: Object.keys(strudelAI.routing.live?.blocks || {}).length }));
+    expect(back.nodes === 2 && !back.owner && !back.song && back.ducks === 2, `back: ${JSON.stringify(back)}`);
+  });
+
+  await step('🔀 routing by the AI: the chat (🎯 routing) gets the parts and the chains now; its chains go on the song\'s own board, a bad line skipped', async () => {
+    const n = log.filter((x) => x.kind === 'routing').length;
+    await ev(() => { const d = document; d.getElementById('chatTarget').value = 'routing'; d.getElementById('chatTarget').dispatchEvent(new Event('change')); d.getElementById('input').value = 'make it pump'; d.getElementById('chat-form').requestSubmit(); });
+    await p.waitForFunction(() => !!strudelAI.queue.songs[strudelAI.queue.current].routing && strudelAI.routing.owner === strudelAI.queue.songs[strudelAI.queue.current], null, { timeout: 15000 });
+    const ask = log.filter((x) => x.kind === 'routing')[n];
+    expect(ask && /PARTS:\n- drums \(drums/.test(ask.last) && /ROUTING NOW:\n.*duck\(key=drums\)/.test(ask.last) && /REQUEST: make it pump/.test(ask.last) && !/CURRENT CODE/.test(ask.last), `request: ${ask?.last}`);
+    const r = await ev(async () => {
+      const { describeChains } = await import('/lib/routing.js');
+      return { chains: describeChains(strudelAI.routing.graph).sort().join(' | '), blocks: Object.keys(strudelAI.routing.live?.blocks || {}).length, msg: [...document.querySelectorAll('#messages .msg.info')].map((m) => m.textContent).filter((t) => /own board/.test(t)).pop() || '' };
+    });
+    expect(r.chains === 'bass > duck(key=drums, depth=-14) > master | pad > duck(key=drums) > verb(size=3) > master' && r.blocks === 3 && /1 line skipped/.test(r.msg), JSON.stringify(r));
+    await ev(() => { const d = document.getElementById('chatTarget'); d.value = 'auto'; d.dispatchEvent(new Event('change')); });
+  });
+
   await step('🎛 master nodes: ⏻ switches a node off (its effect goes neutral) and on again', async () => {
     await ev(() => strudelAI.ws.open('master'));
     await ev(() => document.querySelector('#masterBody .ms-chip[data-node="Space"]').click());
@@ -326,14 +377,28 @@ try {
   });
 
   await step('⏭ next and ⏮ previous song', async () => {
-    await ev(() => { const d = document; d.getElementById('chatTarget').value = 'new'; d.getElementById('input').value = 'a second song'; d.getElementById('chat-form').requestSubmit(); });
+    await ev(() => { const d = document; d.getElementById('chatTarget').value = 'new'; d.getElementById('input').value = 'a second song, ROUTED'; d.getElementById('chat-form').requestSubmit(); });
     await p.waitForFunction(() => strudelAI.queue.songs.length === 2 && strudelAI.queue.songs[1].status === 'ready', null, { timeout: 30000 });
     await ev(() => document.getElementById('nextSong').click());
     await p.waitForFunction(() => strudelAI.queue.current === 1, null, { timeout: 15000 });
     expect(await ev(() => window.__events.some(([e]) => e === 'song')), 'no song event');
+    // 🔀 the second song came with its own routing (its sheet's lines): its board shows while it plays
+    await p.waitForFunction(() => strudelAI.routing.owner === strudelAI.queue.songs[1], null, { timeout: 5000 });
+    const own = await ev(async () => (await import('/lib/routing.js')).describeChains(strudelAI.routing.graph).sort().join(' | '));
+    expect(own === 'drums > comp(thresh=-20) > master | pad > duck(key=drums, depth=-12) > master', `second song's board: ${own}`);
     await ev(() => document.getElementById('prevSong').click());
     await p.waitForFunction(() => strudelAI.queue.current === 0, null, { timeout: 20000 });
     await p.waitForFunction(() => /^▶ /.test(document.getElementById('nowLine').textContent), null, { timeout: 3000 });
+    // …and the first song's own board (the AI's) is back
+    await p.waitForFunction(() => strudelAI.routing.owner === strudelAI.queue.songs[0], null, { timeout: 5000 });
+    // (the rest of the run starts from no routing: the songs let their boards go, yours is cleared)
+    await ev(async () => {
+      strudelAI.ws.open('route');
+      for (const sg of strudelAI.queue.songs) delete sg.routing;
+      (await import('/features/routing.js')).followSong(null);
+      [...document.querySelectorAll('#routeBody .rt-right button')].find((b) => b.textContent === 'clear').click();
+    });
+    expect(await ev(() => !strudelAI.routing.graph.nodes.length && !strudelAI.routing.owner), 'routing left over');
   });
 
   await step('📃 playlist: a station joins without stopping the song; ■ Stop keeps its written songs; ＋ Playlist, move, remove', async () => {

@@ -560,6 +560,7 @@ The status bar watches the whole mix. **● HOT** (amber) means it peaks within 
 - **Nodes:**
   - **Split** has two outputs (two parallel paths) and comes with its **Sum**, which has two inputs: part → Split ⇒ both paths → Sum → on. **＋** on a selected Split puts the effect on its second path (the one you process), keeping the first dry. Wire several parts into one Sum to make a bus.
   - **Comp** (threshold, ratio, attack, release, makeup; its card shows the gain reduction live), **Sat** (drive, mix), **EQ** (low / mid / high), **EQ7** (7 bands, also in the 🎚 Equalizer), **Filter** (high-pass, low-pass), **Verb** (size, mix), **Delay** (time, feedback, mix) and **Gain**.
+  - **Duck** (sidechain ducking: depth, attack, release, sensitivity) turns its sound down whenever its **key** plays: the pump of house and techno, or room for the kick under a bass. Pick the key part in its inspector (**🦆 ducks under**), or wire any sound into its second input. The key is only listened to: the keying part still goes on to the master as before. Its card shows how far it's ducking now.
 - **Editing:**
   - **The knobs are on the nodes:** drag one up or down (Shift: fine), or double-click it for the default; it changes the sound at once. **⏻** on a node bypasses it. Click a node for what it does and ✕ remove. Removing a node joins what fed it to what it fed.
   - Click a part for ＋ add after it and ✕ unroute.
@@ -572,11 +573,28 @@ The status bar watches the whole mix. **● HOT** (amber) means it peaks within 
   - **Clean:** high-pass, EQ, gentle comp.
   - **Dub echo:** a filtered echo path.
   - **Drum bus:** every drum part into one Sum with glue compression and saturation.
+  - **Duck to kick:** a Duck first in the chains of the pads, bass and chords, keyed by the kick (or the drums). What those parts already have stays.
 - **routing on** switches it all off and on to compare (A / B); **clear** removes it.
 - A node that never reaches the master (or Out) is outlined in amber (⚠): you won't hear what goes into it.
-- Kept in the browser by part name, like the mixer, so `drums` keeps its chain from song to song.
+- **Your board, or the song's:** the board is kept in the browser by part name, like the mixer, so `drums` keeps its chain from song to song. A song can keep **its own board** instead: while it plays, the bar shows **📌 its title**, and changes go to the song's board.
+  - **📌 keep with this song** gives the song playing a copy of the board shown. Yours stays as it was.
+  - **↩ my board** lets the song's board go; **save as mine** makes it yours too.
+  - The song's board travels with it: 📁 My songs, files, share links and ★ favorites. When the next song keeps none, your board comes back.
+- **🔀 Routing by the AI:** set the chat's 🎯 to **🔀 routing** and ask: “duck the bass and pad under the kick”, “a drum bus”, “dub echo on the keys”. In **auto**, a message about routing (sidechain, ducking, a bus, a send, parallel compression) goes there too.
+  - The AI gets the song, its parts (role and sound) and the routing now, written as chains, and replies with chains.
+  - They go on the song's own board (📌); without a song, on the board shown. What's after the master stays.
+  - A line naming a part or effect that doesn't exist is skipped and logged in 🖥 Console.
+  - The prompt is in ⚙ Settings → Prompts (**Routing**).
+- **Songs come with routing:** the song sheet may carry a few chains (`"routing": [...]`), the way the genre mixes. Dance music ducks under the kick, and a song may have a drum bus or an echo send. A song written with them plays through its own board.
+- **Chains as text:** one line per part (or bus, `kick+snare`), left to right:
+  ```
+  drums > comp(thresh=-18, ratio=4) > sat(drive=3) > master
+  pad > duck(key=drums, depth=-12) > verb(size=4, mix=0.35) > master
+  keys > par(verb(mix=1) > filter(lp=3000)) > master      a parallel path under the dry sound
+  ```
+  The names are those of the nodes (`eq7`, `verb`, …, with aliases such as `reverb`, `echo`, `compressor`, `sidechain`). Settings left out keep their defaults. `lib/routing.js` reads them (`parseChains`) and writes them (`describeChains`).
 
-How it works: each part's source (after its mute / solo) normally goes straight to its input on the master. Routing closes that path and wires the source into Web Audio nodes (`DynamicsCompressorNode`, `WaveShaperNode`, biquads, `ConvolverNode`, `DelayNode`). A wire into the master goes to the input of the channel it carries: the part's, or, when several parts reach it, a bus's. The inputs are summed into the master chain, which the Master FX block shows. Node changes are instant; adding or removing nodes rebuilds the graph. The graph rules (no loops, values in range, templates, layout) are in `lib/routing.js` and the audio blocks in `routing-audio.js`. The canvas is [Drawflow](https://github.com/jerosoler/Drawflow), which only shows the graph: what you do on it comes back as changes to the graph, which are checked against its rules before the canvas is redrawn from it.
+How it works: each part's source (after its mute / solo) normally goes straight to its input on the master. Routing closes that path and wires the source into Web Audio nodes (`DynamicsCompressorNode`, `WaveShaperNode`, biquads, `ConvolverNode`, `DelayNode`). A Duck is an envelope follower (an `AudioWorklet`, loaded once per audio context) on its key, driving a gain on its sound. A wire into the master goes to the input of the channel it carries: the part's, or, when several parts reach it, a bus's. The inputs are summed into the master chain, which the Master FX block shows. Node changes are instant; adding or removing nodes rebuilds the graph. The graph rules (no loops, values in range, templates, layout) are in `lib/routing.js` and the audio blocks in `routing-audio.js`. The canvas is [Drawflow](https://github.com/jerosoler/Drawflow), which only shows the graph: what you do on it comes back as changes to the graph, which are checked against its rules before the canvas is redrawn from it.
 
 ## 🎛 Master (mastering style)
 Every song has a **master style**: post-processing on the whole mix, picked by the songwriter (or the band) and shown in the song's details as 🎛. Styles: clean, lo-fi, warm, acoustic (natural and open: a wooden room, gentle compression), pop, techno, house, edm, dnb, hiphop, synthwave, ambient, dub, cinematic, rock, chiptune and radio.

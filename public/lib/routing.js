@@ -493,18 +493,21 @@ const nameKey = (s) => String(s || '').trim().toLowerCase().replace(/[^a-z0-9]+/
 
 /**
  * Chains (lines of text, as above) → a graph, for the parts there are. { graph, errors: [what was left out and why] }.
- * Unknown parts, types and settings are left out (and said so); values are kept in range.
+ * A line naming a part or a type there isn't is left out (and said so); an unknown setting is dropped; values are
+ * kept in range.
  */
 export function parseChains(lines, parts = []) {
   const byName = new Map(parts.map((p) => [nameKey(p), p]));
   const nodes = [], edges = [], errors = [];
+  let bad = false; // (a line with an unknown part or type is left out whole; an unknown setting only loses that setting)
+  const fail = (msg) => { errors.push(msg); bad = true; };
   const add = (type, params = {}) => { const id = `n${nodes.length + 1}`; nodes.push({ id, type, params: { ...defaultParams(type), ...params } }); return id; };
   const link = (from, to, ports = {}) => edges.push({ from, to, ...(ports.fp ? { fp: 1 } : {}), ...(ports.tp ? { tp: 1 } : {}) });
   const partIds = (text, where) => {
     const ids = [];
     for (const n of String(text).split('+')) {
       const p = byName.get(nameKey(n));
-      if (p) ids.push(srcId(p)); else errors.push(`${where}: no part "${n.trim()}"`);
+      if (p) ids.push(srcId(p)); else fail(`${where}: no part "${n.trim()}"`);
     }
     return ids;
   };
@@ -513,7 +516,7 @@ export function parseChains(lines, parts = []) {
     for (const tok of tokens) {
       if (/^master$/i.test(tok)) return { prev, ended: true };
       const m = /^([a-z0-9]+)\s*(?:\((.*)\))?$/i.exec(tok);
-      if (!m) { errors.push(`${line}: can't read "${tok}"`); continue; }
+      if (!m) { fail(`${line}: can't read "${tok}"`); continue; }
       const word = m[1].toLowerCase();
       if (word === 'par') {
         // a parallel path: split → (dry) → sum, split → path → sum
@@ -526,12 +529,12 @@ export function parseChains(lines, parts = []) {
         continue;
       }
       const type = TYPE_ALIASES[word];
-      if (!type) { errors.push(`${line}: no node type "${m[1]}"`); continue; }
+      if (!type) { fail(`${line}: no node type "${m[1]}"`); continue; }
       const params = {};
-      let keys = [];
+      let keys = [], keyed = false;
       for (const kv of splitTop(m[2] || '', ',')) {
         const [k, v] = kv.split('=').map((x) => x.trim());
-        if (type === 'duck' && /^key$/i.test(k)) { keys = partIds(v, line); continue; }
+        if (type === 'duck' && /^key$/i.test(k)) { keyed = true; keys = partIds(v, line); continue; }
         const key = PARAM_ALIASES[type]?.[String(k).toLowerCase()];
         if (!key || v == null || !Number.isFinite(parseFloat(v))) { errors.push(`${line}: ${m[1]} has no setting "${kv}"`); continue; }
         params[key] = parseFloat(v);
@@ -539,7 +542,7 @@ export function parseChains(lines, parts = []) {
       const id = add(type, params);
       for (const p of prev) link(p.id, id, { fp: p.fp });
       for (const k of keys) link(k, id, { tp: 1 });
-      if (type === 'duck' && !keys.length) errors.push(`${line}: duck needs key=<part> (what it ducks under)`);
+      if (type === 'duck' && !keyed) fail(`${line}: duck needs key=<part> (what it ducks under)`);
       prev = [{ id }];
     }
     return { prev, ended: false };
@@ -548,10 +551,12 @@ export function parseChains(lines, parts = []) {
     const line = String(raw || '').trim().replace(/[→]/g, '>');
     if (!line || line.startsWith('#') || line.startsWith('//')) continue;
     const [head, ...rest] = splitTop(line, '>');
+    const mark = [nodes.length, edges.length];
+    bad = false;
     const srcs = partIds(head, line);
-    if (!srcs.length) continue;
     const end = steps(rest, srcs.map((id) => ({ id })), line);
     for (const p of end.prev) link(p.id, SINK, { fp: p.fp });
+    if (bad || !srcs.length) { nodes.length = mark[0]; edges.length = mark[1]; }
   }
   return { graph: normGraph({ nodes, edges }), errors };
 }
