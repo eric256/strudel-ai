@@ -7,7 +7,8 @@ import { T } from './index.js';
 /**
  * A song's buttons. tb: { state: 'writing' | 'failed' | 'written', error, canPlay, canEdit, editing, fav, mine,
  *   hasPads, padsFollow, canPromote (a written sheet song: 🎸 Band / 📻 Station), mp3: { kind: 'take' | 'recording' | 'next' | 'record', time, mb, running }, sharing,
- *   renaming, naming: null | { title } (typing a new name) }
+ *   renaming, naming: null | { title } (typing a new name),
+ *   exports: [{ id, icon, label, title, copy, open }] (⬇ Export: the song's JSON, then 🧩 plugins' exporters) }
  */
 export function songToolbar(tb) {
   const btn = (act, label, title) => html`<button data-act=${act} title=${title}>${label}</button>`;
@@ -37,7 +38,11 @@ export function songToolbar(tb) {
       ${tb.canPromote ? btn('station', '📻 Station', 'Start a station that writes music like this song, played by its band') : nothing}
       ${btn('name', '✏ Name', 'Type a new name for this song')}
       ${tb.renaming ? html`<button disabled>🎲 naming…</button>` : btn('rename', '🎲 Rename', 'Give this song a new title: the AI names it again, in another shape (a place, a name, a time, a phrase …), clear of the titles already used')}
-      ${btn('json', '⬇ JSON', 'Download the whole song (sheet, parts, sections, pads) as a .json file — import it on any Strudel AI server')}
+      <details class="sv-export"><summary title="Save this song: its JSON (⬆ import loads it on any Strudel AI server), and what 🧩 plugins can export">⬇ Export</summary>
+        <div class="sv-menu">${(tb.exports || []).map((x) => html`<div class="sv-exp">
+          <button data-act="export" data-exp=${x.id} data-how="download" title=${`Download: ${x.title || x.label}`}>${x.icon || '⬇'} ${x.label}</button>
+          ${x.copy ? html`<button data-act="export" data-exp=${x.id} data-how="copy" title="Copy it to the clipboard">📋</button>` : nothing}
+          ${x.open ? html`<button data-act="export" data-exp=${x.id} data-how="open" title=${x.openTitle || 'Open it'}>↗</button>` : nothing}</div>`)}</div></details>
       ${tb.sharing ? html`<button disabled>creating link…</button>` : btn('link', '🔗 Link', 'Create a link that plays this whole song on this server')}
     </div>`;
 }

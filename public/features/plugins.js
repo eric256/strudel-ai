@@ -27,6 +27,8 @@ import { playSong, songFromJSON } from './song-library.js';
 import { meterBeats, songMeter } from '../lib/music.js';
 import { T, overrideTemplate, templateNames } from '../templates/index.js';
 import { addImporter } from './importers.js';
+import { addExporter } from './exporters.js';
+import { songsChanged } from './song-lists.js';
 
 const INSTALLED_KEY = 'strudel-ai:plugins';
 const ID_RE = /^[a-z0-9][a-z0-9_-]{0,39}$/i;
@@ -161,6 +163,17 @@ function makeApi(p, id) {
     addImporter(def) {
       if (!def || typeof def.import !== 'function' || !def.accept) throw new Error('addImporter needs accept and import(file, tools)');
       later(addImporter({ ...def, id: def.id || id, plugin: id, import: def.import }));
+    },
+    /**
+     * An exporter: a format a song's ⬇ Export menu offers. { id, label, icon, ext, mime, title, copy (offer 📋),
+     * open (offer ↗, for a result with a url), async export(song, tools) → text, a Blob / bytes, or { text | blob | bytes,
+     * name, mime, url } }. tools: helpers (songProgram, songNotes, strudelLink, gmProgram …).
+     */
+    addExporter(def) {
+      if (!def || typeof def.export !== 'function' || !def.label) throw new Error('addExporter needs a label and export(song, tools)');
+      const off = addExporter({ ...def, id: def.id ? `${id}.${def.id}` : id, plugin: id, builtin: false });
+      songsChanged();
+      later(() => { off(); songsChanged(); });
     },
     /** Load samples, like Strudel's samples(): a map ({ name: [urls] }) or a strudel.json URL, and a base URL. */
     async addSounds(map, base) {

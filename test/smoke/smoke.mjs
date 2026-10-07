@@ -474,6 +474,72 @@ try {
     await ev(() => document.getElementById('settingsDlg').close());
   });
 
+  await step('⬇ Export (example plugins): a song as one Strudel program (it plays; ↗ strudel.cc link; 📋 copy), a MIDI file and a lead sheet', async () => {
+    await ev(() => { document.getElementById('settingsBtn').click(); document.querySelector('.settings-tabs [data-sec="setPlugins"]').click(); });
+    await p.waitForFunction(() => [...document.querySelectorAll('.plugin-card')].some((x) => x.textContent.includes('MIDI export')), null, { timeout: 10000 });
+    const toggle = (n) => ev((n) => [...document.querySelectorAll('.plugin-card')].find((x) => x.textContent.includes(n)).querySelector('input').click(), n);
+    const names = ['Strudel REPL export', 'MIDI export', 'Lead sheet export'];
+    for (const n of names) await toggle(n);
+    await ev(() => document.getElementById('settingsDlg').close());
+    // a written song in 🎶 Now playing, paused there (it's short: the playlist would move on)
+    const hold = async () => {
+      await ev(() => strudelAI.playSong(strudelAI.mySongs.find((x) => x.title === 'Little Tune')));
+      await p.waitForFunction(() => strudelAI.engine.steps.some((x) => x.status === 'playing' && /piano_rh:/.test(x.code)), null, { timeout: 20000 });
+      await ev(() => document.getElementById('nowPause').click());
+      await p.waitForFunction(() => !!strudelAI.engine.paused, null, { timeout: 5000 });
+    };
+    await hold();
+    await p.waitForFunction(() => document.querySelectorAll('#nowSongView .sv-export .sv-exp').length >= 4, null, { timeout: 20000 })
+      .catch(async () => { throw new Error(`no ⬇ Export menu: ${await ev(() => document.querySelector('#nowSongView .sv-toolbar')?.textContent)}`); });
+    const items = await ev(() => [...document.querySelectorAll('#nowSongView .sv-exp button:first-child')].map((b) => b.textContent.trim()));
+    expect(items.length === 4 && /JSON/.test(items[0]) && items.some((t) => /Strudel REPL/.test(t)) && items.some((t) => /MIDI/.test(t)) && items.some((t) => /Lead sheet/.test(t)), `the menu: ${items}`);
+    const fsp = await import('node:fs/promises');
+    const pick = (exp, how = 'download') => ev(([exp, how]) => {
+      const d = document.querySelector('#nowSongView .sv-export'); d.open = true;
+      d.querySelector(`[data-exp$="${exp}"][data-how="${how}"]`).click();
+    }, [exp, how]);
+    const get = async (exp) => {
+      const [dl] = await Promise.all([p.waitForEvent('download', { timeout: 15000 }), pick(exp)])
+        .catch(async () => { throw new Error(`no ${exp} download: ${await ev(() => [...document.querySelectorAll('#messages .msg')].slice(-2).map((m) => m.textContent.slice(0, 300)).join(' ⏎ '))}`); });
+      return { name: dl.suggestedFilename(), bytes: await fsp.readFile(await dl.path()) };
+    };
+    // 🌀 the Strudel program: one arrange per part; it plays in the editor
+    const repl = await get('repl');
+    const code = repl.bytes.toString('utf8');
+    expect(/\.strudel\.js$/.test(repl.name) && /^setcpm\(96\/4\)/m.test(code) && /^piano_rh: arrange\(/m.test(code) && /const chords_c1 = "<F>"/.test(code), `the program (${repl.name}):\n${code.slice(0, 600)}`);
+    await ev(() => document.getElementById('stop').click());
+    const err = await ev(async (c) => (await strudelAI.evaluateCode(c, { label: 'export', undo: false }))?.message || null, code);
+    expect(!err, `the exported program doesn't run: ${err}`);
+    await p.waitForFunction(() => document.querySelector('strudel-editor').editor.repl.scheduler.started, null, { timeout: 10000 });
+    await p.waitForTimeout(500);
+    await ev(() => document.getElementById('stop').click());
+    // ↗ strudel.cc: the code is in the link; 📋 copies it
+    await ev(() => { window.open = (u) => { window.__opened = u; return null; }; Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async (t) => { window.__copied = t; } } }); });
+    await hold();
+    await p.waitForFunction(() => document.querySelector('#nowSongView .sv-export'), null, { timeout: 20000 });
+    await pick('repl', 'open');
+    await p.waitForFunction(() => window.__opened, null, { timeout: 5000 });
+    const link = await ev(() => window.__opened);
+    const fromLink = Buffer.from(decodeURIComponent(link.split('#')[1]), 'base64').toString('utf8');
+    expect(link.startsWith('https://strudel.cc/#') && fromLink === code, `the strudel.cc link: ${link.slice(0, 80)}`);
+    await pick('sheet', 'copy');
+    await p.waitForFunction(() => window.__copied, null, { timeout: 5000 });
+    expect(/^# Little Tune/.test(await ev(() => window.__copied)), 'the copied lead sheet');
+    // 🎹 MIDI: a format-1 file, a track per part plus the tempo track
+    const midi = await get('midi');
+    const b = midi.bytes;
+    expect(midi.name.endsWith('.mid') && b.toString('latin1', 0, 4) === 'MThd' && b.readUInt16BE(8) === 1 && b.readUInt16BE(10) === 5, `the MIDI file (a tempo track and a track per part): ${midi.name}, ${b.length} bytes, ${b.readUInt16BE(10)} tracks`);
+    // 📝 the lead sheet
+    const md = (await get('sheet')).bytes.toString('utf8');
+    expect(/^# Little Tune/.test(md) && /## Chord chart/.test(md) && /`\| F/.test(md), `the lead sheet:\n${md.slice(0, 400)}`);
+    await ev(() => document.getElementById('stop').click());
+    // off: the menu is back to JSON
+    await ev(() => { document.getElementById('settingsBtn').click(); document.querySelector('.settings-tabs [data-sec="setPlugins"]').click(); });
+    for (const n of names) await toggle(n);
+    await ev(() => document.getElementById('settingsDlg').close());
+    await p.waitForFunction(() => document.querySelectorAll('#nowSongView .sv-export .sv-exp').length === 1, null, { timeout: 5000 });
+  });
+
   await step('every panel opens (visualizer, keys, pads, console …)', async () => {
     const ids = await ev(() => strudelAI.ws.panels().map((x) => x.id));
     for (const id of ids) { await ev((id) => strudelAI.ws.open(id), id); await p.waitForTimeout(150); }

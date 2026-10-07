@@ -31,8 +31,6 @@ export function feelCode(feel, role = '', i = 0) {
 /** Full program for one section: the library, then one labelled group per part. fill: a fill bar (true, or which fill). */
 export function sectionCode(song, sec, { fill = false } = {}) {
   const lib = song.library;
-  const fp = fill ? fillPart(song.sheet) : null;
-  const fillVar = typeof fill === 'string' ? fill : 'fill';
   const shift = sec.shift || 0;
   const moves = [shift ? `key ${signed(shift)}` : '', sec.bpm ? `${sec.bpm} bpm` : ''].filter(Boolean).join(' · ');
   const lines = [
@@ -45,15 +43,26 @@ export function sectionCode(song, sec, { fill = false } = {}) {
     `const sectionChords = ${JSON.stringify(transposeProgression(song.sheet.chords[sec.chords], shift))}`,
     'const sectionStart = 0 // set when the section switches in',
   ];
-  for (const x of sec.play) {
-    const id = `${x.part}_${fp && x.part === fp.id ? fillVar : x.variant}`;
-    const part = song.sheet.parts.find((p) => p.id === x.part);
-    // harmonic parts follow the (moved) chords; melodic plain parts (the hook) are moved with them; drums never
-    const lift = shift && !isFnPart(lib, id) && !/drum|perc|beat|fx|noise/i.test(`${part?.role} ${x.part}`) ? `.transpose(${shift})` : '';
-    const mask = fill ? null : enterMask(x.enter, sec.bars);
-    lines.push(`${x.part}: ${partExpr(lib, id)}${lift}${mask ? `.mask("${mask}")` : ''}${feelCode(song.sheet.feel, part?.role, song.sheet.parts.indexOf(part))}${softenCode(lib, id, TASTE)}.postgain(slider(1, 0, 1.5)).late(sectionStart)`);
-  }
+  for (const x of sec.play) lines.push(`${x.part}: ${partCall(song, sec, x, { fill })}.postgain(slider(1, 0, 1.5)).late(sectionStart)`);
   return lines.join('\n') + '\n';
+}
+
+/**
+ * What one part plays in a section: its library const (a chord-following part called with `chords`), moved with the
+ * section's key, brought in / out, with the song's feel and your taste. (The section's code and the whole-song
+ * export both use it, so they play the same.) fill: a fill bar (true, or which fill).
+ */
+export function partCall(song, sec, x, { fill = false, chords = 'sectionChords' } = {}) {
+  const lib = song.library;
+  const fp = fill ? fillPart(song.sheet) : null;
+  const id = `${x.part}_${fp && x.part === fp.id ? (typeof fill === 'string' ? fill : 'fill') : x.variant}`;
+  const shift = sec.shift || 0;
+  const part = song.sheet.parts.find((p) => p.id === x.part);
+  // harmonic parts follow the (moved) chords; melodic plain parts (the hook) are moved with them; drums never
+  const lift = shift && !isFnPart(lib, id) && !/drum|perc|beat|fx|noise/i.test(`${part?.role} ${x.part}`) ? `.transpose(${shift})` : '';
+  const mask = fill ? null : enterMask(x.enter, sec.bars);
+  const call = partExpr(lib, id).replace(/\(sectionChords\)$/, `(${chords})`);
+  return `${call}${lift}${mask ? `.mask("${mask}")` : ''}${feelCode(song.sheet.feel, part?.role, song.sheet.parts.indexOf(part))}${softenCode(lib, id, TASTE)}`;
 }
 
 /** Bars of silence after a song that stops hard (ending "cut"), before the next song. */

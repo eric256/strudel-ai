@@ -345,7 +345,7 @@ Every finished song has a toolbar:
 | ✎ Edit | open the song editor (see *✎ Edit song* above) |
 | 🔲 Song pads | loads the song's own 16 pads into the pad dock to jam along, and keeps following: as songs change, the dock switches to each new song's pads (**follow song** in the pad dock; click again or **↩ my pads** to stop) |
 | ⬇ MP3 / 🎙 MP3 | **⬇ MP3** downloads the song's recording once it has played to its end. With no recording yet, **🎙 MP3** plays the song now if nothing is playing, or records it the next time it plays from the start (the station keeps playing) |
-| ⬇ JSON | downloads the whole song (sheet, parts, sections, pads) as a `.json` file. **⬆ import** loads such a file — or a session log — on any Strudel AI server. With the 🧩 *MusicXML import* plugin on, it also reads scores (see below) |
+| ⬇ Export | **📄 Song (JSON)** downloads the whole song (sheet, parts, sections, pads) as a `.json` file. **⬆ import** loads such a file, or a session log, on any Strudel AI server, and reads scores when the 🧩 *MusicXML import* plugin is on (see below). 🧩 Export plugins add more formats to this menu (see below) |
 | 🔗 Link | a short link to the song on this server |
 | ✏ Name | type a new name yourself (Enter saves, Escape keeps the old one) |
 | 🎲 Rename | names the song again: a new title request, in another shape, clear of its old title and the titles already used |
@@ -357,6 +357,15 @@ Every finished song has a toolbar:
 - **Chords:** chord symbols become the sections' progressions, and a lead sheet's chord symbols get a part of their own. Without chord symbols, chords are worked out from the notes.
 - **Tempo, meter and key** come from the score. A section with a different tempo keeps it.
 - **Not carried over:** dynamics, articulations, grace notes, lyrics. A note tied across a bar line sounds again in the next bar. At most 10 parts are kept (the busiest).
+
+**⬇ Export plugins** (examples; turn them on in ⚙ Settings → 🧩 Plugins) add formats to a song's ⬇ Export menu:
+- **🌀 Strudel REPL:** the whole song as one Strudel program to paste into strudel.cc. **↗** opens it there directly (the code travels in the link), and **📋** copies it.
+  - **What's in it:** the part library, then one `part: arrange([bars, pattern], …)` line per part, playing its sections in order. Each section's chords, fills, key lifts, parts coming in and out, and levels are kept, so it plays like the app.
+  - **What isn't:** the master and its style, 🔀 routing, mixer faders, tempo changes, solos and crossfades. They're listed at the top of the program.
+- **🎹 MIDI file:** every note the song plays, read from its own patterns, so chords, fills, voices and the feel's dynamics are all there.
+  - A track per part, with its General MIDI instrument; drums are on channel 10.
+  - The song's tempo and meter are set. Take it into a DAW, a notation program or a hardware synth.
+- **📝 Lead sheet** (Markdown, also 📋 copy): key, tempo and meter; the form (sections, bars, chords, which parts play); a chord chart per section in its own key; the melody and hook; the parts and their sounds.
 
 **🎯 Chat target:** the selector under the chat says what the chat works on:
 - **🎛 code in the editor:** the section playing now, as before.

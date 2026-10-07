@@ -26,6 +26,8 @@ The chat changes the song open in ✎ Edit song; a new song described in the cha
 **Arrangement:** which parts play in each section (variants, coming in / dropping out). The playhead line follows the song.
 ![Arrangement with playhead](screenshots/08-arrangement-playhead.png)
 
+**⬇ Export** (🧩 plugins): a song's ⬇ Export menu offers its JSON, one **Strudel REPL** program (download, 📋 copy, or ↗ open in strudel.cc), a **MIDI file** (a track per part) and a **lead sheet** (Markdown). Plugins add their own formats (`api.addExporter`).
+
 **🎼 MusicXML import** (🧩 plugin): ⬆ import reads MusicXML scores (`.musicxml`, `.mxl`) as songs: a part per staff, voices together, drums, chord symbols, repeats played out, sections at rehearsal marks. Plugins can add their own importers (`api.addImporter`).
 
 **🎲 Song titles:** every song the AI names gets its own short request with a title shape picked at random (a place, a name, a time, a phrase …), examples in its genre's or band's style, and a check against the titles already used. 🎲 Rename names a song again, or ✏ Name to type your own.

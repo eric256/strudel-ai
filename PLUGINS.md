@@ -33,6 +33,7 @@ Two examples come with the app. Both are off until you turn them on:
 - [`public/plugins/bar-counter.js`](public/plugins/bar-counter.js) adds a panel, a header button, a settings page and its own setting, and redraws with the player's events.
 - [`public/plugins/paper-pack.js`](public/plugins/paper-pack.js) adds a theme, a band, a song form, a station and an AI instruction.
 - [`public/plugins/musicxml-import.js`](public/plugins/musicxml-import.js) adds an importer: ⬆ import reads MusicXML scores as songs.
+- [`public/plugins/strudel-export.js`](public/plugins/strudel-export.js), [`midi-export.js`](public/plugins/midi-export.js) and [`lead-sheet-export.js`](public/plugins/lead-sheet-export.js) add exporters to a song's ⬇ Export menu: one Strudel program, a MIDI file, a lead sheet.
 
 ## Where plugins come from
 
@@ -133,6 +134,24 @@ A song is `{ title, desc, sheet, library }`:
 | `serializeMini({ alt, bars })`, `parseMini(text)` | bars of notes `{ res, events: [{ t, len, vals }] }` ↔ mini-notation (`<[c4 e4] [g4@2]>`) |
 | `midiToNote(midi, flats)`, `gmSound(program)`, `GM_SOUNDS`, `GM_DRUMS` | note names; General MIDI programs → Strudel soundfonts, GM drum notes → `bd` / `sd` / `hh` … |
 | `ident`, `normProgression`, `normMeter`, `meterBeats`, `tempoLine`, `METERS` | names, chord progressions, meters and the tempo line as the app writes them |
+
+### Exporting songs
+
+`api.addExporter({ id, label, icon, ext, mime, title, copy, open, openTitle, export(song, tools) })` adds a format to every written song's **⬇ Export** menu (after the app's own JSON).
+- **What `export` returns:** text, a `Blob` or bytes (`Uint8Array`), or `{ text | blob | bytes, name, mime, url }`.
+- **The menu row:** the format's button downloads the file (`<song>.<ext>`). With `copy: true`, the row also has 📋, which copies the text. With `open: true`, it has ↗, which opens the returned `url` in a new tab.
+- **The song** is the app's song object: `title`, `desc`, `sheet` (sections, parts, chords) and `library` (the parts code).
+
+`tools`:
+
+| | |
+| --- | --- |
+| `songProgram(song)` | the whole song laid out as one program: `{ bpm, meter, bars, header, library, chords: [{ name, prog }], parts: [{ id, role, sound, segments: [[bars, expr]] }], sections, notes }`. Each part plays its sections in order, with each section's chords, fills, key lifts, parts coming in and out, and levels. `notes` lists what the code can't carry (the master, routing, tempo changes). |
+| `songProgramCode(prog)` | that program as Strudel REPL code: the parts, then `part: arrange([bars, …], …)` per part |
+| `songPatterns(song)`, `songNotes(song)` | the program running as Strudel patterns, and every note it plays: `{ quarterBpm, quartersPerBar, meter, bars, parts: [{ id, sound, notes: [{ begin, end, midi, drum, velocity }] }] }` (times in bars) |
+| `strudelLink(code)` | a strudel.cc link with the code in it |
+| `gmProgram(sound)`, `drumNote(s)`, `GM_SOUNDS`, `GM_DRUMS` | Strudel soundfonts → General MIDI programs, drum names → GM drum notes |
+| `songToJSON`, `transposeProgression`, `normMeter`, `meterBeats`, `slug` | the song's JSON, chords moved by semitones, meters, a file name from a title |
 
 Bands, forms and stations are added to your own lists **once**. After that they're yours to edit or delete, and a deleted one doesn't come back.
 
