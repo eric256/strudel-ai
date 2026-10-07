@@ -43,6 +43,7 @@ import { bandFromSong, promoteJam, stationFromSong, setup as setup_promote } fro
 import { openPartEditor, setup as setup_part_editor } from './features/part-editor.js';
 import { openEqualizer, setup as setup_equalizer } from './features/equalizer.js';
 import { routing, applyRouting, setup as setup_routing } from './features/routing.js';
+import { signInWithCredential, setup as setup_account } from './features/account.js';
 import { getTaste, setTaste, avoidSound, likeSound, setup as setup_taste } from './features/taste.js';
 import { html, nothing, render, renderOptions } from './html.js';
 import { T } from './templates/index.js';
@@ -744,8 +745,11 @@ $('replayBtn').onclick = () => { stopReplay(); addMsg('info', '■ replay stoppe
 // ---------------------------------------------------------------------------
 // Provider / model selection
 // ---------------------------------------------------------------------------
+/** (Re)load the server's configuration: providers, and the account (features/account.js redraws on it). */
+export async function reloadConfig() { await loadConfig(); }
 async function loadConfig() {
   state.config = await fetch('/api/config').then((r) => r.json());
+  document.dispatchEvent(new Event('strudel-ai:config'));
   const sel = $('provider');
   renderOptions(sel, Object.entries(state.config.providers).map(([key, p]) => ({ value: key, label: p.label })),
     saved.provider && state.config.providers[saved.provider] ? saved.provider : state.config.defaultProvider);
@@ -1631,6 +1635,7 @@ if (load().vizMode) $('vizMode').value = load().vizMode;
 $('vizMode').onchange = () => save({ vizMode: $('vizMode').value });
 setup_hydra(); // features/hydra.js
 setup_settings(); // features/settings.js
+setup_account(); // features/account.js
 setup_themes(); // features/themes.js
 setup_mixer(); // features/mixer.js
 setup_master_panel(); // features/master-panel.js
@@ -1802,7 +1807,7 @@ export function applyPadsReply(block) {
 
 setup_mp3(); // features/mp3.js
 // (features/debug.js)
-window.strudelAI = { player, routing, applyRouting, setMode, currentMode, promoteJam, openPartEditor, openEqualizer, restartSong, getTaste, setTaste, avoidSound, likeSound, openSongEditor: (sg) => openSongEditor(sg), bandFromSong, stationFromSong, plugins: pluginsState, sessionSongs, addToPlaylist, debugReport: () => debugReport(debugContext()), ws, mixer, mixerChannels, master, masterChain, getBands: () => bands, normalizeSheet, playSong, songMp3, loadPads, songPads, transposeProgression, sectionCode, getForms: () => songForms, getFavorites: () => favorites, loadFavorites, getPads: () => pads, mySongs, activeSong, songFromJSON, songToJSON, mp3, session, pads, padsState, keysState, noteOn, noteOff, setPad, docks, rec, replay, startReplay, recordingForShare, viz, checkScales, checkSounds, prepareCode, evaluateCode, dryRun, hum, transcribe, ensureSliders, engine, queue, setlist: engine, setl: queue };
+window.strudelAI = { signInWithCredential, reloadConfig, player, routing, applyRouting, setMode, currentMode, promoteJam, openPartEditor, openEqualizer, restartSong, getTaste, setTaste, avoidSound, likeSound, openSongEditor: (sg) => openSongEditor(sg), bandFromSong, stationFromSong, plugins: pluginsState, sessionSongs, addToPlaylist, debugReport: () => debugReport(debugContext()), ws, mixer, mixerChannels, master, masterChain, getBands: () => bands, normalizeSheet, playSong, songMp3, loadPads, songPads, transposeProgression, sectionCode, getForms: () => songForms, getFavorites: () => favorites, loadFavorites, getPads: () => pads, mySongs, activeSong, songFromJSON, songToJSON, mp3, session, pads, padsState, keysState, noteOn, noteOff, setPad, docks, rec, replay, startReplay, recordingForShare, viz, checkScales, checkSounds, prepareCode, evaluateCode, dryRun, hum, transcribe, ensureSliders, engine, queue, setlist: engine, setl: queue };
 setup_modes(); // features/modes.js
 setup_promote(); // features/promote.js
 setup_part_editor(); // features/part-editor.js

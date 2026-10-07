@@ -424,6 +424,7 @@
       <p class="muted small">Settings, song forms, stations, pads, layout and your last code are saved in this browser (per address: <code>https://192.168.1.50</code> and <code>https://myhost</code> keep separate settings). Use 💾 Backup to move them.</p>
     </section>
     <section id="setAI" class="settings-sec" hidden>
+      <div id="accountBox" class="account-box" hidden></div>
       <div class="set-row"><label>provider</label><select id="provider" title="LLM provider"></select></div>
       <div class="set-row"><label>model</label><select id="model" title="Model"></select><button id="refresh" title="Reload model list">⟳</button></div>
       <div class="set-row" id="effortRow" hidden><label>effort</label>
@@ -436,7 +437,7 @@
         <span class="muted small">stop all AI requests once this session has spent this much (Claude only; 0 = no limit). Spent so far: <b id="aiSpent">$0.00</b></span></div>
       <div class="set-row"><label><input type="checkbox" id="autoApply" checked /> auto-apply</label><span class="muted small">play the AI's code as soon as it's checked</span></div>
       <div class="set-row"><label><input type="checkbox" id="autoFix" checked /> auto-fix errors</label><span class="muted small">send errors back to the AI (up to 2 times) before showing them</span></div>
-      <p class="muted small">API keys and server addresses are set in the server's <code>.env</code> and never reach the browser.</p>
+      <p class="muted small">API keys and server addresses are set on the server (<code>.env</code>, or the Netlify site's environment) and never reach the browser. On a server with accounts, your own Claude key is kept with your account (above).</p>
     </section>
     <section id="setPrompts" class="settings-sec" hidden>
       <p class="muted small">The instructions (system prompts) the AI gets for each job. Edit them to change its style or rules; your versions are saved in this browser and used instead of the built-in ones. The list of loaded sounds is still added automatically.</p>

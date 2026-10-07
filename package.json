@@ -1,19 +1,20 @@
 {
   "name": "strudel-ai",
-  "version": "1.63.0",
-  "description": "Strudel live-coding REPL with an AI chat co-pilot (llama.cpp / OpenWebUI)",
+  "version": "1.64.0",
+  "description": "Strudel live-coding REPL with an AI chat co-pilot (Claude, llama.cpp, OpenWebUI) — Docker or Netlify",
   "main": "server.js",
   "type": "module",
   "scripts": {
     "start": "node server.js",
     "test": "node --test test/*.test.mjs",
     "smoke": "node test/smoke/smoke.mjs",
-    "check": "for f in server.js prompt.js public/*.js public/lib/*.js public/features/*.js public/templates/*.js public/ui/*.js public/plugins/*.js; do node --check $f || exit 1; done",
-    "screenshots": "node test/screenshots/screenshots.mjs"
+    "check": "for f in server.js prompt.js server/*.js netlify/functions/*.mjs netlify/edge-functions/*.mjs scripts/*.mjs public/*.js public/lib/*.js public/features/*.js public/templates/*.js public/ui/*.js public/plugins/*.js; do node --check $f || exit 1; done",
+    "screenshots": "node test/screenshots/screenshots.mjs",
+    "build:netlify": "node scripts/build-netlify.mjs"
   },
   "license": "AGPL-3.0-or-later",
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.131.0",
+    "@netlify/blobs": "^11.1.3",
     "@strudel/repl": "1.3.0",
     "dockview-core": "^8.4.0",
     "drawflow": "^0.0.60",

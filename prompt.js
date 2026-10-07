@@ -1,16 +1,8 @@
-import fs from 'node:fs';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+// (plain ESM — no Node-only APIs at the top — so the Netlify edge function can use it as well as the Express server)
+import SCALES from './public/scales.json' with { type: 'json' };
 
 // Valid Strudel/tonal scale names (spaces → colons), shared with the browser (public/scales.json)
-const SCALE_NAMES = (() => {
-  try {
-    const f = path.join(path.dirname(fileURLToPath(import.meta.url)), 'public', 'scales.json');
-    return JSON.parse(fs.readFileSync(f, 'utf8')).map(([name]) => name.replace(/ /g, ':'));
-  } catch {
-    return [];
-  }
-})();
+const SCALE_NAMES = (Array.isArray(SCALES) ? SCALES : []).map(([name]) => name.replace(/ /g, ':'));
 
 const SCALE_LIST = SCALE_NAMES.length
   ? `\n\n## VALID SCALE NAMES (use after "Tonic:", exactly as written)\n${SCALE_NAMES.join(' ')}`
@@ -134,15 +126,12 @@ chords: chord("<Cm9 Abmaj7 Bb7sus4 Bb7>").voicing().s("gm_pad_warm")
   .gain(slider(0.5, 0, 1.2))
 `;
 
-export const SYSTEM_PROMPT = (() => {
-  const f = process.env.SYSTEM_PROMPT_FILE;
-  let prompt = DEFAULT_PROMPT;
-  if (f && fs.existsSync(f)) {
-    console.log(`Using system prompt from ${f}`);
-    prompt = fs.readFileSync(f, 'utf8');
-  }
-  return prompt + SCALE_LIST;
-})();
+// (SYSTEM_PROMPT_FILE: the Express server only — a file it can read)
+const PROMPT_FILE = globalThis.process?.env?.SYSTEM_PROMPT_FILE;
+const PROMPT_FROM_FILE = PROMPT_FILE
+  ? await import('node:fs').then((fs) => { const t = fs.readFileSync(PROMPT_FILE, 'utf8'); console.log(`Using system prompt from ${PROMPT_FILE}`); return t; }).catch(() => null)
+  : null;
+export const SYSTEM_PROMPT = (PROMPT_FROM_FILE || DEFAULT_PROMPT) + SCALE_LIST;
 
 export const SONGS_PROMPT = `You are the music director of a live-coded electronic music set / radio station played with Strudel
 (synths, drum machines, samples and General-MIDI soundfonts; no vocals, no real recordings).

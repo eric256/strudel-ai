@@ -27,6 +27,16 @@ jobs:
           curl -sf http://127.0.0.1:3000/ | grep -q 'name="app-build"'
           curl -sf -o /dev/null http://127.0.0.1:3000/vendor/strudel/index.js
           kill $! || true
+      - name: Netlify build (the static site and the API's info)
+        run: |
+          npm run build:netlify
+          test -f dist/index.html && test -f dist/vendor/strudel/index.js && test -f netlify/generated/info.json
+          grep -q 'name="app-build"' dist/index.html
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - name: Netlify edge function (the chat) runs in Deno
+        run: deno run --allow-net --allow-read --allow-env test/deno/edge-chat.mjs
 
   smoke:
     # the whole app in a real browser, with a mock AI (test/smoke)

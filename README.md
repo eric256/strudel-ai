@@ -739,7 +739,7 @@ Before any AI-written code plays, the app checks it:
 | `OPENWEBUI_URL` | `http://host.docker.internal:3000` | |
 | `OPENWEBUI_API_KEY` | – | required for OpenWebUI |
 | `OPENWEBUI_MODEL` | – | default model id; can pick in UI |
-| `ANTHROPIC_API_KEY` | – | enables the **Claude** provider |
+| `ANTHROPIC_API_KEY` | – | enables the **Claude** provider for everyone (or only `ALLOWED_EMAILS`); signed-in users can use their own key instead |
 | `ANTHROPIC_MODEL` | `claude-sonnet-5-5` | default Claude model; can pick in UI |
 | `ANTHROPIC_EFFORT` | `low` | `low` / `medium` / `high`; UI setting overrides per browser |
 | `ANTHROPIC_MAX_TOKENS` | `32000` | per Claude reply, thinking included |
@@ -753,6 +753,45 @@ Before any AI-written code plays, the app checks it:
 | `TLS_ISSUER` | `internal` | Caddy: `internal` or an e-mail for Let's Encrypt |
 | `HTTP_PUBLIC_PORT` / `HTTPS_PUBLIC_PORT` | `80` / `443` | host ports for Caddy |
 | `PORT` / `HTTPS_PORT` | `3000` / (off) | app's own ports; built-in self-signed HTTPS only when not using Caddy |
+| `GOOGLE_CLIENT_ID` | – | turns on 👤 accounts: Google sign-in, and each user's own Anthropic key (see *Accounts* below) |
+| `SESSION_SECRET` | – | needed with `GOOGLE_CLIENT_ID`: a long random string. It signs the sign-in cookie and encrypts the saved keys, so keep it secret and don't change it (saved keys would stop opening) |
+| `ALLOWED_EMAILS` | – | comma-separated: only these signed-in users may use the server's own `ANTHROPIC_API_KEY` (everyone else brings their own key) |
+| `PROVIDERS` | all (Netlify: `anthropic`) | comma-separated: the providers the UI offers |
+
+## 👤 Accounts: Google sign-in and your own Anthropic key
+
+On a server for other people, each person can use **their own** Anthropic API key, so no one shares the owner's bill.
+- **Turn it on** with `GOOGLE_CLIENT_ID` and `SESSION_SECRET`. Then **⚙ Settings → AI** has an **Account** box: **Sign in with Google**, then paste an Anthropic API key (`sk-ant-…`) and **save key**.
+- **Checking the key:** the server tries it with Anthropic first and refuses one that doesn't work.
+- **Storing the key:**
+  - It's encrypted with `SESSION_SECRET` (AES-GCM, bound to the account) and kept with the account: on Docker as a file in `DATA_DIR/users/`, on Netlify in Netlify Blobs.
+  - It's never sent back to the page. The page only sees its first and last characters (`sk-ant-…a1b2`).
+  - Signing in on another device brings it along. **remove** deletes it from the server.
+- **How requests use it:** the server signs the session cookie, and the browser sends it with each request. A second cookie carries the sealed key, which the chat (a Netlify edge function) opens without a database.
+  - Both cookies are `HttpOnly` and `SameSite=Lax`, and `Secure` on https. Account changes are only accepted from the site's own pages.
+- **Whose key a request uses:** the user's own key first. Otherwise the server's `ANTHROPIC_API_KEY`, if there is one: for everyone, or only for `ALLOWED_EMAILS`.
+- **Setting up Google sign-in:**
+  1. In the [Google Cloud console](https://console.cloud.google.com/apis/credentials), create an **OAuth client ID** of type *Web application*.
+  2. Add your site's address (e.g. `https://my-strudel.netlify.app`, and `http://localhost:3000` for testing) under **Authorized JavaScript origins**. No redirect URI is needed: the sign-in is a popup.
+  3. Put the client ID in `GOOGLE_CLIENT_ID`, and a long random string in `SESSION_SECRET` (e.g. `openssl rand -base64 48`).
+
+## Deploy to Netlify
+
+The repo deploys to Netlify as it is (`netlify.toml`):
+- **The app:** a static site built into `dist/` by `npm run build:netlify`. That's the app's files, the browser's libraries from `node_modules` under `/vendor`, and `index.html` stamped with the version and build.
+- **The API:** a Netlify Function (`netlify/functions/api.mjs`). Shared songs, ★ favorites and accounts are kept in **Netlify Blobs**.
+- **The chat:** a Netlify **Edge Function** (`netlify/edge-functions/chat.mjs`). A song sheet or a part library can stream from Claude for a minute or more, longer than a function may run; an edge function only counts the time it computes, not the time it waits on Claude.
+- **The shared code:** both run the same code as the Docker server (`server/`), so they behave the same.
+
+To deploy:
+1. In Netlify, **Add new site → Import an existing project**, and pick this repository. The build settings come from `netlify.toml`.
+2. Under **Site configuration → Environment variables**, set:
+   - `GOOGLE_CLIENT_ID` and `SESSION_SECRET`, for accounts (see above). Without them there's no sign-in, and Claude only works with a server key.
+   - Optionally `ANTHROPIC_API_KEY`: a key of your own for everyone, or with `ALLOWED_EMAILS` only for some people.
+   - Optionally `ANTHROPIC_MODEL` and `ANTHROPIC_EFFORT`.
+3. Deploy, then add the site's address to the Google client's **Authorized JavaScript origins**.
+
+On Netlify the UI offers **Claude only**, because a hosted site can't reach a llama.cpp or OpenWebUI running on your computer. If yours is reachable on the internet, set `PROVIDERS` (e.g. `anthropic,openwebui`) and its `…_URL`. The server's 🧩 plugins folder becomes `plugins/` in the repository; its files are published with the site. Everything else works as in Docker: songs, stations, the editor, recording, plugins, sharing.
 
 ## HTTPS (why it's needed and how it works)
 
@@ -788,13 +827,22 @@ Use ≥ 8k context. Small models hallucinate function names more often — auto-
 ```bash
 npm ci
 npm run check     # syntax check
-npm test          # unit tests: song engine, music theory, code wrapping, hum → melody
+npm test          # unit tests: song engine, music theory, code wrapping, hum → melody, the server's API and accounts
+npm run build:netlify   # the Netlify site in dist/ (deploy: see "Deploy to Netlify")
+deno run --allow-net --allow-read --allow-env test/deno/edge-chat.mjs   # the chat edge function in Deno
 npm run smoke     # the whole app in Chromium with a mock AI (needs Playwright: npm i --no-save playwright && npx playwright install chromium)
 LLAMACPP_URL=http://localhost:8080 npm start   # http://localhost:3000
 ```
 
 Code layout:
-- `server.js`: the web server, the AI providers, share links and favorites. `prompt.js`: the AI's system prompts.
+- `server.js`: the Express server (Docker, `npm start`): the app's files, and `/api` handed to `server/api.js`.
+- `server/`: the API, in web-standard JavaScript (fetch, Request / Response, WebCrypto), shared by Express and Netlify:
+  - `api.js`: the endpoints: config, models, chat, share links, favorites, accounts and keys.
+  - `llm.js`: the AI providers, and Claude's stream turned into the browser's events.
+  - `auth.js`: Google sign-in, sessions and sealed keys.
+  - `file-store.js`: Docker's storage (JSON files).
+  - `build-info.js`: the version, the build id and the stamped `index.html`.
+- `netlify/` and `netlify.toml`: the Netlify function (Blobs storage) and the chat edge function. `scripts/build-netlify.mjs` builds the site. `prompt.js`: the AI's system prompts.
 - `public/main.js`: the page's entry point. It loads `app.js`.
 - `public/app.js`: the player core, about 1,700 lines:
   - the Strudel editor, quantized switching and crossfades, and the recorder / replay;

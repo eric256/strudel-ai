@@ -7,7 +7,7 @@ import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { startMockAI, log } from './mock-ai.mjs';
+import { startMockAI, log, googleToken, GOOD_CLAUDE_KEY } from './mock-ai.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const APP_PORT = 3911, AI_PORT = 3912;
@@ -17,7 +17,9 @@ const chromium = pw.chromium || pw.default?.chromium;
 const ai = await startMockAI(AI_PORT);
 const app = spawn(process.execPath, ['server.js'], {
   cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'],
-  env: { ...process.env, PORT: String(APP_PORT), DATA_DIR: mkdtempSync(path.join(tmpdir(), 'strudel-ai-smoke-')), LLAMACPP_URL: `http://127.0.0.1:${AI_PORT}`, DEFAULT_PROVIDER: 'llamacpp', ANTHROPIC_API_KEY: '' },
+  env: { ...process.env, PORT: String(APP_PORT), DATA_DIR: mkdtempSync(path.join(tmpdir(), 'strudel-ai-smoke-')), LLAMACPP_URL: `http://127.0.0.1:${AI_PORT}`, DEFAULT_PROVIDER: 'llamacpp', ANTHROPIC_API_KEY: '',
+    // accounts: Google sign-in (the mock AI stands in for Google's keys) and Claude (the mock AI again)
+    GOOGLE_CLIENT_ID: 'smoke-client', SESSION_SECRET: 'smoke-test-session-secret-0123456789', GOOGLE_JWKS_URL: `http://127.0.0.1:${AI_PORT}/jwks`, ANTHROPIC_BASE_URL: `http://127.0.0.1:${AI_PORT}` },
 });
 process.on('exit', () => app.kill()); // never leave the server running
 let appLog = '';
@@ -992,6 +994,38 @@ try {
     await p.waitForFunction(() => strudelAI.getTaste().avoid.length === 1, null, { timeout: 5000 });
     await ev(() => strudelAI.setTaste({}, { quiet: true }));
     await ev(() => document.getElementById('stop').click());
+  });
+
+  await step('👤 accounts: sign in with Google, save your own Claude key (a bad one is refused), Claude chats with it; sign out', async () => {
+    await ev(() => { document.getElementById('settingsBtn').click(); document.querySelector('.settings-tabs [data-sec="setAI"]').click(); });
+    await p.waitForFunction(() => !document.getElementById('accountBox').hidden && /Sign in to use Claude/.test(document.getElementById('accountBox').textContent), null, { timeout: 5000 });
+    const token = await googleToken('smoke-client');
+    await ev((t) => strudelAI.signInWithCredential(t), token);
+    await p.waitForFunction(() => /Ada Lovelace/.test(document.getElementById('accountBox').textContent) && document.querySelector('#accountBox input[type=password]'), null, { timeout: 5000 });
+    expect(await ev(() => !/sai_session/.test(document.cookie)), 'the session cookie is visible to the page (it should be HttpOnly)');
+    const saveKey = async (k) => { await p.fill('#accountBox input[type=password]', k); await ev(() => document.querySelector('#accountBox form').requestSubmit()); };
+    await saveKey('sk-ant-smoke-bad-key-0000000000');
+    await p.waitForFunction(() => /rejected/.test(document.getElementById('accountBox').textContent), null, { timeout: 10000 });
+    await saveKey(GOOD_CLAUDE_KEY);
+    await p.waitForFunction(() => /sk-ant-…6789/.test(document.getElementById('accountBox').textContent) && /in use/.test(document.getElementById('accountBox').textContent), null, { timeout: 10000 });
+    expect(await ev(() => strudelAI.reloadConfig().then(() => true)), 'config');
+    // Claude: its models, then a chat edit with your key
+    await ev(() => { const s = document.getElementById('provider'); s.value = 'anthropic'; s.dispatchEvent(new Event('change')); });
+    await p.waitForFunction(() => [...document.getElementById('model').options].some((o) => o.value === 'claude-smoke'), null, { timeout: 10000 });
+    await ev(() => document.getElementById('settingsDlg').close());
+    await ev(() => strudelAI.setMode('jam'));
+    await p.waitForFunction(() => !document.getElementById('send').classList.contains('stop'), null, { timeout: 20000 });
+    const n = log.filter((x) => x.kind === 'claude').length;
+    await ev(() => { const $ = (id) => document.getElementById(id); $('chatTarget').value = 'code'; $('input').value = 'a tight beat'; $('chat-form').requestSubmit(); });
+    await p.waitForFunction(() => /claude: s\("bd\*2/.test(document.querySelector('strudel-editor').editor.code), null, { timeout: 20000 });
+    const call = log.filter((x) => x.kind === 'claude')[n];
+    expect(call && call.key === GOOD_CLAUDE_KEY && /REQUEST: a tight beat/.test(call.last), `the Claude request: ${JSON.stringify(call)?.slice(0, 200)}`);
+    await ev(() => document.getElementById('stop').click());
+    // back to the mock llama.cpp; sign out
+    await ev(() => { document.getElementById('settingsBtn').click(); document.querySelector('.settings-tabs [data-sec="setAI"]').click(); const s = document.getElementById('provider'); s.value = 'llamacpp'; s.dispatchEvent(new Event('change')); });
+    await ev(() => [...document.querySelectorAll('#accountBox button.link')].find((b) => /sign out/.test(b.textContent)).click());
+    await p.waitForFunction(() => /Sign in to use Claude/.test(document.getElementById('accountBox').textContent), null, { timeout: 5000 });
+    await ev(() => document.getElementById('settingsDlg').close());
   });
 
   await step('no page errors', async () => expect(!errors.length, errors.join(' | ')));

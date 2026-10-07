@@ -2,6 +2,35 @@
 
 The version is in `package.json`. Bump it when you release. Open pages also notice *any* redeploy through the build id, which is a hash of the app files, even if the version wasn't bumped.
 
+## 1.64.0
+- **☁ Netlify:** the app deploys to Netlify as it is (`netlify.toml`, README → *Deploy to Netlify*).
+  - **The site:** a static site built into `dist/` by `npm run build:netlify`.
+  - **The API:** a Netlify Function, with shared songs, favorites and accounts in Netlify Blobs.
+  - **The chat:** an Edge Function, so a song's sheet or parts can stream from Claude for minutes.
+  - On Netlify the UI offers Claude only; `PROVIDERS` changes that.
+- **👤 Accounts: Google sign-in and your own Anthropic key** (with `GOOGLE_CLIENT_ID` + `SESSION_SECRET`; README → *Accounts*).
+  - ⚙ Settings → AI has an Account box. Sign in with Google, then save your Anthropic API key.
+  - The key is checked with Anthropic, encrypted with the server's secret and bound to the account, and kept with it. It comes along on another device. The page never sees it again.
+  - Your Claude requests use your key. The server's own `ANTHROPIC_API_KEY` is used when you have none: for everyone, or only `ALLOWED_EMAILS`.
+  - The session and the sealed key travel in HttpOnly, SameSite cookies, and account changes are only accepted from the site's own pages.
+  - Google's sign-in script loads only when the Account box is shown.
+- **The server's API is one shared core (`server/`)** in web-standard JavaScript (fetch, Request / Response, WebCrypto). Express (Docker) and Netlify run the same code.
+  - Claude is called through its HTTP API directly, with retries on rate limits and overloads; the Anthropic SDK is no longer a dependency.
+  - `prompt.js` no longer needs Node APIs. `SYSTEM_PROMPT_FILE` still works on the Express server.
+  - Data stays where it was (`DATA_DIR/shares`, `DATA_DIR/favorites`), so existing share links and favorites carry on.
+- **Docker:** the image copies `server/`.
+- **Tests:**
+  - **Unit tests for the server:** Google ID tokens (signature, audience, issuer, expiry, unverified email, unknown key), sessions, sealed keys, and the whole account flow:
+    - sign in;
+    - a rejected key, a wrong shape and a cross-site request are refused;
+    - a good key is saved sealed, and Claude's stream uses it;
+    - another device gets the key on sign-in;
+    - remove, and sign out.
+
+    They also cover the server key with `ALLOWED_EMAILS`, shares and favorites through the shared handler, and the Netlify build, function and edge function.
+  - **A Deno test** runs the chat edge function in Netlify's edge runtime against a stand-in for Claude. CI runs it, and builds the Netlify site.
+  - **A smoke step** signs in with Google, tries a bad key and then a good one, chats with Claude using it, and signs out. For this the mock AI also stands in for Google's keys and for the Anthropic API.
+
 ## 1.63.0
 - **⬇ Export menu** on a song's toolbar (it replaces ⬇ JSON). It lists:
   - **📄 Song (JSON)**, as before;

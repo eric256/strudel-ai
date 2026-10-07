@@ -44,10 +44,43 @@ function title(last) {
   return TITLES.find((t) => !last.includes(t)) || `Song ${last.length}`;
 }
 
+// a stand-in for Google sign-in: an RSA key, its public keys (/jwks), and ID tokens signed with it
+const enc = new TextEncoder();
+const b64u = (b) => Buffer.from(b).toString('base64url');
+const gkey = await crypto.subtle.generateKey({ name: 'RSASSA-PKCS1-v1_5', modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]), hash: 'SHA-256' }, true, ['sign', 'verify']);
+const JWKS = { keys: [{ ...(await crypto.subtle.exportKey('jwk', gkey.publicKey)), kid: 'smoke', use: 'sig', alg: 'RS256' }] };
+/** A Google ID token for the smoke test's sign-in. */
+export async function googleToken(clientId, claims = {}) {
+  const h = b64u(JSON.stringify({ alg: 'RS256', kid: 'smoke', typ: 'JWT' }));
+  const p = b64u(JSON.stringify({ iss: 'https://accounts.google.com', aud: clientId, sub: '42', email: 'ada@example.com', email_verified: true, name: 'Ada Lovelace', exp: Math.floor(Date.now() / 1000) + 600, ...claims }));
+  return `${h}.${p}.${b64u(await crypto.subtle.sign('RSASSA-PKCS1-v1_5', gkey.privateKey, enc.encode(`${h}.${p}`)))}`;
+}
+/** The one Anthropic key the stand-in Claude takes. */
+export const GOOD_CLAUDE_KEY = 'sk-ant-smoke-good-key-0123456789';
+
 export const log = [];
 let failSheets = 0;
 export function startMockAI(port) {
   const server = http.createServer((req, res) => {
+    if (req.url === '/jwks') { res.writeHead(200, { 'Content-Type': 'application/json' }); return res.end(JSON.stringify(JWKS)); }
+    // the stand-in Claude (Anthropic's API, which sends x-api-key): one good key
+    if (req.headers['x-api-key'] != null) {
+      if (req.headers['x-api-key'] !== GOOD_CLAUDE_KEY) { res.writeHead(401, { 'Content-Type': 'application/json' }); return res.end('{"error":{"message":"invalid x-api-key"}}'); }
+      if (req.url.startsWith('/v1/models')) { res.writeHead(200, { 'Content-Type': 'application/json' }); return res.end('{"data":[{"id":"claude-smoke","display_name":"Claude Smoke"}]}'); }
+      let body = '';
+      req.on('data', (d) => (body += d));
+      req.on('end', () => {
+        const j = JSON.parse(body);
+        log.push({ kind: 'claude', key: req.headers['x-api-key'], sys: j.system?.[0]?.text || '', last: j.messages[j.messages.length - 1].content });
+        const ev = (type, o) => `event: ${type}\ndata: ${JSON.stringify({ type, ...o })}\n\n`;
+        res.writeHead(200, { 'Content-Type': 'text/event-stream' });
+        res.write(ev('message_start', { message: { model: 'claude-smoke', usage: { input_tokens: 10 } } }));
+        res.write(ev('content_block_delta', { index: 0, delta: { type: 'text_delta', text: 'From Claude.\n```javascript\nsetcpm(120/4)\nclaude: s("bd*2, hh*4").bank("RolandTR909")\n```' } }));
+        res.write(ev('message_delta', { delta: { stop_reason: 'end_turn' }, usage: { output_tokens: 20 } }));
+        res.end(ev('message_stop', {}));
+      });
+      return;
+    }
     if (req.url.startsWith('/v1/models')) { res.writeHead(200, { 'Content-Type': 'application/json' }); return res.end('{"data":[{"id":"mock"}]}'); }
     let body = '';
     req.on('data', (d) => (body += d));
