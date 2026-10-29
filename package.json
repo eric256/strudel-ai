@@ -16,7 +16,7 @@
   "dependencies": {
     "@netlify/blobs": "^11.1.3",
     "@strudel/repl": "1.3.0",
-    "dockview-core": "^8.4.0",
+    "dockview-core": "^8.6.2",
     "drawflow": "^0.0.60",
     "express": "^5.2.1",
     "hydra-synth": "^1.4.0",
