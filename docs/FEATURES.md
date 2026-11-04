@@ -61,7 +61,7 @@ You and the AI write one piece of code in the editor; 🎼 Make it a song grows 
 **🎚 Mixer:** the master's inputs as a console, a strip per part (and per bus). Each has pan, M / S, **FX ↗** (its effects on the 🔀 Routing board), 👍 / 👎 for its sound, and a dB fader beside its meter and clip LED. The status bar warns ● HOT / ● CLIP when the mix gets close to the top.
 ![Mixer](screenshots/15-mixer.png)
 
-**🎛 Master:** the master at a glance. Its sections in signal order (EQ → Tone → Filter → Colour → Space → Echo → Dynamics → Output) switch on and off, with the style, follow song, save to song, bypass, and what comes out. Their knobs are on the 🔀 Routing board.
+**🎛 Master:** the master at a glance. Its sections in signal order (EQ → Tone → Filter → Colour → Space → Echo → Dynamics → Output) switch on and off, with the style, follow song, save to song, bypass, and what comes out. Their knobs are on the 🔀 Routing board. **🔊 Auto level** evens out loudness like a streaming service (−18 LUFS by default), so no song or style blasts.
 ![Master](screenshots/16-master.png)
 
 **🎚 Equalizer:** 7 bands on the master or an EQ7 node on the 🔀 Routing board. The curve is drawn over the live spectrum, with presets such as Soft top for harsh synths.

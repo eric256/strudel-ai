@@ -4,7 +4,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { gainToPos, posToGain, toDb, fromDb, faderMarks, peakState } from '../public/lib/taper.js';
 import { EQ_BANDS, EQ_PRESETS, normEq, isFlat, presetOf } from '../public/lib/eq.js';
-import { MASTER_NODES, MASTER_PARAMS, MASTER_DEFAULTS, effectiveParams, styleParams } from '../public/master.js';
+import { MASTER_NODES, MASTER_PARAMS, MASTER_DEFAULTS, effectiveParams, styleParams, normLevel, LEVEL_DEFAULT, LEVEL_TARGETS } from '../public/master.js';
 
 test('fader taper: like a console — 0 dB about 80 % up, the quiet end squeezed, −∞ at the bottom', () => {
   assert.equal(gainToPos(0), 0);
@@ -57,4 +57,14 @@ test('master chain: every control belongs to a node; a node switched off passes 
   assert.equal(off.size, p.size, 'a switched-off node keeps its other settings for when it comes back');
   assert.equal(off.filter, p.filter, 'nodes still on are untouched');
   assert.equal(effectiveParams(p, ['Output']).loud, 0);
+});
+
+test('auto level settings: on at −18 LUFS by default; targets kept in a sane range', () => {
+  assert.deepEqual(normLevel(null), LEVEL_DEFAULT);
+  assert.deepEqual(LEVEL_DEFAULT, { on: true, target: -18 });
+  assert.deepEqual(normLevel({ on: false, target: -14 }), { on: false, target: -14 });
+  assert.deepEqual(normLevel({ target: 3 }), { on: true, target: -10 });
+  assert.deepEqual(normLevel({ target: -99 }), { on: true, target: -30 });
+  assert.deepEqual(normLevel({ target: 'loud' }), { on: true, target: -18 });
+  for (const t of LEVEL_TARGETS) assert.equal(normLevel({ target: t }).target, t);
 });

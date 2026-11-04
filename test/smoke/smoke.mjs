@@ -364,6 +364,21 @@ try {
     await ev(() => { const d = document.getElementById('chatTarget'); d.value = 'auto'; d.dispatchEvent(new Event('change')); });
   });
 
+  await step('🔊 auto level: the follower measures the mix and turns it down to −18 LUFS; the switch and target work', async () => {
+    await ev(() => strudelAI.ws.open('master'));
+    await p.waitForFunction(() => { const l = strudelAI.masterChain()?.level(); return l?.live && l.loudness != null; }, null, { timeout: 15000 });
+    const l = await ev(() => strudelAI.masterChain().level());
+    // (the mock song's synths come out of the master far louder than −18 LUFS: it's turned down)
+    expect(l.on && l.target === -18 && l.gain < -2 && l.loudness > -18, JSON.stringify(l));
+    expect(await ev(() => document.querySelector('#masterBody [data-level="on"]').checked && document.querySelector('#masterBody [data-level="target"]').value === '-18'), 'controls');
+    await ev(() => { const s = document.querySelector('#masterBody [data-level="target"]'); s.value = '-14'; s.dispatchEvent(new Event('change', { bubbles: true })); });
+    expect(await ev(async () => strudelAI.masterChain().level().target === -14 && (await import('/app.js')).load().autoLevel.target === -14), 'target not set');
+    await ev(() => { const c = document.querySelector('#masterBody [data-level="on"]'); c.checked = false; c.dispatchEvent(new Event('change', { bubbles: true })); });
+    await p.waitForFunction(() => strudelAI.masterChain().level().gain > -0.5, null, { timeout: 20000 }); // (glides back to 0 dB)
+    await ev(() => { const c = document.querySelector('#masterBody [data-level="on"]'); c.checked = true; c.dispatchEvent(new Event('change', { bubbles: true })); const s = document.querySelector('#masterBody [data-level="target"]'); s.value = '-18'; s.dispatchEvent(new Event('change', { bubbles: true })); });
+    expect(await ev(() => strudelAI.masterChain().level().on && strudelAI.masterChain().level().target === -18), 'back on');
+  });
+
   await step('🎛 master nodes: ⏻ switches a node off (its effect goes neutral) and on again', async () => {
     await ev(() => strudelAI.ws.open('master'));
     await ev(() => document.querySelector('#masterBody .ms-chip[data-node="Space"]').click());
