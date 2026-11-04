@@ -2,6 +2,17 @@
 
 The version is in `package.json`. Bump it when you release. Open pages also notice *any* redeploy through the build id, which is a hash of the app files, even if the version wasn't bumped.
 
+## 1.68.0
+- **Local models that think get their whole answer.** With a reasoning model through LiteLLM or Strata (e.g. Qwen), chat code stopped mid-line and song sheets came back as broken JSON. The reasoning used up most of the 2048-token budget (4096 for sheets).
+  - **A bigger budget:** `LLM_MAX_TOKENS` now defaults to **8192**, and song sheets and parts get at least 8192. It's a cap, not a cost.
+  - **Cut-off replies are noticed:** the app reads the reply's `finish_reason`. One cut off at the limit is asked again with twice the room, then four times (up to 65536), and the 🖥 Console says so (✂). It's no longer sent back to the model as "broken code" to fix, which only got cut off again.
+  - **No more time limit on long replies:** `LLM_TIMEOUT_MS` (3 minutes) now covers the wait for a reply to start and the gaps between its pieces, not the whole reply. A slow local model can stream for longer without being cut off.
+  - **`LLM_EXTRA_BODY`:** JSON added to every request to local providers, e.g. `{"chat_template_kwargs":{"enable_thinking":false}}` to turn a Qwen-style model's thinking off for much faster replies.
+  - README → *Local models that think*.
+- **Tests:**
+  - **Unit:** the default budget, the browser's larger budget on a retry (and its limit), the sheet minimum, and `LLM_EXTRA_BODY` (merged; it can't replace the model, stream or messages; bad JSON is ignored).
+  - **Smoke:** a reply cut off at the token limit is asked again with room for 16384 tokens and applied, and the Console notes it.
+
 ## 1.67.0
 - **🔊 Auto level: a comfortable volume** (🎛 Master, on by default). Everything played far too loud: a typical arrangement came out of the master at about −8.6 dBFS RMS (≈ −8 LUFS, a heavily compressed commercial master), with peaks over 0 dBFS. Even a lone pad was at −10.
   - **What it does:** a loudness follower (an `AudioWorklet`, K-weighted like a LUFS meter) listens to the mastered mix and glides it to a target: **−18 LUFS** by default, or −23 / −20 / −16 / −14.

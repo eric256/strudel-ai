@@ -38,6 +38,17 @@ export function providersFrom(env = {}) {
   };
 }
 
+/** LLM_EXTRA_BODY: JSON merged into the OpenAI-style providers' requests (e.g. {"chat_template_kwargs":{"enable_thinking":false}}). */
+function extraBody(text) {
+  if (!text) return {};
+  try {
+    const o = JSON.parse(text);
+    if (!o || typeof o !== 'object' || Array.isArray(o)) return {};
+    const { messages, stream, model, ...rest } = o; // (those are the app's)
+    return rest;
+  } catch { console.warn('LLM_EXTRA_BODY is not JSON: ignored'); return {}; }
+}
+
 /** The settings that don't depend on a request. */
 export function llmSettings(env = {}) {
   const providers = providersFrom(env);
@@ -46,8 +57,10 @@ export function llmSettings(env = {}) {
     providers,
     defaultProvider: providers[env.DEFAULT_PROVIDER] ? env.DEFAULT_PROVIDER : 'llamacpp',
     temperature: Number(env.LLM_TEMPERATURE ?? 0.7),
-    maxTokens: Number(env.LLM_MAX_TOKENS ?? 2048),
-    timeoutMs: Number(env.LLM_TIMEOUT_MS ?? 180000),
+    // (room for the reply AND a thinking model's reasoning, which counts too; a cap, not a cost)
+    maxTokens: Number(env.LLM_MAX_TOKENS ?? 8192),
+    timeoutMs: Number(env.LLM_TIMEOUT_MS ?? 180000), // until the reply starts, and then between its pieces
+    extraBody: extraBody(env.LLM_EXTRA_BODY),
     efforts: EFFORTS,
     claudeEffort: EFFORTS.includes(env.ANTHROPIC_EFFORT) ? env.ANTHROPIC_EFFORT : 'low',
     claudeMaxTokens: Number(env.ANTHROPIC_MAX_TOKENS || 32000), // thinking counts toward this too
@@ -132,7 +145,7 @@ export async function modelsResponse(s, providerName, { claudeKey = '', own = fa
 
 /** The chat request the provider gets: the system prompt (yours, plus plugins' and the sounds), the conversation. */
 export function chatBody(s, req) {
-  const { provider, model, messages = [], code = '', temperature, mode = 'code', sounds = '', edited = false, systemPrompt = null, promptExtra = '', fixing = false } = req || {};
+  const { provider, model, messages = [], code = '', temperature, mode = 'code', sounds = '', edited = false, systemPrompt = null, promptExtra = '', fixing = false, maxTokens = null } = req || {};
   const p = s.providers[provider] || s.providers[s.defaultProvider];
   const history = (Array.isArray(messages) ? messages : []).slice(-12).map((m) => ({ role: m.role, content: String(m.content) }));
   // the live editor contents go into the latest user turn, so the model always edits the real code
@@ -159,12 +172,15 @@ export function chatBody(s, req) {
   return {
     p, mode, history, system,
     openai: {
+      ...s.extraBody,
       model: model || p.model || undefined,
       messages: [{ role: 'system', content: system }, ...history],
       stream: true,
       temperature: Number.isFinite(temperature) ? temperature : s.temperature,
-      // a whole song sheet / part library is longer than one code edit
-      max_tokens: mode === 'sheet' || mode === 'library' ? Math.max(s.maxTokens, 4096) : s.maxTokens,
+      // a whole song sheet / part library is longer than one code edit; a reply that was cut off is asked again
+      // with more room (maxTokens from the browser)
+      max_tokens: Number.isFinite(maxTokens) && maxTokens > 0 ? Math.round(Math.max(256, Math.min(65536, maxTokens)))
+        : mode === 'sheet' || mode === 'library' ? Math.max(s.maxTokens, 8192) : s.maxTokens,
     },
     model: model || p.model,
   };
@@ -184,8 +200,13 @@ export async function chatResponse(s, req, { claudeKey = '', own = false, signal
       clearTimeout(timer);
       return json({ error: `${b.p.label} returned ${upstream.status}: ${text.slice(0, 500)}` }, 502);
     }
-    // pass the stream through untouched: the browser parses it
-    const body = upstream.body.pipeThrough(new TransformStream({ flush() { clearTimeout(timer); } }));
+    // pass the stream through untouched (the browser parses it); the timeout now only catches a stalled stream
+    let idle = timer;
+    const restart = () => { clearTimeout(idle); idle = setTimeout(() => ac.abort(), s.timeoutMs); };
+    const body = upstream.body.pipeThrough(new TransformStream({
+      transform(chunk, ctl) { restart(); ctl.enqueue(chunk); },
+      flush() { clearTimeout(idle); },
+    }));
     return new Response(body, { status: 200, headers: SSE_HEADERS });
   } catch (e) {
     clearTimeout(timer);

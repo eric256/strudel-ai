@@ -109,8 +109,17 @@ export function startMockAI(port) {
         sh.sections.splice(sh.sections.length - 1, 0, { ...verse }, { ...verse });
         content = `I added two more verses.\n\`\`\`song\n${JSON.stringify(sh)}\n\`\`\``;
       }
+      // a code request with CUTOFF: cut off at the token limit (a thinking model) until it gets room for 16384 tokens
+      else if (/CUTOFF/.test(last) && (j.max_tokens || 0) < 16384) {
+        kind = 'code';
+        log.push({ kind, sys, last, maxTokens: j.max_tokens, cut: true });
+        res.writeHead(200, { 'Content-Type': 'text/event-stream' });
+        res.write(`data: ${JSON.stringify({ choices: [{ delta: { reasoning_content: 'Let me think about this beat at length…', content: 'Here you go.\n```javascript\nsetcpm(120/4)\ndrums: s("bd*4").bank(' } }] })}\n\n`);
+        res.write(`data: ${JSON.stringify({ choices: [{ delta: {}, finish_reason: 'length' }] })}\n\n`);
+        return res.end('data: [DONE]\n\n');
+      }
       else { kind = 'code'; content = 'Here you go.\n```javascript\nsetcpm(120/4)\ndrums: s("bd*4").bank("RolandTR909")\nlead: note("c4 e4 g4").s("square").gain(0.3)\n```'; }
-      log.push({ kind, sys, last });
+      log.push({ kind, sys, last, maxTokens: j.max_tokens });
       res.writeHead(200, { 'Content-Type': 'text/event-stream' });
       res.write(`data: ${JSON.stringify({ choices: [{ delta: { content } }] })}\n\n`);
       res.end('data: [DONE]\n\n');
