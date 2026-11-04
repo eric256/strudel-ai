@@ -3,7 +3,12 @@
 //
 //   mix → EQ (low shelf 120 Hz · mid peak 1 kHz · high shelf 6 kHz) → DJ filter (low-pass ← 0 → high-pass)
 //       → drive (tape-style saturation) → crush (bit reduction) → [dry + reverb send + echo send] → glue compressor
-//       → makeup → limiter → out                                           vinyl noise ─┘
+//       → makeup → limiter → auto level → safety limiter → out              vinyl noise ─┘
+//
+// AUTO LEVEL evens out loudness like a streaming service does: it measures the mastered mix (K-weighted, as LUFS
+// meters do) over several seconds and glides it towards a comfortable target (−18 LUFS by default), so a loud style
+// or a busy arrangement doesn't come out much louder than a quiet one. It's before the master volume and the song's
+// section levels and fades, so those still shape the song.
 //
 // A STYLE (lo-fi, techno, ambient …) is a set of these settings. Songs carry a style ("master" in the song sheet)
 // and optionally their own tweaks; the 🎛 Master panel moves every control live, like a mixer.
@@ -51,6 +56,12 @@ export function effectiveParams(params, off = []) {
   const out = { ...params };
   for (const d of MASTER_PARAMS) if (off.includes(d.group) && d.key !== 'size' && d.key !== 'time' && d.key !== 'reso' && d.key !== 'feedback') out[d.key] = NEUTRAL[d.key];
   return out;
+}
+
+/** Auto level settings, checked: { on, target (one of LEVEL_TARGETS' range) }. */
+export function normLevel(l) {
+  const t = Number(l?.target);
+  return { on: l?.on !== false, target: Number.isFinite(t) ? Math.max(-30, Math.min(-10, Math.round(t))) : LEVEL_DEFAULT.target };
 }
 
 /** The styles: what each is for, and its settings (anything not given is the default). */
@@ -113,6 +124,65 @@ export const stylesForPrompt = () => STYLE_NAMES.map((s) => `- "${s}": ${MASTER_
 
 // --- the audio chain -------------------------------------------------------
 const dB = (v) => Math.pow(10, v / 20);
+
+/** Auto level: its targets (LUFS) and the default. */
+export const LEVEL_TARGETS = [-23, -20, -18, -16, -14];
+export const LEVEL_DEFAULT = { on: true, target: -18 };
+/** Until the mix has been measured (or without AudioWorklet): this much quieter than before (dB). */
+export const LEVEL_START_DB = -10;
+/**
+ * The loudness follower (an AudioWorklet): its input is the mix through a K-weighting filter; its output is the gain
+ * (linear) for the auto level stage. Momentary loudness (400 ms), gated (silence and quiet tails don't count), feeds a
+ * long-term loudness (≈ 8 s); the gain glides to target − long-term — slowly (a few dB per second), faster down when
+ * something is far too loud. It reports { gain (dB), loudness (LUFS, long-term), momentary } a few times a second.
+ */
+const LEVEL_WORKLET = `
+class AutoLevel extends AudioWorkletProcessor {
+  static get parameterDescriptors() {
+    return [{ name: 'target', defaultValue: -18, minValue: -40, maxValue: 0, automationRate: 'k-rate' },
+      { name: 'on', defaultValue: 1, minValue: 0, maxValue: 1, automationRate: 'k-rate' }];
+  }
+  constructor(o) {
+    super();
+    const s = o.processorOptions || {};
+    this.g = s.startDb ?? -10; this.m = 0; this.long = 0; this.ready = false; this.heard = 0; this.n = 0;
+    this.am = 1 - Math.exp(-128 / (sampleRate * 0.4)); this.al = 1 - Math.exp(-128 / (sampleRate * 8));
+    this.dt = 128 / sampleRate;
+  }
+  process(inputs, outputs, p) {
+    const ins = inputs[0] || [], out = outputs[0][0];
+    let e = 0;
+    for (let c = 0; c < ins.length; c++) { const x = ins[c]; let s = 0; for (let i = 0; i < x.length; i++) s += x[i] * x[i]; e += s / x.length; }
+    this.m += (e - this.m) * this.am;
+    const lm = -0.691 + 10 * Math.log10(this.m + 1e-12);
+    if (lm > -50) {
+      this.heard += this.dt;
+      if (!this.ready && this.heard > 0.5) { this.long = this.m; this.ready = true; }
+      else if (this.ready && lm > -0.691 + 10 * Math.log10(this.long + 1e-12) - 15) this.long += (this.m - this.long) * this.al;
+    }
+    const target = p.target[0], on = p.on[0] >= 0.5;
+    const ll = -0.691 + 10 * Math.log10(this.long + 1e-12);
+    let want = this.g;
+    if (!on) want = 0;
+    else if (this.ready) want = Math.max(-30, Math.min(8, target - ll));
+    // far too loud right now (a blast): come down quickly
+    const blast = on && lm + this.g > target + 9;
+    const rate = (want < this.g ? (blast ? 15 : 3) : 1.5) * this.dt;
+    this.g += Math.max(-rate, Math.min(rate, want - this.g));
+    const lin = Math.pow(10, this.g / 20);
+    out.fill(lin);
+    if (++this.n % 100 === 0) this.port.postMessage({ gain: this.g, loudness: this.ready ? ll : null, momentary: lm });
+    return true;
+  }
+}
+registerProcessor('strudel-ai-auto-level', AutoLevel);
+`;
+const levelModules = new WeakMap();
+function levelModule(ac) {
+  if (!ac.audioWorklet) return Promise.reject(new Error('no AudioWorklet'));
+  if (!levelModules.has(ac)) levelModules.set(ac, ac.audioWorklet.addModule(URL.createObjectURL(new Blob([LEVEL_WORKLET], { type: 'text/javascript' }))));
+  return levelModules.get(ac);
+}
 
 function driveCurve(amount) {
   const k = 1 + amount * 14, n = 2048, c = new Float32Array(n), norm = Math.tanh(k);
@@ -211,8 +281,27 @@ export function createMaster(ac) {
   const makeup = node(GainNode, { gain: 1 });
   const loud = node(GainNode, { gain: 1 });
   const limiter = node(DynamicsCompressorNode, { threshold: -1, ratio: 20, attack: 0.002, release: 0.1, knee: 0 });
+  // auto level (the gain is the worklet's output; until it runs, a fixed step down), then a safety limiter
+  const level = node(GainNode, { gain: dB(LEVEL_START_DB) });
+  const safety = node(DynamicsCompressorNode, { threshold: -1, ratio: 20, attack: 0.001, release: 0.1, knee: 0 });
   const output = node(GainNode, { gain: 1 });
-  merge.connect(glue); glue.connect(makeup); makeup.connect(loud); loud.connect(limiter); limiter.connect(output);
+  merge.connect(glue); glue.connect(makeup); makeup.connect(loud); loud.connect(limiter); limiter.connect(level); level.connect(safety); safety.connect(output);
+  // what the follower hears: the mastered mix, K-weighted (a high-pass at 38 Hz and a +4 dB shelf above 1.5 kHz)
+  const kHp = node(BiquadFilterNode, { type: 'highpass', frequency: 38, Q: 0.5 });
+  const kShelf = node(BiquadFilterNode, { type: 'highshelf', frequency: 1500, gain: 4 });
+  limiter.connect(kHp); kHp.connect(kShelf);
+  let lvl = { ...LEVEL_DEFAULT }, follower = null, reading = { gain: LEVEL_START_DB, loudness: null, momentary: null };
+  const setLevelGain = () => { if (!follower) { level.gain.cancelScheduledValues(ac.currentTime); level.gain.setTargetAtTime(lvl.on ? dB(LEVEL_START_DB) : 1, ac.currentTime, 0.1); } };
+  levelModule(ac).then(() => {
+    follower = new AudioWorkletNode(ac, 'strudel-ai-auto-level', { numberOfInputs: 1, numberOfOutputs: 1, outputChannelCount: [1], processorOptions: { startDb: lvl.on ? LEVEL_START_DB : 0 } });
+    follower.parameters.get('target').value = lvl.target;
+    follower.parameters.get('on').value = lvl.on ? 1 : 0;
+    follower.port.onmessage = (e) => { reading = e.data; };
+    kShelf.connect(follower);
+    level.gain.cancelScheduledValues(ac.currentTime);
+    level.gain.value = 0; // (the follower's output is the gain)
+    follower.connect(level.gain);
+  }).catch(() => {}); // no worklet: a fixed step down
   const analyser = node(AnalyserNode, { fftSize: 2048, smoothingTimeConstant: 0.7 });
   output.connect(analyser);
 
@@ -262,5 +351,13 @@ export function createMaster(ac) {
     setRunning(r) { if (r !== running) { running = r; to(vinylGain.gain, r ? params.vinyl * 0.12 : 0, 0.05); } },
     /** Gain reduction of the glue compressor and the limiter, in dB (≤ 0). */
     reduction: () => ({ glue: glue.reduction, limit: limiter.reduction }),
+    /** Auto level: on / off and its target (LUFS). */
+    setLevel(next) {
+      lvl = normLevel({ ...lvl, ...next });
+      if (follower) { follower.parameters.get('target').value = lvl.target; follower.parameters.get('on').value = lvl.on ? 1 : 0; }
+      else setLevelGain();
+    },
+    /** What auto level is doing: { on, target, gain (dB), loudness (LUFS, long-term, or null), live (the follower runs) }. */
+    level: () => ({ ...lvl, gain: follower ? reading.gain : lvl.on ? LEVEL_START_DB : 0, loudness: reading.loudness, live: !!follower }),
   };
 }

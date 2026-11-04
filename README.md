@@ -623,19 +623,26 @@ How it works: each part's source (after its mute / solo) normally goes straight 
 Every song has a **master style**: post-processing on the whole mix, picked by the songwriter (or the band) and shown in the song's details as 🎛. Styles: clean, lo-fi, warm, acoustic (natural and open: a wooden room, gentle compression), pop, techno, house, edm, dnb, hiphop, synthwave, ambient, dub, cinematic, rock, chiptune and radio.
 
 The chain sits between Strudel's output and the master volume:
-EQ (low shelf 120 Hz · mid 1 kHz · high shelf 6 kHz) → DJ filter (low-pass ← off → high-pass, with resonance) → drive (tape-style saturation) → crush (bit reduction) → reverb and tempo-synced echo sends, vinyl hiss and crackle → stereo width → glue compressor with makeup gain → output level → limiter (−1 dB).
+EQ (low shelf 120 Hz · mid 1 kHz · high shelf 6 kHz) → DJ filter (low-pass ← off → high-pass, with resonance) → drive (tape-style saturation) → crush (bit reduction) → reverb and tempo-synced echo sends, vinyl hiss and crackle → stereo width → glue compressor with makeup gain → output level → limiter (−1 dB) → **🔊 auto level** → a safety limiter.
 
 **🎛 Master** shows the master at a glance:
 - **The sections** in signal order (EQ → Tone → Filter → Colour → Space → Echo → Dynamics → Output) as switches: click one to switch it off (its effect goes neutral and the sound passes through; remembered), to hear what one stage does. Their knobs are on the 🔀 Routing board's **Master FX** block (**🔀 edit in Routing ↗**).
 - **The EQ:** a small picture of the master's 7-band EQ and its preset; click it for the 🎚 Equalizer.
 - **Output:** the mastered spectrum, the glue / limiter gain reduction, the level meter and its clip LED.
+- **🔊 auto level** (on by default) evens out loudness, the way streaming services do.
+  - It listens to the mastered mix for a few seconds and glides it to the **target**: **−18 LUFS** by default, a comfortable level. The other targets run from −23 (quiet, broadcast) to −14 (Spotify / YouTube).
+  - Without it, a busy arrangement through the limiter comes out around −8 LUFS: as loud as a heavily compressed commercial master. Loud styles (edm, techno) and quiet ones now play at about the same level.
+  - It moves slowly (a few dB a second) and faster only to tame something far too loud. Its line shows how loud the mix is and how far it's turned down.
+  - The master volume, the sections' levels and fades come after it, so a song's dynamics are kept.
+  - Switched off, the master plays as loud as before.
+  - How it works: an `AudioWorklet` measures K-weighted loudness, momentary (400 ms) and long-term (about 8 s, gated against silence), and drives a gain stage before the safety limiter.
 - **style** loads a style. **↺ style** throws away your tweaks. **bypass** lets you hear the mix without it (A/B).
 - **follow song** (on by default): when a song starts, the master glides to its style and its own tweaks.
 - **💾 save to song** stores the style and your tweaks in the playing song (in its sheet as `master` / `masterParams`, kept in 📁 My songs, files and links).
 - In ✎ Edit song, **master** changes the song's style. The chat can change it too ("make it more lo-fi", "give it a dub feel").
 
 ## Master volume
-The 🔊 fader in the header sets the overall output level (0–150%), and double-clicking it resets it to 100%. It's remembered, and "duck music" while humming lowers it relative to this level.
+The 🔊 fader in the header sets the overall output level (0–150%), and double-clicking it resets it to 100%. It comes after 🔊 auto level, so with auto level on, 100% is a comfortable level for most speakers and headphones. It's remembered, and "duck music" while humming lowers it relative to this level.
 
 ## Readable code
 

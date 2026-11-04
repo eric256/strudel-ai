@@ -3,7 +3,7 @@
 // the master glides to the song's style when the song starts. Moving a control changes the sound at once.
 // (split out of app.js: start-up code runs in setup(), called from app.js)
 import { EQ_FLAT, normEq } from '../lib/eq.js';
-import { MASTER_DEFAULTS, MASTER_NODES, MASTER_PARAMS, MASTER_STYLES, STYLE_NAMES, clampParams, createMaster, diffParams, effectiveParams, normStyle, styleParams } from '../master.js';
+import { LEVEL_TARGETS, MASTER_DEFAULTS, MASTER_NODES, MASTER_PARAMS, MASTER_STYLES, STYLE_NAMES, clampParams, createMaster, diffParams, effectiveParams, normLevel, normStyle, styleParams } from '../master.js';
 import { EQ_BANDS, presetOf, EQ_PRESETS } from '../lib/eq.js';
 import { peakState } from '../lib/taper.js';
 import { openEqualizer } from './equalizer.js';
@@ -19,7 +19,7 @@ import { T, onTemplatesChange } from '../templates/index.js';
 import { themeColor } from '../theme.js';
 let MASTER_BYPASS, saveMaster;
 
-export const master = { chain: null, style: 'clean', params: null, follow: true, songKey: '', bypass: false, dragging: null, msg: '', eq: EQ_FLAT, off: [] };
+export const master = { chain: null, style: 'clean', params: null, follow: true, songKey: '', bypass: false, dragging: null, msg: '', eq: EQ_FLAT, off: [], level: normLevel(null) };
 /** What the chain plays: the whole master bypassed, or your settings with the nodes that are off passed through. */
 const heard = () => (master.bypass ? MASTER_BYPASS : effectiveParams(master.params, master.off));
 /** The master's 🎚 Equalizer bands (dB): set, saved, heard at once. */
@@ -36,10 +36,18 @@ export function masterChain() {
     chain.output.connect(dest);
     chain.set(heard(), 0);
     chain.setEq(master.eq, 0);
+    chain.setLevel(master.level);
     merger.__master = chain;
   }
   master.chain = merger.__master;
   return master.chain;
+}
+/** 🔊 Auto level: on / off and its target loudness (LUFS) — heard at once, saved. */
+export function setAutoLevel(next) {
+  master.level = normLevel({ ...master.level, ...next });
+  masterChain()?.setLevel(master.level);
+  save({ autoLevel: master.level });
+  syncMasterUI();
 }
 /** One control of the master, as you turn it (from 🔀 Routing's master sections): heard at once, saved. */
 export function setMasterParam(k, v) {
@@ -97,7 +105,7 @@ function masterTick() {
 function renderMasterPanel() {
   renderOptions($('masterStyle'), STYLE_NAMES.map((n) => ({ value: n, label: n, title: MASTER_STYLES[n].desc })), master.style);
   // built once; syncMasterUI sets the values and the nodes' on / off (templates/master.js)
-  render(T.masterPanel({ nodes: MASTER_NODES.map((n) => ({ ...n, controls: MASTER_PARAMS.filter((d) => d.group === n.group) })) }), $('masterBody'));
+  render(T.masterPanel({ nodes: MASTER_NODES.map((n) => ({ ...n, controls: MASTER_PARAMS.filter((d) => d.group === n.group) })), levels: LEVEL_TARGETS }), $('masterBody'));
   syncMasterUI();
 }
 const fmtMaster = (d, v) => (d.unit === 'dB' ? `${v > 0 ? '+' : ''}${v}` : d.key === 'time' ? `${Math.round(v * 16)}/16` : d.key === 'filter' ? (Math.abs(v) < 0.01 ? 'off' : v < 0 ? `LP ${Math.round(-v * 100)}` : `HP ${Math.round(v * 100)}`) : `${Math.round(v * 100)}`);
@@ -116,6 +124,9 @@ function syncMasterUI() {
   }
   // the nodes: on / off
   for (const el of $('masterBody').querySelectorAll('.ms-node[data-group]')) el.classList.toggle('off', master.bypass || master.off.includes(el.dataset.group));
+  const lon = $('masterBody').querySelector('[data-level="on"]'), lt = $('masterBody').querySelector('[data-level="target"]');
+  if (lon) lon.checked = master.level.on;
+  if (lt) { lt.value = String(master.level.target); lt.disabled = !master.level.on; }
   const eqn = $('masterBody').querySelector('.ms-eqname');
   if (eqn) { const p = presetOf(master.eq); eqn.textContent = p ? EQ_PRESETS[p].label : 'custom'; }
   const sg = masterSong();
@@ -157,6 +168,12 @@ function drawMaster() {
     const lab = $('masterBody').querySelector('.ms-gr');
     if (lab && (master.grShown = (master.grShown || 0) + 1) % 10 === 0) lab.textContent = on ? `glue ${r.glue.toFixed(1)} dB · limit ${r.limit.toFixed(1)} dB` : '';
   }
+  // 🔊 auto level: how loud the mix is, and how far it's turned down (or up)
+  const lr = $('masterBody').querySelector('.ms-level-now');
+  if (lr && (master.lvShown = (master.lvShown || 0) + 1) % 15 === 0) {
+    const l = chain?.level?.();
+    lr.textContent = !l || !l.on ? 'off: as loud as the master makes it' : on && l.loudness != null ? `mix ${l.loudness.toFixed(0)} LUFS → ${l.gain > 0 ? '+' : ''}${l.gain.toFixed(1)} dB` : `${l.gain.toFixed(0)} dB until it has listened`;
+  }
 }
 
 // the EQ node's little curve
@@ -193,6 +210,7 @@ export function setup() {
     master.follow = st.masterFollow !== false;
     master.eq = normEq(st.masterEq);
     master.off = Array.isArray(st.masterOff) ? st.masterOff.filter((g) => MASTER_NODES.some((n) => n.group === g)) : [];
+    master.level = normLevel(st.autoLevel);
   }
   saveMaster = (() => { let t; return () => { clearTimeout(t); t = setTimeout(() => save({ masterStyle: master.style, masterParams: master.params, masterFollow: master.follow }), 300); }; })();
   window.__masterInstall = () => { try { masterChain(); } catch (e) { console.warn('master chain:', e); } };
@@ -213,6 +231,11 @@ export function setup() {
     if (e.target.closest('[data-clip]')) { master.clip = false; e.target.closest('[data-clip]').classList.remove('clip', 'hot'); }
   });
   window.addEventListener('pointerup', () => { master.dragging = null; });
+  $('masterBody').addEventListener('change', (e) => {
+    const l = e.target.dataset?.level;
+    if (l === 'on') setAutoLevel({ on: e.target.checked });
+    else if (l === 'target') setAutoLevel({ target: Number(e.target.value) });
+  });
   $('masterBody').addEventListener('input', (e) => {
     const k = e.target.dataset.k;
     if (!k) return;

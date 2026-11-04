@@ -716,6 +716,8 @@ body.hydra-behind .code-bar { background: color-mix(in srgb, var(--panel-2) 80%,
 .ms-eqname { font: 10px var(--mono); }
 .ms-openeq { font-size: 11px; padding: 1px 8px; }
 .ms-out-row { display: flex; gap: 4px; align-items: stretch; }
+.ms-level { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; margin-top: 6px; font-size: 12px; }
+.ms-level select { font-size: 11px; }
 .ms-spec { width: 150px; height: 70px; border: 1px solid var(--line); border-radius: 3px; background: var(--canvas); }
 .ms-gr-meter { width: 8px; height: 70px; border-radius: 2px; }
 .ms-out-row .mx-meterbox { padding: 0; }

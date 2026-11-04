@@ -2,6 +2,16 @@
 
 The version is in `package.json`. Bump it when you release. Open pages also notice *any* redeploy through the build id, which is a hash of the app files, even if the version wasn't bumped.
 
+## 1.67.0
+- **🔊 Auto level: a comfortable volume** (🎛 Master, on by default). Everything played far too loud: a typical arrangement came out of the master at about −8.6 dBFS RMS (≈ −8 LUFS, a heavily compressed commercial master), with peaks over 0 dBFS. Even a lone pad was at −10.
+  - **What it does:** a loudness follower (an `AudioWorklet`, K-weighted like a LUFS meter) listens to the mastered mix and glides it to a target: **−18 LUFS** by default, or −23 / −20 / −16 / −14.
+  - **Measured:** a busy arrangement and a single pad now both come out at about −19.5 dBFS RMS, about 11 dB quieter than before.
+  - **How it moves:** slowly (a few dB a second), faster only when something is far too loud. Until it has listened, the master starts 10 dB down.
+  - **The rest still applies:** the master volume, section levels and fades come after it, so songs keep their dynamics.
+  - **Safety limiter:** a new last stage, so the output no longer goes over 0 dBFS.
+  - **Settings:** the switch and target are in 🎛 Master, with a readout of the mix's loudness and the gain. They're remembered in the browser. Off, it plays as before.
+- **Tests:** unit tests for the settings. The smoke test checks the follower measures the playing song and turns it down to the target, and that the target and switch work.
+
 ## 1.66.0
 - **Two more AI providers**, for models running on your own machine or network (⚙ Settings → AI → provider):
   - **Strata:** a local inference engine with an OpenAI-compatible API. Set `STRATA_URL` (default `http://host.docker.internal:8080`), and `STRATA_API_KEY` if it runs with `--api-key`.
