@@ -14,7 +14,9 @@ Works with:
 
 - **llama.cpp** (`llama-server`, OpenAI-compatible `/v1/chat/completions`)
 - **OpenWebUI** (`/api/chat/completions` with an API key — so you can use any model OpenWebUI fronts: Ollama, llama.cpp, OpenAI, etc.)
-- **Claude** (Anthropic's API, through the official `@anthropic-ai/sdk`) — Claude Sonnet 5.5 by default
+- **Strata** (a local inference engine with an OpenAI-compatible `/v1` API)
+- **LiteLLM** (a proxy with one OpenAI-compatible endpoint for many models and providers)
+- **Claude** (Anthropic's HTTP API) — Claude Sonnet 5.5 by default
 
 Switch between them, pick a model and set the temperature in **⚙ Settings → AI**.
 
@@ -69,7 +71,28 @@ llama-server -m your-model.gguf --host 0.0.0.0 --port 8080 -c 8192
    OPENWEBUI_API_KEY=sk-...
    ```
 
-> If llama.cpp / OpenWebUI run in Docker on the same compose network, use their service name instead of `host.docker.internal`.
+### Strata
+
+[Strata](https://github.com/Niko1221/Strata) serves its model with an OpenAI-compatible API, on `http://127.0.0.1:8080/v1` by default. `.env`:
+```
+DEFAULT_PROVIDER=strata
+STRATA_URL=http://host.docker.internal:8080   # with or without /v1
+STRATA_API_KEY=                               # only if you started Strata with --api-key
+```
+Strata listens on 127.0.0.1 unless told otherwise, so a Docker container can't reach it. Either run the app outside Docker (`STRATA_URL=http://localhost:8080 npm start`), or start Strata on all interfaces **with** an API key (`--api-key …`) and set `STRATA_API_KEY`. Its port is llama.cpp's default too: run one or the other on 8080, or move one.
+
+### LiteLLM
+
+[LiteLLM](https://docs.litellm.ai/docs/simple_proxy)'s proxy puts many models (Claude, OpenAI, Ollama, Bedrock …) behind one OpenAI-compatible endpoint, on port 4000 by default. `.env`:
+```
+DEFAULT_PROVIDER=litellm
+LITELLM_URL=http://host.docker.internal:4000
+LITELLM_API_KEY=sk-...        # its master key, or a virtual key
+LITELLM_MODEL=                # a model_name from its config; or pick in ⚙ Settings → AI
+```
+The model list in ⚙ Settings → AI is the proxy's `/v1/models`: the `model_name`s in its config.
+
+> If llama.cpp / OpenWebUI / Strata / LiteLLM run in Docker on the same compose network, use their service name instead of `host.docker.internal`. Running the app outside Docker (`npm start`), use `localhost`.
 
 ### Claude
 
@@ -106,7 +129,7 @@ llama-server -m your-model.gguf --host 0.0.0.0 --port 8080 -c 8192
 ```
 Browser ── Strudel REPL (web component, WebAudio) ◄── setCode() + evaluate()
    │                                                        ▲
-   └─ chat ──► /api/chat (Node proxy, streams SSE) ──► llama.cpp / OpenWebUI
+   └─ chat ──► /api/chat (Node proxy, streams SSE) ──► llama.cpp / OpenWebUI / Strata / LiteLLM / Claude
 ```
 
 - Each request sends the **current editor code** + your instruction + a Strudel reference system prompt (`prompt.js`).
@@ -750,13 +773,19 @@ Before any AI-written code plays, the app checks it:
 
 | Variable | Default | Notes |
 |---|---|---|
-| `DEFAULT_PROVIDER` | `llamacpp` | `llamacpp`, `openwebui` or `anthropic` |
+| `DEFAULT_PROVIDER` | `llamacpp` | `llamacpp`, `openwebui`, `strata`, `litellm` or `anthropic` |
 | `LLAMACPP_URL` | `http://host.docker.internal:8080` | |
 | `LLAMACPP_API_KEY` | – | only if `llama-server --api-key` |
 | `LLAMACPP_MODEL` | – | usually blank |
 | `OPENWEBUI_URL` | `http://host.docker.internal:3000` | |
 | `OPENWEBUI_API_KEY` | – | required for OpenWebUI |
 | `OPENWEBUI_MODEL` | – | default model id; can pick in UI |
+| `STRATA_URL` | `http://host.docker.internal:8080` | with or without `/v1` |
+| `STRATA_API_KEY` | – | only if Strata runs with `--api-key` |
+| `STRATA_MODEL` | – | usually blank; can pick in UI |
+| `LITELLM_URL` | `http://host.docker.internal:4000` | with or without `/v1` |
+| `LITELLM_API_KEY` | – | the proxy's master key or a virtual key |
+| `LITELLM_MODEL` | – | a `model_name` from its config; can pick in UI |
 | `ANTHROPIC_API_KEY` | – | enables the **Claude** provider for everyone (or only `ALLOWED_EMAILS`); signed-in users can use their own key instead |
 | `ANTHROPIC_MODEL` | `claude-sonnet-5-5` | default Claude model; can pick in UI |
 | `ANTHROPIC_EFFORT` | `low` | `low` / `medium` / `high`; UI setting overrides per browser |
@@ -809,7 +838,7 @@ To deploy:
    - Optionally `ANTHROPIC_MODEL` and `ANTHROPIC_EFFORT`.
 3. Deploy, then add the site's address to the Google client's **Authorized JavaScript origins**.
 
-On Netlify the UI offers **Claude only**, because a hosted site can't reach a llama.cpp or OpenWebUI running on your computer. If yours is reachable on the internet, set `PROVIDERS` (e.g. `anthropic,openwebui`) and its `…_URL`. The server's 🧩 plugins folder becomes `plugins/` in the repository; its files are published with the site. Everything else works as in Docker: songs, stations, the editor, recording, plugins, sharing.
+On Netlify the UI offers **Claude only**, because a hosted site can't reach a llama.cpp, OpenWebUI, Strata or LiteLLM running on your computer. If yours is reachable on the internet, set `PROVIDERS` (e.g. `anthropic,openwebui`) and its `…_URL`. The server's 🧩 plugins folder becomes `plugins/` in the repository; its files are published with the site. Everything else works as in Docker: songs, stations, the editor, recording, plugins, sharing.
 
 ## HTTPS (why it's needed and how it works)
 
@@ -849,7 +878,7 @@ npm test          # unit tests: song engine, music theory, code wrapping, hum �
 npm run build:netlify   # the Netlify site in dist/ (deploy: see "Deploy to Netlify")
 deno run --allow-net --allow-read --allow-env test/deno/edge-chat.mjs   # the chat edge function in Deno
 npm run smoke     # the whole app in Chromium with a mock AI (needs Playwright: npm i --no-save playwright && npx playwright install chromium)
-LLAMACPP_URL=http://localhost:8080 npm start   # http://localhost:3000
+LLAMACPP_URL=http://localhost:8080 npm start   # http://localhost:3000 (or STRATA_URL / LITELLM_URL=http://localhost:4000)
 ```
 
 Code layout:

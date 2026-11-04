@@ -154,6 +154,35 @@ test('the server\'s own Claude key: for everyone, or only ALLOWED_EMAILS; no key
   assert.equal((await plain(req('POST', '/api/auth/google', { body: {} }))).status, 404);
 });
 
+test('Strata and LiteLLM: OpenAI-compatible providers — addresses with or without /v1, their keys, models and chat', async (t) => {
+  const seen = [];
+  t.mock.method(globalThis, 'fetch', async (url, init = {}) => {
+    const u = String(url), auth = new Headers(init.headers || {}).get('authorization');
+    seen.push({ url: u, auth, body: init.body ? JSON.parse(init.body) : null });
+    if (u.endsWith('/v1/models')) return Response.json({ data: [{ id: u.includes(':4000') ? 'claude-via-litellm' : 'qwen3.8-flash-next' }] });
+    if (u.endsWith('/v1/chat/completions')) return new Response(`data: ${JSON.stringify({ choices: [{ delta: { content: 'hi' } }] })}\n\ndata: [DONE]\n\n`, { headers: { 'Content-Type': 'text/event-stream' } });
+    return new Response('nope', { status: 404 });
+  });
+  const api = makeApi({ env: { STRATA_URL: 'http://127.0.0.1:8080/v1/', LITELLM_URL: 'http://localhost:4000', LITELLM_API_KEY: 'sk-litellm-master', DEFAULT_PROVIDER: 'litellm' }, store: memStore() });
+  const cfg = await (await api(req('GET', '/api/config'))).json();
+  assert.equal(cfg.defaultProvider, 'litellm');
+  assert.deepEqual([cfg.providers.strata.label, cfg.providers.strata.baseUrl, cfg.providers.strata.hasKey], ['Strata', 'http://127.0.0.1:8080', false]);
+  assert.deepEqual([cfg.providers.litellm.label, cfg.providers.litellm.baseUrl, cfg.providers.litellm.hasKey], ['LiteLLM', 'http://localhost:4000', true]);
+  assert.ok(!JSON.stringify(cfg).includes('sk-litellm-master'), 'the key stays on the server');
+  assert.deepEqual((await (await api(req('GET', '/api/models?provider=strata'))).json()).models, [{ id: 'qwen3.8-flash-next', name: 'qwen3.8-flash-next' }]);
+  assert.equal(seen.at(-1).url, 'http://127.0.0.1:8080/v1/models');
+  assert.deepEqual((await (await api(req('GET', '/api/models?provider=litellm'))).json()).models[0].id, 'claude-via-litellm');
+  assert.equal(seen.at(-1).auth, 'Bearer sk-litellm-master');
+  for (const provider of ['strata', 'litellm']) {
+    const r = await api(req('POST', '/api/chat', { body: { provider, model: 'm1', messages: [{ role: 'user', content: 'a beat' }] } }));
+    assert.match(await r.text(), /hi/);
+    const call = seen.at(-1);
+    assert.equal(call.url, provider === 'strata' ? 'http://127.0.0.1:8080/v1/chat/completions' : 'http://localhost:4000/v1/chat/completions');
+    assert.equal(call.body.model, 'm1');
+    assert.equal(call.auth, provider === 'litellm' ? 'Bearer sk-litellm-master' : null);
+  }
+});
+
 test('shares and favorites through the handler (any store)', async () => {
   const store = memStore();
   const api = makeApi({ env: {}, store, info: () => ({ version: '9.9.9' }) });
