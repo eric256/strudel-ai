@@ -92,6 +92,14 @@ LITELLM_MODEL=                # a model_name from its config; or pick in ⚙ Set
 ```
 The model list in ⚙ Settings → AI is the proxy's `/v1/models`: the `model_name`s in its config.
 
+### Local models that think (Qwen and others)
+
+Many local models reason before they answer, and the reasoning uses up the same token budget as the reply (`LLM_MAX_TOKENS`, 8192 by default).
+- **Cut-off replies:** when a reply is cut off at that limit, the app asks again with twice the room, then four times. The 🖥 Console notes it (✂). Before, a cut-off reply looked like broken code or a broken song sheet.
+- **Long waits:** a slow model can spend minutes reasoning. The reasoning shows in the chat bubble (*thinking…*).
+- **Turning thinking off:** for Qwen-style models, add `LLM_EXTRA_BODY={"chat_template_kwargs":{"enable_thinking":false}}`. Replies come much faster and are rarely cut off. Use whatever switch your server or LiteLLM config offers.
+- **Small models:** song sheets and parts are long, structured replies, and some smaller local models struggle with them. If they keep failing, try a bigger model, or Claude, for writing songs.
+
 > If llama.cpp / OpenWebUI / Strata / LiteLLM run in Docker on the same compose network, use their service name instead of `host.docker.internal`. Running the app outside Docker (`npm start`), use `localhost`.
 
 ### Claude
@@ -798,8 +806,9 @@ Before any AI-written code plays, the app checks it:
 | `ANTHROPIC_EFFORT` | `low` | `low` / `medium` / `high`; UI setting overrides per browser |
 | `ANTHROPIC_MAX_TOKENS` | `32000` | per Claude reply, thinking included |
 | `LLM_TEMPERATURE` | `0.7` | UI slider overrides per request |
-| `LLM_MAX_TOKENS` | `2048` | |
-| `LLM_TIMEOUT_MS` | `180000` | |
+| `LLM_MAX_TOKENS` | `8192` | per reply (song sheets and parts: at least 8192); a thinking model's reasoning counts too. A reply cut off at the limit is asked again with 2× and 4× the room |
+| `LLM_TIMEOUT_MS` | `180000` | how long to wait for the reply to start, then between its pieces (a slow local model can stream for longer) |
+| `LLM_EXTRA_BODY` | – | JSON added to every request to llama.cpp / OpenWebUI / Strata / LiteLLM, e.g. `{"chat_template_kwargs":{"enable_thinking":false}}` to turn a Qwen-style model's thinking off |
 | `SYSTEM_PROMPT_FILE` | – | path to a custom prompt (mount it as a volume) |
 | `PLUGINS_DIR` | `./plugins` (`/app/plugins` in Docker) | the server's 🧩 plugins folder (see [PLUGINS.md](PLUGINS.md)) |
 | `SITE_ADDRESS` | `localhost` | Caddy: names/IPs to serve HTTPS for (comma-separated) |

@@ -58,6 +58,16 @@ try {
     await p.waitForFunction(() => /lead: note/.test(document.querySelector('strudel-editor').editor.code), null, { timeout: 20000 });
   });
 
+  await step('a reply cut off at the token limit is asked again with more room (not "fixed" as broken code)', async () => {
+    const n = log.filter((x) => x.kind === 'code').length;
+    await ev(() => { const $ = (id) => document.getElementById(id); $('chatTarget').value = 'code'; $('input').value = 'CUTOFF a beat'; $('chat-form').requestSubmit(); });
+    for (let t = 0; t < 100 && log.filter((x) => x.kind === 'code').length < n + 2; t++) await p.waitForTimeout(200);
+    await p.waitForFunction(() => document.getElementById('send').textContent === 'Send', null, { timeout: 10000 });
+    const calls = log.filter((x) => x.kind === 'code').slice(n);
+    expect(calls.length === 2 && calls[0].cut && calls[0].maxTokens === 8192 && calls[1].maxTokens === 16384 && !/CODE TO FIX/.test(calls[1].last), JSON.stringify(calls.map((c) => [c.maxTokens, c.cut])));
+    expect(await ev(() => [...document.querySelectorAll('#consoleLog *')].some((e) => /cut off at the token limit/.test(e.textContent))), 'no console note');
+  });
+
   await step('👤 accounts: sign in with Google, save your own Claude key (a bad one is refused), Claude chats with it; sign out', async () => {
     const box = () => ev(() => `box hidden=${document.getElementById('accountBox').hidden} “${document.getElementById('accountBox').textContent.replace(/\s+/g, ' ').trim().slice(0, 300)}” auth=${JSON.stringify(window.strudelAI && document.getElementById('accountBox') && null)}`);
     const wait = (what, fn, arg) => p.waitForFunction(fn, arg, { timeout: 10000 }).catch(async () => { throw new Error(`${what}: ${await box()}`); });

@@ -70,7 +70,17 @@ async function requestLLMLogged({ messages, code, mode, onUpdate, signal, edited
   onUpdate = (u) => { entry.stream((u.thinking ? `[thinking] ${u.thinking.slice(-600)}\n\n` : '') + u.content); update?.(u); };
   try {
     lastUsage = null;
-    const text = await requestLLMRaw({ messages, code, mode, onUpdate, signal, edited, sounds, fixing, temperature, effort });
+    let text, thought = '';
+    const tracked = (u) => { thought = u.thinking || ''; onUpdate(u); };
+    // a reply cut off at the token limit (a thinking model can spend most of it reasoning) is asked again with
+    // more room, instead of being treated as broken code or JSON
+    for (let room = null, k = 0; ; k++) {
+      text = await requestLLMRaw({ messages, code, mode, onUpdate: tracked, signal, edited, sounds, fixing, temperature, effort, maxTokens: room });
+      if (lastFinish !== 'length' || k >= 2) break;
+      room = room ? room * 2 : 16384;
+      clog('warn', `✂ AI · ${mode}: the reply was cut off at the token limit${thought.length > text.length ? ' (the model spent most of it thinking)' : ''} — asking again with room for ${room} tokens`);
+    }
+    if (lastFinish === 'length') clog('warn', `✂ AI · ${mode}: still cut off — raise LLM_MAX_TOKENS, or turn the model's thinking off (LLM_EXTRA_BODY, see README)`);
     entry.done(`✓ AI · ${mode}${label ? ` · ${label}` : ''}: ${text.length} chars in ${((performance.now() - t0) / 1000).toFixed(1)}s${usageText(lastUsage)}`, 'ok');
     addSessionCost(lastUsage);
     return text;
@@ -103,7 +113,9 @@ function usageText(u) {
   return ` · ${u.input + u.cache_read + u.cache_write} in (${u.cache_read} cached) / ${u.output} out` + (cost != null ? ` · ≈${(cost * 100).toFixed(1)}¢` : '');
 }
 
-async function requestLLMRaw({ messages, code, mode, onUpdate, signal, edited, sounds, fixing, temperature, effort }) {
+let lastFinish = null; // why the last reply ended ('stop', 'length' = cut off at the token limit …)
+async function requestLLMRaw({ messages, code, mode, onUpdate, signal, edited, sounds, fixing, temperature, effort, maxTokens = null }) {
+  lastFinish = null;
   const res = await fetch('/api/chat', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -120,6 +132,7 @@ async function requestLLMRaw({ messages, code, mode, onUpdate, signal, edited, s
       promptExtra: [promptHints(mode), mode === 'title' ? '' : tasteForPrompt(getTaste())].filter(Boolean).join('\n\n'),
       temperature: temperature ?? Number($('temp').value),
       effort: effort || $('claudeEffort').value,
+      ...(maxTokens ? { maxTokens } : {}),
     }),
     signal,
   });
@@ -131,6 +144,7 @@ async function requestLLMRaw({ messages, code, mode, onUpdate, signal, edited, s
   if ((res.headers.get('content-type') || '').includes('application/json')) {
     const j = await res.json();
     content = j.choices?.[0]?.message?.content || '';
+    lastFinish = j.choices?.[0]?.finish_reason || null;
     onUpdate?.({ content, thinking });
     return content;
   }
@@ -152,6 +166,7 @@ async function requestLLMRaw({ messages, code, mode, onUpdate, signal, edited, s
       try { j = JSON.parse(data); } catch { continue; }
       if (j.error) throw new Error(j.error.message || JSON.stringify(j.error));
       if (j.usage) { lastUsage = j.usage; continue; }
+      if (j.choices?.[0]?.finish_reason) lastFinish = j.choices[0].finish_reason;
       const d = j.choices?.[0]?.delta || j.choices?.[0]?.message || {};
       if (d.reasoning_content || d.reasoning) thinking += d.reasoning_content || d.reasoning;
       if (d.content) content += d.content;

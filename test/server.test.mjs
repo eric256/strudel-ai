@@ -180,7 +180,21 @@ test('Strata and LiteLLM: OpenAI-compatible providers — addresses with or with
     assert.equal(call.url, provider === 'strata' ? 'http://127.0.0.1:8080/v1/chat/completions' : 'http://localhost:4000/v1/chat/completions');
     assert.equal(call.body.model, 'm1');
     assert.equal(call.auth, provider === 'litellm' ? 'Bearer sk-litellm-master' : null);
+    assert.equal(call.body.max_tokens, 8192, 'room for a thinking model by default');
   }
+  // a reply that was cut off is asked again with more room; a sheet gets at least 8192; LLM_EXTRA_BODY rides along
+  await (await api(req('POST', '/api/chat', { body: { provider: 'strata', maxTokens: 16384, messages: [{ role: 'user', content: 'again' }] } }))).text();
+  assert.equal(seen.at(-1).body.max_tokens, 16384);
+  await (await api(req('POST', '/api/chat', { body: { provider: 'strata', maxTokens: 1e9, messages: [{ role: 'user', content: 'again' }] } }))).text();
+  assert.equal(seen.at(-1).body.max_tokens, 65536);
+  const tuned = makeApi({ env: { STRATA_URL: 'http://127.0.0.1:8080', LLM_MAX_TOKENS: '2048', LLM_EXTRA_BODY: '{"chat_template_kwargs":{"enable_thinking":false},"stream":false,"model":"x"}' }, store: memStore() });
+  await (await tuned(req('POST', '/api/chat', { body: { provider: 'strata', mode: 'sheet', messages: [{ role: 'user', content: 'a sheet' }] } }))).text();
+  assert.deepEqual([seen.at(-1).body.max_tokens, seen.at(-1).body.chat_template_kwargs, seen.at(-1).body.stream, seen.at(-1).body.model], [8192, { enable_thinking: false }, true, undefined]);
+  const bad = makeApi({ env: { STRATA_URL: 'http://127.0.0.1:8080', LLM_EXTRA_BODY: 'not json' }, store: memStore() });
+  t.mock.method(console, 'warn', () => {});
+  const r2 = await bad(req('POST', '/api/chat', { body: { provider: 'strata', messages: [{ role: 'user', content: 'x' }] } }));
+  assert.equal(r2.status, 200);
+  await r2.text();
 });
 
 test('shares and favorites through the handler (any store)', async () => {
