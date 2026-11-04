@@ -2,6 +2,14 @@
 
 The version is in `package.json`. Bump it when you release. Open pages also notice *any* redeploy through the build id, which is a hash of the app files, even if the version wasn't bumped.
 
+## 1.66.0
+- **Two more AI providers**, for models running on your own machine or network (⚙ Settings → AI → provider):
+  - **Strata:** a local inference engine with an OpenAI-compatible API. Set `STRATA_URL` (default `http://host.docker.internal:8080`), and `STRATA_API_KEY` if it runs with `--api-key`.
+  - **LiteLLM:** a proxy with many models behind one OpenAI-compatible endpoint. Set `LITELLM_URL` (default `http://host.docker.internal:4000`) and `LITELLM_API_KEY` (its master or a virtual key). The model list is the proxy's `model_name`s.
+  - The keys stay on the server, like the others. `DEFAULT_PROVIDER` takes `strata` and `litellm`.
+- **Addresses ending in `/v1` work as given** (`http://127.0.0.1:8080/v1`, as Strata's docs write it) for llama.cpp, Strata and LiteLLM.
+- **Tests:** Strata and LiteLLM through the API handler: the config (no keys sent), model lists, chat streams, `/v1` addresses and the key sent as a Bearer token.
+
 ## 1.65.0
 - **🦆 Sidechain ducking: the Duck node** (🔀 Routing).
   - It turns its sound down whenever its **key** plays: the pump of house and techno, or room for the kick under a bass. Settings: depth, attack, release, sensitivity.

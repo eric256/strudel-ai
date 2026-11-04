@@ -6,12 +6,14 @@ import { SYSTEM_PROMPT, SONGS_PROMPT, SHEET_PROMPT, LIBRARY_PROMPT, TITLE_PROMPT
 
 export const PROMPTS = { code: SYSTEM_PROMPT, songs: SONGS_PROMPT, sheet: SHEET_PROMPT, library: LIBRARY_PROMPT, title: TITLE_PROMPT, routing: ROUTING_PROMPT };
 const trimSlash = (s) => (s || '').replace(/\/+$/, '');
+// an OpenAI-style server's address, with or without the /v1 its docs often give ("http://127.0.0.1:8080/v1")
+const apiBase = (s) => trimSlash(s).replace(/\/v1$/, '');
 
 /** The providers, from the environment (all OpenAI-compatible chat APIs, plus Claude). */
 export function providersFrom(env = {}) {
   return {
     llamacpp: {
-      label: 'llama.cpp', baseUrl: trimSlash(env.LLAMACPP_URL || 'http://host.docker.internal:8080'), apiKey: env.LLAMACPP_API_KEY || '',
+      label: 'llama.cpp', baseUrl: apiBase(env.LLAMACPP_URL || 'http://host.docker.internal:8080'), apiKey: env.LLAMACPP_API_KEY || '',
       model: env.LLAMACPP_MODEL || '', chatPath: '/v1/chat/completions', modelsPath: '/v1/models',
     },
     // Claude: the key from ANTHROPIC_API_KEY (or a signed-in user's own), never sent to the browser
@@ -22,6 +24,16 @@ export function providersFrom(env = {}) {
     openwebui: {
       label: 'OpenWebUI', baseUrl: trimSlash(env.OPENWEBUI_URL || 'http://host.docker.internal:3000'), apiKey: env.OPENWEBUI_API_KEY || '',
       model: env.OPENWEBUI_MODEL || '', chatPath: '/api/chat/completions', modelsPath: '/api/models',
+    },
+    // Strata: a local inference engine with an OpenAI-compatible API (http://127.0.0.1:8080/v1 by default)
+    strata: {
+      label: 'Strata', baseUrl: apiBase(env.STRATA_URL || 'http://host.docker.internal:8080'), apiKey: env.STRATA_API_KEY || '',
+      model: env.STRATA_MODEL || '', chatPath: '/v1/chat/completions', modelsPath: '/v1/models',
+    },
+    // LiteLLM proxy: one OpenAI-compatible endpoint in front of many models (port 4000; the key is its master or a virtual key)
+    litellm: {
+      label: 'LiteLLM', baseUrl: apiBase(env.LITELLM_URL || 'http://host.docker.internal:4000'), apiKey: env.LITELLM_API_KEY || '',
+      model: env.LITELLM_MODEL || '', chatPath: '/v1/chat/completions', modelsPath: '/v1/models',
     },
   };
 }
